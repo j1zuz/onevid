@@ -50,8 +50,11 @@ export default function ProfilesScreen() {
     }, [load]),
   );
 
-  const enter = useCallback(async (p: Profile) => {
-    await setActiveProfile(p);
+  const enter = useCallback((p: Profile) => {
+    // setActiveProfile fija el id en memoria de forma síncrona (apiFetch ya lo
+    // usa) y persiste en SecureStore en segundo plano; navegamos de inmediato
+    // para no mostrar la grilla un instante antes del home.
+    void setActiveProfile(p);
     router.replace('/home');
   }, []);
 
@@ -197,9 +200,9 @@ export default function ProfilesScreen() {
           profile={pinFor}
           onCancel={() => setPinFor(null)}
           onSuccess={() => {
-            const p = pinFor;
-            setPinFor(null);
-            if (p) enter(p);
+            // Navegar directo; la pantalla se desmonta con el replace, así no
+            // se ve la grilla de perfiles entre medio.
+            if (pinFor) enter(pinFor);
           }}
         />
       ) : null}
