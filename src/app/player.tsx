@@ -1,27 +1,31 @@
 import { useEvent } from 'expo';
+import { Image } from 'expo-image';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Spinner, Typography } from 'heroui-native';
+import { Typography } from 'heroui-native';
 import { ArrowLeft } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { API_URL, getAccessToken } from '@/lib/auth';
 
+type ResolvedStream = { url: string; fileName?: string };
+
 type ResolveState =
   | { kind: 'resolving' }
-  | { kind: 'ready'; url: string }
+  | { kind: 'ready'; url: string; fileName?: string }
   | { kind: 'error'; message: string };
 
-/**
- * Resolve the playable URL. Addon URLs come either as direct HTTP(S) streams or
- * as a relative `/api/torbox/resolve?...` path that 302-redirects to the final
- * CDN URL. The redirect endpoint is auth-gated, so we hit it with the bearer
- * token (redirect=0) to get the direct URL as JSON before handing it to the
- * native player.
- */
-async function resolveStreamUrl(raw: string): Promise<string> {
+async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
   if (raw.startsWith('/api/')) {
     const sep = raw.includes('?') ? '&' : '?';
     const token = await getAccessToken();
@@ -34,19 +38,46 @@ async function resolveStreamUrl(raw: string): Promise<string> {
     if (!res.ok) {
       throw new Error(`No se pudo resolver el stream (HTTP ${res.status})`);
     }
-    const data = (await res.json()) as { url?: string; error?: string };
+    const data = (await res.json()) as {
+      url?: string;
+      fileName?: string;
+      error?: string;
+    };
     if (!data.url) {
       throw new Error(data.error ?? 'El stream no devolvió una URL.');
     }
-    return data.url;
+    return { url: data.url, fileName: data.fileName };
   }
-  return raw;
+  return { url: raw };
+}
+
+// Equivalente nativo de getMimeType() de la web: la web le pasa el MIME explícito
+// al <video> de video.js; aquí le pasamos el `contentType` de expo-video para que
+// ExoPlayer/Media3 sepa tratar la URL aunque venga sin extensión (caso típico de
+// las URLs resueltas por TorBox). Detectamos sobre el fileName (extensión fiable)
+// y, si no hay, sobre la URL.
+function getContentType(
+  url: string,
+  fileName?: string,
+): 'auto' | 'progressive' | 'hls' | 'dash' {
+  const hay = `${fileName ?? ''} ${url}`.toLowerCase();
+  if (/\.m3u8(\?|$)/.test(hay) || hay.includes('.m3u8')) return 'hls';
+  if (/\.mpd(\?|$)/.test(hay) || hay.includes('.mpd')) return 'dash';
+  if (/\.(mp4|mkv|webm|avi|mov|m4v|ts)(\?|$)/.test(hay)) return 'progressive';
+  return 'auto';
 }
 
 export default function PlayerScreen() {
-  const params = useLocalSearchParams<{ url: string; title?: string }>();
+  const params = useLocalSearchParams<{
+    url: string;
+    title?: string;
+    background?: string;
+    logo?: string;
+  }>();
   const rawUrl = params.url ?? '';
   const title = params.title;
+  const background = params.background || undefined;
+  const logo = params.logo || undefined;
   const [state, setState] = useState<ResolveState>({ kind: 'resolving' });
 
   // Auto-rotate to landscape while the player is mounted; restore on exit.
@@ -72,8 +103,8 @@ export default function PlayerScreen() {
     }
     let cancelled = false;
     resolveStreamUrl(rawUrl)
-      .then((url) => {
-        if (!cancelled) setState({ kind: 'ready', url });
+      .then(({ url, fileName }) => {
+        if (!cancelled) setState({ kind: 'ready', url, fileName });
       })
       .catch((e: unknown) => {
         if (!cancelled) {
@@ -92,22 +123,20 @@ export default function PlayerScreen() {
   return (
     <View style={styles.root}>
       {state.kind === 'ready' ? (
-        <Player url={state.url} title={title} />
+        <Player
+          url={state.url}
+          fileName={state.fileName}
+          title={title}
+          background={background}
+          logo={logo}
+        />
       ) : (
-        <View style={styles.center}>
-          {state.kind === 'resolving' ? (
-            <>
-              <Spinner />
-              <Typography type="body-sm" color="muted">
-                Preparando reproducción…
-              </Typography>
-            </>
-          ) : (
-            <Typography type="body" color="default" align="center">
-              {state.message}
-            </Typography>
-          )}
-        </View>
+        <LoadingArt
+          background={background}
+          logo={logo}
+          title={title}
+          error={state.kind === 'error' ? state.message : undefined}
+        />
       )}
 
       <SafeAreaView
@@ -123,13 +152,31 @@ export default function PlayerScreen() {
   );
 }
 
-function Player({ url, title }: { url: string; title?: string }) {
+function Player({
+  url,
+  fileName,
+  title,
+  background,
+  logo,
+}: {
+  url: string;
+  fileName?: string;
+  title?: string;
+  background?: string;
+  logo?: string;
+}) {
   const videoRef = useRef<VideoView>(null);
   const player = useVideoPlayer(
-    { uri: url, metadata: title ? { title } : undefined },
+    {
+      uri: url,
+      contentType: getContentType(url, fileName),
+      metadata: title ? { title } : undefined,
+    },
     (p) => {
       p.audioMixingMode = 'doNotMix';
       p.staysActiveInBackground = true;
+      p.muted = false;
+      p.volume = 1.0;
       p.play();
     },
   );
@@ -137,6 +184,21 @@ function Player({ url, title }: { url: string; title?: string }) {
   const { status, error } = useEvent(player, 'statusChange', {
     status: player.status,
   });
+
+  // Some streams don't auto-select an audio track (Audio: None). If the player
+  // exposes decodable tracks but none is active, pick the first one.
+  useEffect(() => {
+    if (status !== 'readyToPlay') return;
+    try {
+      if (!player.audioTrack && player.availableAudioTracks.length > 0) {
+        player.audioTrack = player.availableAudioTracks[0];
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [status, player]);
+
+  const showArt = status !== 'readyToPlay';
 
   return (
     <>
@@ -150,46 +212,145 @@ function Player({ url, title }: { url: string; title?: string }) {
         fullscreenOptions={{ enable: true }}
       />
 
-      {status === 'loading' ? (
-        <View style={styles.overlay} pointerEvents="none">
-          <Spinner />
-        </View>
-      ) : null}
-
-      {status === 'error' ? (
-        <View style={styles.overlay}>
-          <Typography type="body" color="default" align="center">
-            No se pudo reproducir este stream.
-          </Typography>
-          {error?.message ? (
-            <Typography
-              type="body-xs"
-              color="muted"
-              align="center"
-              style={{ marginTop: 8, paddingHorizontal: 24 }}
-            >
-              {error.message}
-            </Typography>
-          ) : null}
-        </View>
+      {showArt ? (
+        <LoadingArt
+          background={background}
+          logo={logo}
+          title={title}
+          error={
+            status === 'error'
+              ? humanizePlaybackError(error?.message)
+              : undefined
+          }
+        />
       ) : null}
     </>
   );
 }
 
+function humanizePlaybackError(raw?: string): string {
+  const e = (raw ?? '').toLowerCase();
+  // Solo un codec/decodificador genuino: HEVC/H.265, NAL malformado o un
+  // decodificador que el dispositivo no tiene.
+  if (
+    e.includes('hevc') ||
+    e.includes('h265') ||
+    e.includes('h.265') ||
+    e.includes('nal') ||
+    e.includes('decoder') ||
+    e.includes('codec')
+  ) {
+    return 'Esta fuente usa un codec que tu dispositivo no puede reproducir (suele ser HEVC/x265). Prueba con otra fuente, preferiblemente H.264/x264.';
+  }
+  if (e.includes('source error') || e.includes('http') || e.includes('404')) {
+    return 'La fuente no está disponible o expiró. Vuelve atrás y elige otra.';
+  }
+  if (e.includes('network') || e.includes('timeout')) {
+    return 'Problema de conexión al cargar el stream. Revisa tu red e intenta otra fuente.';
+  }
+  // 'format', 'container', 'extractor', 'malformed' → casi siempre detección de
+  // contenedor, no un codec real. Mensaje neutro.
+  return 'No se pudo abrir esta fuente. Intenta con otra.';
+}
+
+function LoadingArt({
+  background,
+  logo,
+  title,
+  error,
+}: {
+  background?: string;
+  logo?: string;
+  title?: string;
+  error?: string;
+}) {
+  const pulse = useSharedValue(0.55);
+
+  useEffect(() => {
+    if (error) return;
+    pulse.value = withRepeat(
+      withTiming(1, { duration: 900, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true,
+    );
+    return () => cancelAnimation(pulse);
+  }, [error, pulse]);
+
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
+
+  return (
+    <View style={styles.artRoot} pointerEvents={error ? 'auto' : 'none'}>
+      {background ? (
+        <Image
+          source={background}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          style={[StyleSheet.absoluteFill, { opacity: 0.4 }]}
+          blurRadius={20}
+        />
+      ) : null}
+      <View style={styles.artScrim} />
+
+      {error ? (
+        <View style={styles.artCenter}>
+          <Typography type="body" weight="semibold" color="default" align="center">
+            No se pudo reproducir
+          </Typography>
+          <Typography
+            type="body-sm"
+            color="muted"
+            align="center"
+            style={{ marginTop: 8 }}
+          >
+            {error}
+          </Typography>
+        </View>
+      ) : (
+        <Animated.View style={[styles.artCenter, pulseStyle]}>
+          {logo ? (
+            <Image
+              source={logo}
+              contentFit="contain"
+              style={{ width: '60%', height: 120 }}
+            />
+          ) : (
+            <Typography type="h2" weight="bold" align="center">
+              {title ?? ''}
+            </Typography>
+          )}
+        </Animated.View>
+      )}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  overlay: {
+  artRoot: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
+    backgroundColor: '#000',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  backWrap: { position: 'absolute', top: 0, left: 12 },
+  artScrim: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  artCenter: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  backWrap: { position: 'absolute', top: 0, left: 12, zIndex: 10 },
   backBtn: {
     width: 40,
     height: 40,

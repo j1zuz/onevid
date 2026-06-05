@@ -1,5 +1,6 @@
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { SearchField, Skeleton, Typography } from 'heroui-native';
+import { ScrollShadow, SearchField, Skeleton, Typography } from 'heroui-native';
 import { BottomSheet } from 'heroui-native/bottom-sheet';
 import { Check, ChevronDown } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -62,7 +63,6 @@ export default function DiscoverTab() {
   const [error, setError] = useState<string | null>(null);
 
   const isSearching = query.trim().length > 0;
-  const isSheetOpen = activeFilter !== null;
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -144,6 +144,9 @@ export default function DiscoverTab() {
   );
 
   const activeOptions = activeFilter ? FILTER_OPTIONS[activeFilter] : [];
+  // Altura fija por cantidad de opciones → el sheet abre directo, sin el salto
+  // del dynamic sizing. (título+padding ~96 + ~52 por item, tope ~85% pantalla)
+  const sheetHeight = Math.min(96 + activeOptions.length * 52, 560);
   const activeSelected =
     activeFilter === 'type'
       ? type
@@ -158,6 +161,11 @@ export default function DiscoverTab() {
       style={{ flex: 1, backgroundColor: COLORS.background }}
       edges={['top']}
     >
+      <ScrollShadow
+        style={{ flex: 1 }}
+        size={28}
+        LinearGradientComponent={LinearGradient}
+      >
       <ScrollView
         contentContainerStyle={{
           gap: 16,
@@ -235,48 +243,55 @@ export default function DiscoverTab() {
           />
         ) : null}
       </ScrollView>
+      </ScrollShadow>
 
-      <BottomSheet
-        isOpen={isSheetOpen}
-        onOpenChange={(open) => {
-          if (!open) setActiveFilter(null);
-        }}
-      >
-        <BottomSheet.Portal>
-          <BottomSheet.Overlay />
-          <BottomSheet.Content>
-            <BottomSheet.Title>
-              {activeFilter ? FILTER_TITLES[activeFilter] : ''}
-            </BottomSheet.Title>
-            <View style={{ marginTop: 16 }}>
-              {activeOptions.map((opt) => {
-                const selected = opt.value === activeSelected?.value;
-                return (
-                  <Pressable
-                    key={opt.value}
-                    onPress={() => handlePickOption(opt)}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      paddingVertical: 14,
-                      paddingHorizontal: 4,
-                    }}
-                  >
-                    <Typography
-                      type="body"
-                      weight={selected ? 'semibold' : 'medium'}
+      {/* Sólo se monta cuando hay un filtro activo → no puede abrirse solo. */}
+      {activeFilter ? (
+        <BottomSheet
+          isOpen
+          onOpenChange={(open) => {
+            if (!open) setActiveFilter(null);
+          }}
+        >
+          <BottomSheet.Portal>
+            <BottomSheet.Overlay />
+            <BottomSheet.Content
+              enableDynamicSizing={false}
+              snapPoints={[sheetHeight]}
+            >
+              <BottomSheet.Title>
+                {FILTER_TITLES[activeFilter]}
+              </BottomSheet.Title>
+              <View style={{ marginTop: 16 }}>
+                {activeOptions.map((opt) => {
+                  const selected = opt.value === activeSelected?.value;
+                  return (
+                    <Pressable
+                      key={opt.value}
+                      onPress={() => handlePickOption(opt)}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        paddingVertical: 14,
+                        paddingHorizontal: 4,
+                      }}
                     >
-                      {opt.label}
-                    </Typography>
-                    {selected ? <Check size={20} color="#fff" /> : null}
-                  </Pressable>
-                );
-              })}
-            </View>
-          </BottomSheet.Content>
-        </BottomSheet.Portal>
-      </BottomSheet>
+                      <Typography
+                        type="body"
+                        weight={selected ? 'semibold' : 'medium'}
+                      >
+                        {opt.label}
+                      </Typography>
+                      {selected ? <Check size={20} color="#fff" /> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </BottomSheet.Content>
+          </BottomSheet.Portal>
+        </BottomSheet>
+      ) : null}
     </SafeAreaView>
   );
 }

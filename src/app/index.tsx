@@ -82,7 +82,7 @@ export default function Login() {
       if (cancelled) return;
       if (outcome.kind === 'approved') {
         await saveAccessToken(outcome.token.access_token);
-        router.replace('/home');
+        router.replace('/profiles');
         return;
       }
       if (outcome.kind === 'pending') {

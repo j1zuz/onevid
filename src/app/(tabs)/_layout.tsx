@@ -1,14 +1,10 @@
 import { Tabs } from 'expo-router';
-import { Bookmark, Home, Search, Settings } from 'lucide-react-native';
-import type { ColorValue } from 'react-native';
-import type { ComponentType } from 'react';
+import { TabIcon, type TabIconName } from '@/components/tab-icon';
 import { COLORS } from '@/lib/theme';
 
-type LucideIcon = ComponentType<{ color?: string; size?: number }>;
-
-function tabIcon(Icon: LucideIcon) {
-  return ({ color, size }: { color: ColorValue; size: number }) => (
-    <Icon color={color as string} size={size} />
+function icon(name: TabIconName) {
+  return ({ focused, size }: { focused: boolean; size: number }) => (
+    <TabIcon name={name} focused={focused} size={size} />
   );
 }
 
@@ -22,25 +18,25 @@ export default function TabsLayout() {
           borderTopColor: '#222',
         },
         sceneStyle: { backgroundColor: COLORS.background },
-        tabBarActiveTintColor: '#3b82f6',
+        tabBarActiveTintColor: '#fff',
         tabBarInactiveTintColor: '#9ca3af',
       }}
     >
       <Tabs.Screen
         name="home"
-        options={{ title: 'Inicio', tabBarIcon: tabIcon(Home) }}
+        options={{ title: 'Inicio', tabBarIcon: icon('home') }}
       />
       <Tabs.Screen
         name="discover"
-        options={{ title: 'Descubrir', tabBarIcon: tabIcon(Search) }}
+        options={{ title: 'Descubrir', tabBarIcon: icon('discover') }}
       />
       <Tabs.Screen
         name="library"
-        options={{ title: 'Biblioteca', tabBarIcon: tabIcon(Bookmark) }}
+        options={{ title: 'Biblioteca', tabBarIcon: icon('library') }}
       />
       <Tabs.Screen
         name="settings"
-        options={{ title: 'Configuración', tabBarIcon: tabIcon(Settings) }}
+        options={{ title: 'Configuración', tabBarIcon: icon('settings') }}
       />
     </Tabs>
   );

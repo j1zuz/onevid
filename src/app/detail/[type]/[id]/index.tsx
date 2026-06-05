@@ -1,7 +1,15 @@
+import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Button, Card, Skeleton, Typography } from 'heroui-native';
-import { ArrowLeft, Bookmark, Play } from 'lucide-react-native';
+import {
+  Button,
+  ScrollShadow,
+  Card,
+  Skeleton,
+  Typography,
+  useToast,
+} from 'heroui-native';
+import { ArrowLeft } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
@@ -12,6 +20,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
+import { GlassIcon } from '@/components/glass-icon';
 import { PosterCard } from '@/components/poster-card';
 import {
   apiFetch,
@@ -20,6 +29,7 @@ import {
   type NetworkInfo,
   tmdbImage,
 } from '@/lib/api';
+import { getSavedStatus, setFavorite, setWatchlist } from '@/lib/saved';
 import { COLORS } from '@/lib/theme';
 
 interface EpisodeItem {
@@ -51,6 +61,11 @@ export default function DetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
+  const [favorite, setFavoriteState] = useState(false);
+  const [watchlist, setWatchlistState] = useState(false);
+  const [savingFav, setSavingFav] = useState(false);
+  const [savingWatch, setSavingWatch] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!id || !type) return;
@@ -85,10 +100,71 @@ export default function DetailPage() {
     };
   }, [id, type]);
 
+  // Initial saved (favorite/watchlist) state from TMDB account.
+  useEffect(() => {
+    if (!id || !type) return;
+    let cancelled = false;
+    getSavedStatus(type, id)
+      .then((s) => {
+        if (cancelled) return;
+        setFavoriteState(s.favorite);
+        setWatchlistState(s.watchlist);
+      })
+      .catch(() => {
+        /* not linked yet or transient — leave defaults */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, type]);
+
+  const toggleSaved = useCallback(
+    async (kind: 'favorite' | 'watchlist') => {
+      if (!id || !type) return;
+      const isFav = kind === 'favorite';
+      const current = isFav ? favorite : watchlist;
+      const next = !current;
+      const setState = isFav ? setFavoriteState : setWatchlistState;
+      const setSaving = isFav ? setSavingFav : setSavingWatch;
+      const apply = isFav ? setFavorite : setWatchlist;
+
+      setSaving(true);
+      setState(next); // optimista
+      try {
+        // Enviar snapshot para que la Biblioteca lo renderice sin re-fetch.
+        await apply(type, id, next, {
+          name: meta?.name,
+          poster: meta?.poster,
+          background: meta?.background,
+          year: meta?.year,
+        });
+      } catch {
+        setState(current); // revertir
+        toast.show({
+          variant: 'danger',
+          label: 'No se pudo guardar',
+          description: 'Revisa tu conexión e intenta de nuevo.',
+        });
+      } finally {
+        setSaving(false);
+      }
+    },
+    [id, type, favorite, watchlist, meta, toast],
+  );
+
   const seasonEpisodes = useMemo(
     () =>
       series?.episodes.filter((e) => e.season === selectedSeason) ?? [],
     [series, selectedSeason],
+  );
+
+  const artParams = useMemo(
+    () => ({
+      background: meta?.background ?? '',
+      logo: meta?.logo ?? '',
+      title: meta?.name ?? '',
+    }),
+    [meta?.background, meta?.logo, meta?.name],
   );
 
   const handlePlay = useCallback(() => {
@@ -98,10 +174,16 @@ export default function DetailPage() {
       pathname: '/detail/[type]/[id]/sources',
       params:
         type === 'series' && first
-          ? { type, id, season: String(first.season), episode: String(first.number) }
-          : { type, id },
+          ? {
+              type,
+              id,
+              season: String(first.season),
+              episode: String(first.number),
+              ...artParams,
+            }
+          : { type, id, ...artParams },
     });
-  }, [id, type, seasonEpisodes]);
+  }, [id, type, seasonEpisodes, artParams]);
 
   const handlePlayEpisode = useCallback(
     (ep: EpisodeItem) => {
@@ -113,10 +195,11 @@ export default function DetailPage() {
           id,
           season: String(ep.season),
           episode: String(ep.number),
+          ...artParams,
         },
       });
     },
-    [id],
+    [id, artParams],
   );
 
   const handlePressRelated = useCallback((item: MediaMeta) => {
@@ -209,19 +292,19 @@ export default function DetailPage() {
             </Typography>
           ) : null}
 
-          <View style={{ flexDirection: 'row', gap: 12 }}>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
             <Button
               variant="primary"
               onPress={handlePlay}
               style={{
-                flex: 2,
+                flex: 1,
                 backgroundColor: '#fff',
                 flexDirection: 'row',
                 gap: 8,
                 paddingHorizontal: 12,
               }}
             >
-              <Play size={18} color="#000" fill="#000" />
+              <GlassIcon name="circle-arrow-right" size={20} />
               <Typography
                 type="body-sm"
                 weight="semibold"
@@ -233,12 +316,27 @@ export default function DetailPage() {
             </Button>
             <Button
               variant="secondary"
-              style={{ flex: 1, flexDirection: 'row', gap: 8 }}
+              onPress={() => toggleSaved('watchlist')}
+              isDisabled={savingWatch}
+              style={{
+                width: 52,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
             >
-              <Bookmark size={18} color="#fff" />
-              <Typography type="body-sm" weight="semibold">
-                Guardar
-              </Typography>
+              <GlassIcon name="doc-folder" size={20} opacity={watchlist ? 1 : 0.6} />
+            </Button>
+            <Button
+              variant="secondary"
+              onPress={() => toggleSaved('favorite')}
+              isDisabled={savingFav}
+              style={{
+                width: 52,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <GlassIcon name="heart" size={20} opacity={favorite ? 1 : 0.6} />
             </Button>
           </View>
 
@@ -264,41 +362,45 @@ export default function DetailPage() {
           <SectionTitle title="Temporadas" />
         ) : null}
         {type === 'series' && series ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}
-          >
-            {series.seasons.map((n) => (
-              <SeasonTab
-                key={`s${n}`}
-                seasonNumber={n}
-                selected={n === selectedSeason}
-                onPress={() => setSelectedSeason(n)}
-              />
-            ))}
-          </ScrollView>
+          <ScrollShadow size={28} LinearGradientComponent={ExpoLinearGradient}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}
+            >
+              {series.seasons.map((n) => (
+                <SeasonTab
+                  key={`s${n}`}
+                  seasonNumber={n}
+                  selected={n === selectedSeason}
+                  onPress={() => setSelectedSeason(n)}
+                />
+              ))}
+            </ScrollView>
+          </ScrollShadow>
         ) : null}
 
         {/* Episodes of selected season */}
         {type === 'series' && selectedSeason != null && seasonEpisodes.length > 0 ? (
           <>
             <SectionTitle title={`Temporada ${selectedSeason}`} />
-            <FlatList
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              data={seasonEpisodes}
-              keyExtractor={(e) => e.id}
-              contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
-              renderItem={({ item }) => (
-                <EpisodeCard
-                  ep={item}
-                  fallbackImage={meta?.background}
-                  runtime={meta?.episodeRunTime}
-                  onPress={() => handlePlayEpisode(item)}
-                />
-              )}
-            />
+            <ScrollShadow size={28} LinearGradientComponent={ExpoLinearGradient}>
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={seasonEpisodes}
+                keyExtractor={(e) => e.id}
+                contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
+                renderItem={({ item }) => (
+                  <EpisodeCard
+                    ep={item}
+                    fallbackImage={meta?.background}
+                    runtime={meta?.episodeRunTime}
+                    onPress={() => handlePlayEpisode(item)}
+                  />
+                )}
+              />
+            </ScrollShadow>
           </>
         ) : null}
 
@@ -306,14 +408,16 @@ export default function DetailPage() {
         {meta?.cast && meta.cast.length > 0 ? (
           <>
             <SectionTitle title="Reparto" />
-            <FlatList
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              data={meta.cast}
-              keyExtractor={(c) => c.id}
-              contentContainerStyle={{ paddingHorizontal: 20, gap: 16 }}
-              renderItem={({ item }) => <CastCard person={item} />}
-            />
+            <ScrollShadow size={28} LinearGradientComponent={ExpoLinearGradient}>
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={meta.cast}
+                keyExtractor={(c) => c.id}
+                contentContainerStyle={{ paddingHorizontal: 20, gap: 16 }}
+                renderItem={({ item }) => <CastCard person={item} />}
+              />
+            </ScrollShadow>
           </>
         ) : null}
 
@@ -343,20 +447,22 @@ export default function DetailPage() {
         {meta?.related && meta.related.length > 0 ? (
           <>
             <SectionTitle title="Relacionados" />
-            <FlatList
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              data={meta.related}
-              keyExtractor={(it) => `${it.type}:${it.id}`}
-              contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
-              renderItem={({ item }) => (
-                <PosterCard
-                  item={item}
-                  width={130}
-                  onPress={() => handlePressRelated(item)}
-                />
-              )}
-            />
+            <ScrollShadow size={28} LinearGradientComponent={ExpoLinearGradient}>
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={meta.related}
+                keyExtractor={(it) => `${it.type}:${it.id}`}
+                contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
+                renderItem={({ item }) => (
+                  <PosterCard
+                    item={item}
+                    width={130}
+                    onPress={() => handlePressRelated(item)}
+                  />
+                )}
+              />
+            </ScrollShadow>
           </>
         ) : null}
 

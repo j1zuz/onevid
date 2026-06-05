@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { Card, Chip, Skeleton, Typography } from 'heroui-native';
-import { ArrowLeft, Globe2, HardDrive, Volume2 } from 'lucide-react-native';
+import { Card, Chip, PressableFeedback, Skeleton, Typography } from 'heroui-native';
+import { ArrowLeft, Globe2, HardDrive } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -30,6 +30,9 @@ export default function SourcesPage() {
     id: string;
     season?: string;
     episode?: string;
+    background?: string;
+    logo?: string;
+    title?: string;
   }>();
   const type = params.type === 'series' ? 'series' : 'movie';
   const id = params.id ?? '';
@@ -153,7 +156,21 @@ export default function SourcesPage() {
 
         {!loading && data
           ? data.sources.map((s) => (
-              <SourceCard key={`${s.addonId}:${s.sourceIndex}`} source={s} />
+              <SourceCard
+                key={`${s.addonId}:${s.sourceIndex}`}
+                source={s}
+                onPress={() =>
+                  router.push({
+                    pathname: '/player',
+                    params: {
+                      url: s.url,
+                      title: params.title || s.title,
+                      background: params.background ?? '',
+                      logo: params.logo ?? '',
+                    },
+                  })
+                }
+              />
             ))
           : null}
       </ScrollView>
@@ -161,23 +178,22 @@ export default function SourcesPage() {
   );
 }
 
-function SourceCard({ source }: { source: StreamSource }) {
+function SourceCard({
+  source,
+  onPress,
+}: {
+  source: StreamSource;
+  onPress: () => void;
+}) {
   const lines = [source.title, source.description, source.name].filter(
     (l): l is string => Boolean(l),
   );
+  const haystack = `${source.title} ${source.description ?? ''}`;
   const quality = extractQuality(source.title);
-  const size = extractSize(source.title + ' ' + (source.description ?? ''));
-  const audio = extractAudio(source.title + ' ' + (source.description ?? ''));
+  const size = extractSize(haystack);
 
   return (
-    <Pressable
-      onPress={() =>
-        router.push({
-          pathname: '/player',
-          params: { url: source.url, title: source.title },
-        })
-      }
-    >
+    <PressableFeedback onPress={onPress}>
       <Card>
         <Card.Body className="gap-2">
           <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
@@ -190,12 +206,6 @@ function SourceCard({ source }: { source: StreamSource }) {
               <Chip variant="soft" size="sm">
                 <HardDrive size={12} color="#fff" />
                 <Chip.Label>{size}</Chip.Label>
-              </Chip>
-            ) : null}
-            {audio ? (
-              <Chip variant="soft" size="sm">
-                <Volume2 size={12} color="#fff" />
-                <Chip.Label>{audio}</Chip.Label>
               </Chip>
             ) : null}
             <Chip variant="soft" size="sm">
@@ -215,7 +225,7 @@ function SourceCard({ source }: { source: StreamSource }) {
           ))}
         </Card.Body>
       </Card>
-    </Pressable>
+    </PressableFeedback>
   );
 }
 
@@ -248,10 +258,5 @@ function extractQuality(s: string): string | null {
 
 function extractSize(s: string): string | null {
   const m = s.match(/(\d+(?:\.\d+)?\s?(?:GB|MB))/i);
-  return m ? m[1] : null;
-}
-
-function extractAudio(s: string): string | null {
-  const m = s.match(/\b(DD\+|DDP|DD|DTS|AC3|AAC|FLAC|TrueHD|Atmos)\b/i);
   return m ? m[1] : null;
 }

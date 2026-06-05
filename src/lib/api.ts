@@ -1,3 +1,4 @@
+import { getActiveProfileId } from './active-profile';
 import { API_URL, getAccessToken } from './auth';
 
 // Rewrite TMDB image URLs to higher resolution. Backend defaults to smaller
@@ -62,6 +63,10 @@ export async function apiFetch<T = unknown>(
   }
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
+  }
+  const profileId = getActiveProfileId();
+  if (profileId && !headers.has('X-Profile-Id')) {
+    headers.set('X-Profile-Id', profileId);
   }
   const res = await fetch(`${API_URL}${path}`, { ...init, headers });
   if (res.status === 204) {

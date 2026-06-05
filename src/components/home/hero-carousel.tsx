@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { Button, Typography } from 'heroui-native';
-import { Play } from 'lucide-react-native';
+import { GlassIcon } from '@/components/glass-icon';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
@@ -179,7 +179,7 @@ function HeroSlide({
             gap: 8,
           }}
         >
-          <Play size={18} color="#000" fill="#000" />
+          <GlassIcon name="circle-arrow-right" size={20} />
           <Typography type="body" weight="semibold" style={{ color: '#000' }}>
             Reproducir
           </Typography>

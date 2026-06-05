@@ -1,6 +1,7 @@
-import { AtSign, Fingerprint, Mail } from 'lucide-react-native';
+import { Image } from 'expo-image';
+import { router, useFocusEffect } from 'expo-router';
+import { GlassIcon } from '@/components/glass-icon';
 import {
-  Avatar,
   Button,
   Card,
   ListGroup,
@@ -8,12 +9,17 @@ import {
   Skeleton,
   Typography,
 } from 'heroui-native';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ScrollView, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { apiFetch } from '@/lib/api';
 import { clearAccessToken } from '@/lib/auth';
+import { avatarSource } from '@/lib/avatars';
+import {
+  clearActiveProfile,
+  loadActiveProfile,
+  type Profile,
+} from '@/lib/profiles';
 import { COLORS } from '@/lib/theme';
 
 interface SessionUser {
@@ -32,6 +38,20 @@ export default function SettingsTab() {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadActiveProfile()
+        .then(setProfile)
+        .catch(() => undefined);
+    }, []),
+  );
+
+  const handleSwitchProfile = useCallback(async () => {
+    await clearActiveProfile();
+    router.replace('/profiles');
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,6 +73,7 @@ export default function SettingsTab() {
   }, []);
 
   const handleLogout = async () => {
+    await clearActiveProfile();
     await clearAccessToken();
     router.replace('/');
   };
@@ -72,8 +93,8 @@ export default function SettingsTab() {
 
         {loading ? (
           <View style={{ gap: 16 }}>
-            <Skeleton style={{ height: 96, borderRadius: 16 }} />
-            <Skeleton style={{ height: 200, borderRadius: 16 }} />
+            <Skeleton style={{ height: 88, borderRadius: 16 }} />
+            <Skeleton style={{ height: 130, borderRadius: 16 }} />
           </View>
         ) : null}
 
@@ -87,33 +108,39 @@ export default function SettingsTab() {
           </Card>
         ) : null}
 
-        {user ? (
-          <>
-            <Card>
-              <Card.Body className="flex-row items-center gap-4">
-                <Avatar alt={user.name ?? user.email} size="lg">
-                  {user.image ? (
-                    <Avatar.Image source={{ uri: user.image }} />
-                  ) : null}
-                  <Avatar.Fallback>
-                    {(user.name ?? user.email).slice(0, 1).toUpperCase()}
-                  </Avatar.Fallback>
-                </Avatar>
-                <View className="flex-1 gap-1">
-                  <Typography type="h5">
-                    {user.name ?? 'Sin nombre'}
-                  </Typography>
-                  <Typography type="body-sm" color="muted">
-                    {user.email}
-                  </Typography>
-                </View>
-              </Card.Body>
-            </Card>
+        {profile && !loading ? (
+          <Card>
+            <Card.Body className="flex-row items-center gap-4">
+              <Image
+                source={avatarSource(profile.avatar)}
+                style={{ width: 56, height: 56, borderRadius: 14 }}
+                contentFit="cover"
+              />
+              <View className="flex-1 gap-0.5">
+                <Typography type="body-xs" color="muted">
+                  Perfil
+                </Typography>
+                <Typography type="h5">{profile.name}</Typography>
+              </View>
+              <Pressable onPress={handleSwitchProfile}>
+                <Typography
+                  type="body-sm"
+                  weight="medium"
+                  style={{ color: '#3b82f6' }}
+                >
+                  Cambiar
+                </Typography>
+              </Pressable>
+            </Card.Body>
+          </Card>
+        ) : null}
 
+        {user && !loading ? (
+          <>
             <ListGroup>
               <ListGroup.Item>
                 <ListGroup.ItemPrefix>
-                  <Mail size={22} color="#888" />
+                  <GlassIcon name="inbox" size={24} />
                 </ListGroup.ItemPrefix>
                 <ListGroup.ItemContent>
                   <ListGroup.ItemTitle>Email</ListGroup.ItemTitle>
@@ -125,23 +152,13 @@ export default function SettingsTab() {
               <Separator className="mx-4" />
               <ListGroup.Item>
                 <ListGroup.ItemPrefix>
-                  <AtSign size={22} color="#888" />
+                  <GlassIcon name="badge-sparkle" size={24} />
                 </ListGroup.ItemPrefix>
                 <ListGroup.ItemContent>
                   <ListGroup.ItemTitle>Usuario</ListGroup.ItemTitle>
                   <ListGroup.ItemDescription>
                     {user.username ?? '—'}
                   </ListGroup.ItemDescription>
-                </ListGroup.ItemContent>
-              </ListGroup.Item>
-              <Separator className="mx-4" />
-              <ListGroup.Item>
-                <ListGroup.ItemPrefix>
-                  <Fingerprint size={22} color="#888" />
-                </ListGroup.ItemPrefix>
-                <ListGroup.ItemContent>
-                  <ListGroup.ItemTitle>ID</ListGroup.ItemTitle>
-                  <ListGroup.ItemDescription>{user.id}</ListGroup.ItemDescription>
                 </ListGroup.ItemContent>
               </ListGroup.Item>
             </ListGroup>

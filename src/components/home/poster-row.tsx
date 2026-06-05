@@ -1,4 +1,5 @@
-import { Skeleton, Typography } from 'heroui-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { ScrollShadow, Skeleton, Typography } from 'heroui-native';
 import { FlatList, View } from 'react-native';
 import type { MediaMeta } from '@/lib/api';
 import { PosterCard } from '@/components/poster-card';
@@ -35,20 +36,22 @@ export function PosterRow({ title, items, loading, onPressItem }: PosterRowProps
           ))}
         </View>
       ) : (
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={items}
-          keyExtractor={(it) => `${it.type}:${it.id}`}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
-          renderItem={({ item }) => (
-            <PosterCard
-              item={item}
-              width={CARD_WIDTH}
-              onPress={() => onPressItem?.(item)}
-            />
-          )}
-        />
+        <ScrollShadow size={32} LinearGradientComponent={LinearGradient}>
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={items}
+            keyExtractor={(it) => `${it.type}:${it.id}`}
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
+            renderItem={({ item }) => (
+              <PosterCard
+                item={item}
+                width={CARD_WIDTH}
+                onPress={() => onPressItem?.(item)}
+              />
+            )}
+          />
+        </ScrollShadow>
       )}
     </View>
   );

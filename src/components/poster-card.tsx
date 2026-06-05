@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
-import { Typography } from 'heroui-native';
-import { Pressable, View } from 'react-native';
+import { PressableFeedback, Typography } from 'heroui-native';
+import { View } from 'react-native';
 import type { MediaMeta } from '@/lib/api';
 
 interface PosterCardProps {
@@ -12,7 +12,7 @@ interface PosterCardProps {
 export function PosterCard({ item, width, onPress }: PosterCardProps) {
   const containerStyle = width != null ? { width } : undefined;
   return (
-    <Pressable
+    <PressableFeedback
       onPress={onPress}
       className="gap-1"
       style={[{ flex: width == null ? 1 : undefined }, containerStyle]}
@@ -38,6 +38,6 @@ export function PosterCard({ item, width, onPress }: PosterCardProps) {
         {item.type === 'movie' ? 'Película' : 'Serie'}
         {item.year ? ` · ${item.year}` : ''}
       </Typography>
-    </Pressable>
+    </PressableFeedback>
   );
 }

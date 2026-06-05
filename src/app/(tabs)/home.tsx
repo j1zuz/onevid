@@ -1,6 +1,7 @@
+import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { CloudOff } from 'lucide-react-native';
-import { Button, Card, Skeleton, Typography } from 'heroui-native';
+import { Button, Card, ScrollShadow, Skeleton, Typography } from 'heroui-native';
 import { useCallback, useEffect, useState } from 'react';
 import { Linking, ScrollView, useWindowDimensions, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
@@ -73,6 +74,11 @@ export default function HomeTab() {
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+      <ScrollShadow
+        style={{ flex: 1 }}
+        size={36}
+        LinearGradientComponent={ExpoLinearGradient}
+      >
       <ScrollView contentContainerStyle={{ paddingBottom: 32, gap: 24 }}>
         {loading ? (
           <View style={{ height: heroSkeletonHeight, width: '100%' }}>
@@ -145,6 +151,7 @@ export default function HomeTab() {
           </Typography>
         ) : null}
       </ScrollView>
+      </ScrollShadow>
     </View>
   );
 }
