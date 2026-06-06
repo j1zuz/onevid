@@ -16,7 +16,6 @@ import {
   FlatList,
   Pressable,
   ScrollView,
-  StyleSheet,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -24,7 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { GlassIcon } from '@/components/glass-icon';
 import { PosterCard } from '@/components/poster-card';
-import { SourcesList } from '@/components/sources-list';
+import { SourcesOverlay } from '@/components/sources-overlay';
 import { useResponsive } from '@/hooks/use-responsive';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import {
@@ -79,9 +78,9 @@ export default function DetailPage() {
   const [seasonOverride, setSeasonOverride] = useState<number | null>(null);
   const [savingFav, setSavingFav] = useState(false);
   const [savingWatch, setSavingWatch] = useState(false);
-  // En TV las fuentes se abren inline (panel lateral) en vez de navegar a otra
-  // página. null = cerrado; {} = película; {season,episode} = episodio.
-  const [tvSources, setTvSources] = useState<{
+  // Fuentes como overlay (móvil y TV), sin navegar a otra página.
+  // null = cerrado; {} = película; {season,episode} = episodio.
+  const [sources, setSources] = useState<{
     season?: string;
     episode?: string;
   } | null>(null);
@@ -199,49 +198,18 @@ export default function DetailPage() {
     if (!id || !type) return;
     const first = seasonEpisodes[0];
     const isSeries = type === 'series' && first;
-    // En TV abrimos el panel de fuentes inline; en móvil navegamos a /sources.
-    if (isTV) {
-      setTvSources(
-        isSeries
-          ? { season: String(first.season), episode: String(first.number) }
-          : {},
-      );
-      return;
-    }
-    router.push({
-      pathname: '/detail/[type]/[id]/sources',
-      params: isSeries
-        ? {
-            type,
-            id,
-            season: String(first.season),
-            episode: String(first.number),
-            ...artParams,
-          }
-        : { type, id, ...artParams },
-    });
-  }, [id, type, seasonEpisodes, artParams, isTV]);
+    // Mismo overlay de fuentes en móvil y TV (sin navegar a otra página).
+    setSources(
+      isSeries
+        ? { season: String(first.season), episode: String(first.number) }
+        : {},
+    );
+  }, [id, type, seasonEpisodes]);
 
-  const handlePlayEpisode = useCallback(
-    (ep: EpisodeItem) => {
-      if (!id) return;
-      if (isTV) {
-        setTvSources({ season: String(ep.season), episode: String(ep.number) });
-        return;
-      }
-      router.push({
-        pathname: '/detail/[type]/[id]/sources',
-        params: {
-          type: 'series',
-          id,
-          season: String(ep.season),
-          episode: String(ep.number),
-          ...artParams,
-        },
-      });
-    },
-    [id, artParams, isTV],
-  );
+  const handlePlayEpisode = useCallback((ep: EpisodeItem) => {
+    if (!id) return;
+    setSources({ season: String(ep.season), episode: String(ep.number) });
+  }, [id]);
 
   const handlePressRelated = useCallback((item: MediaMeta) => {
     router.push({
@@ -560,80 +528,18 @@ export default function DetailPage() {
         ) : null}
       </ScrollView>
 
-      {/* TV: fuentes inline en un panel lateral derecho (no navega a otra
-          página). El backdrop atenuado cierra el panel al tocarlo. */}
-      {isTV && tvSources ? (
-        <View style={StyleSheet.absoluteFill}>
-          <Pressable
-            // No enfocable: si no, el D-pad se queda en este fondo (que cierra
-            // al seleccionar) en vez de llegar a las fuentes.
-            focusable={false}
-            style={[
-              StyleSheet.absoluteFill,
-              { backgroundColor: 'rgba(0,0,0,0.55)' },
-            ]}
-            onPress={() => setTvSources(null)}
-          />
-          <View
-            style={{
-              position: 'absolute',
-              top: 0,
-              bottom: 0,
-              right: 0,
-              width: 600,
-              maxWidth: '50%',
-              backgroundColor: COLORS.surface,
-              borderLeftWidth: 1,
-              borderLeftColor: 'rgba(255,255,255,0.08)',
-            }}
-          >
-            <SafeAreaView edges={['top']} style={{ paddingHorizontal: 16 }}>
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 12,
-                  paddingVertical: 12,
-                }}
-              >
-                <Pressable
-                  onPress={() => setTvSources(null)}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    backgroundColor: 'rgba(255,255,255,0.1)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <ArrowLeft size={22} color="#fff" />
-                </Pressable>
-                <Typography type="h4" weight="bold">
-                  Fuentes
-                </Typography>
-              </View>
-            </SafeAreaView>
-            <SourcesList
-              type={type}
-              id={id}
-              season={tvSources.season}
-              episode={tvSources.episode}
-              onSelect={(s) => {
-                setTvSources(null);
-                router.push({
-                  pathname: '/player',
-                  params: {
-                    url: s.url,
-                    title: meta?.name ?? s.title,
-                    background: artParams.background,
-                    logo: artParams.logo,
-                  },
-                });
-              }}
-            />
-          </View>
-        </View>
+      {/* Fuentes como overlay compartido (móvil y TV), sin navegar. */}
+      {sources ? (
+        <SourcesOverlay
+          type={type}
+          id={id}
+          season={sources.season}
+          episode={sources.episode}
+          title={meta?.name}
+          background={artParams.background}
+          logo={artParams.logo}
+          onClose={() => setSources(null)}
+        />
       ) : null}
     </View>
   );
