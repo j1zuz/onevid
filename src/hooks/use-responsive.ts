@@ -17,5 +17,8 @@ export function useResponsive() {
   const posterColumns =
     width >= 1280 ? 6 : width >= 1024 ? 5 : width >= 768 ? 4 : 2;
 
-  return { width, isTV, isLarge, posterColumns };
+  // Ancho de póster en las filas horizontales (Inicio). En TV son más grandes.
+  const posterWidth = isLarge ? 200 : 140;
+
+  return { width, isTV, isLarge, posterColumns, posterWidth };
 }

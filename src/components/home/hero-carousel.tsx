@@ -11,6 +11,8 @@ import {
   View,
 } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
+import { useResponsive } from '@/hooks/use-responsive';
+import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { type MediaMeta, tmdbImage } from '@/lib/api';
 import { COLORS } from '@/lib/theme';
 
@@ -121,7 +123,13 @@ function HeroSlide({
   height: number;
   onPressPlay: () => void;
 }) {
-  const bg = tmdbImage(item.background ?? item.poster, 'w1280');
+  const { isLarge } = useResponsive();
+  const playFocus = useTvFocus();
+  // En pantallas grandes/TV pedimos la máxima resolución del backdrop.
+  const bg = tmdbImage(
+    item.background ?? item.poster,
+    isLarge ? 'original' : 'w1280',
+  );
   return (
     <View style={{ width, height }}>
       {bg ? (
@@ -172,12 +180,16 @@ function HeroSlide({
         <Button
           variant="primary"
           onPress={onPressPlay}
-          style={{
-            backgroundColor: '#fff',
-            minWidth: 200,
-            flexDirection: 'row',
-            gap: 8,
-          }}
+          {...playFocus.focusProps}
+          style={[
+            {
+              backgroundColor: '#fff',
+              minWidth: 200,
+              flexDirection: 'row',
+              gap: 8,
+            },
+            tvFocusRing(playFocus.focused),
+          ]}
         >
           <GlassIcon name="circle-arrow-right" size={20} />
           <Typography type="body" weight="semibold" style={{ color: '#000' }}>

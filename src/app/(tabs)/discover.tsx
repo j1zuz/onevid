@@ -9,6 +9,7 @@ import { FlatList, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PosterCard } from '@/components/poster-card';
 import { useResponsive } from '@/hooks/use-responsive';
+import { tvFocusRing } from '@/hooks/use-tv-focus';
 import { apiFetch, type MediaMeta } from '@/lib/api';
 import { COLORS } from '@/lib/theme';
 
@@ -273,13 +274,17 @@ export default function DiscoverTab() {
                     <Pressable
                       key={opt.value}
                       onPress={() => handlePickOption(opt)}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        paddingVertical: 14,
-                        paddingHorizontal: 4,
-                      }}
+                      style={(s) => [
+                        {
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          paddingVertical: 14,
+                          paddingHorizontal: 12,
+                          borderRadius: 12,
+                        },
+                        tvFocusRing((s as { focused?: boolean }).focused ?? false),
+                      ]}
                     >
                       <Typography
                         type="body"
@@ -310,15 +315,18 @@ function FilterChip({
   return (
     <Pressable
       onPress={onPress}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-        borderRadius: 999,
-        backgroundColor: 'rgba(255,255,255,0.08)',
-      }}
+      style={(s) => [
+        {
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 6,
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+          borderRadius: 999,
+          backgroundColor: 'rgba(255,255,255,0.08)',
+        },
+        tvFocusRing((s as { focused?: boolean }).focused ?? false),
+      ]}
     >
       <Typography type="body-sm" weight="medium">
         {label}

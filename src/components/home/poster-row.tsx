@@ -3,8 +3,7 @@ import { ScrollShadow, Skeleton, Typography } from 'heroui-native';
 import { FlatList, View } from 'react-native';
 import type { MediaMeta } from '@/lib/api';
 import { PosterCard } from '@/components/poster-card';
-
-const CARD_WIDTH = 140;
+import { useResponsive } from '@/hooks/use-responsive';
 
 interface PosterRowProps {
   title: string;
@@ -14,6 +13,8 @@ interface PosterRowProps {
 }
 
 export function PosterRow({ title, items, loading, onPressItem }: PosterRowProps) {
+  // Pósters más grandes en TV (la pantalla es mucho más amplia que en móvil).
+  const { posterWidth: CARD_WIDTH } = useResponsive();
   return (
     <View className="gap-3">
       <Typography type="h4" weight="bold" style={{ paddingHorizontal: 16 }}>

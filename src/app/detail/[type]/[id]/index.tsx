@@ -16,6 +16,7 @@ import {
   FlatList,
   Pressable,
   ScrollView,
+  StyleSheet,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -23,6 +24,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { GlassIcon } from '@/components/glass-icon';
 import { PosterCard } from '@/components/poster-card';
+import { SourcesList } from '@/components/sources-list';
+import { useResponsive } from '@/hooks/use-responsive';
+import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import {
   apiFetch,
   type CastMember,
@@ -60,12 +64,27 @@ export default function DetailPage() {
   const type = params.type as DetailType;
   const id = params.id;
   const { height } = useWindowDimensions();
-  const heroHeight = Math.round(height * 0.55);
   const queryClient = useQueryClient();
+  const { isTV, isLarge, posterWidth } = useResponsive();
+  const playFocus = useTvFocus();
+  const watchFocus = useTvFocus();
+  const favFocus = useTvFocus();
+  // En TV el hero es una banda (como en Inicio), no pantalla completa: misma
+  // proporción del alto que el carrusel de Inicio (0.72). En móvil, 0.55.
+  const heroHeight = Math.round(height * (isTV ? 0.72 : 0.55));
+  // En TV hay más espacio: botones más altos, iconos y texto más grandes.
+  const sideBtnW = isTV ? 64 : 52;
+  const actionIconSize = isTV ? 26 : 20;
 
   const [seasonOverride, setSeasonOverride] = useState<number | null>(null);
   const [savingFav, setSavingFav] = useState(false);
   const [savingWatch, setSavingWatch] = useState(false);
+  // En TV las fuentes se abren inline (panel lateral) en vez de navegar a otra
+  // página. null = cerrado; {} = película; {season,episode} = episodio.
+  const [tvSources, setTvSources] = useState<{
+    season?: string;
+    episode?: string;
+  } | null>(null);
   const { toast } = useToast();
 
   // Metadata del título, cacheada por (type, id): volver a abrir el mismo
@@ -167,34 +186,49 @@ export default function DetailPage() {
 
   const artParams = useMemo(
     () => ({
-      background: meta?.background ?? '',
+      // En TV pasamos el backdrop en alta resolución al reproductor/fuentes.
+      background:
+        tmdbImage(meta?.background, isLarge ? 'original' : 'w1280') ?? '',
       logo: meta?.logo ?? '',
       title: meta?.name ?? '',
     }),
-    [meta?.background, meta?.logo, meta?.name],
+    [meta?.background, meta?.logo, meta?.name, isLarge],
   );
 
   const handlePlay = useCallback(() => {
     if (!id || !type) return;
     const first = seasonEpisodes[0];
+    const isSeries = type === 'series' && first;
+    // En TV abrimos el panel de fuentes inline; en móvil navegamos a /sources.
+    if (isTV) {
+      setTvSources(
+        isSeries
+          ? { season: String(first.season), episode: String(first.number) }
+          : {},
+      );
+      return;
+    }
     router.push({
       pathname: '/detail/[type]/[id]/sources',
-      params:
-        type === 'series' && first
-          ? {
-              type,
-              id,
-              season: String(first.season),
-              episode: String(first.number),
-              ...artParams,
-            }
-          : { type, id, ...artParams },
+      params: isSeries
+        ? {
+            type,
+            id,
+            season: String(first.season),
+            episode: String(first.number),
+            ...artParams,
+          }
+        : { type, id, ...artParams },
     });
-  }, [id, type, seasonEpisodes, artParams]);
+  }, [id, type, seasonEpisodes, artParams, isTV]);
 
   const handlePlayEpisode = useCallback(
     (ep: EpisodeItem) => {
       if (!id) return;
+      if (isTV) {
+        setTvSources({ season: String(ep.season), episode: String(ep.number) });
+        return;
+      }
       router.push({
         pathname: '/detail/[type]/[id]/sources',
         params: {
@@ -206,7 +240,7 @@ export default function DetailPage() {
         },
       });
     },
-    [id, artParams],
+    [id, artParams, isTV],
   );
 
   const handlePressRelated = useCallback((item: MediaMeta) => {
@@ -228,7 +262,14 @@ export default function DetailPage() {
         <View style={{ height: heroHeight, width: '100%' }}>
           {meta?.background || meta?.poster ? (
             <Image
-              source={tmdbImage(meta.background ?? meta.poster, 'w1280') ?? ''}
+              source={
+                tmdbImage(
+                  meta.background ?? meta.poster,
+                  // En pantallas grandes/TV pedimos la máxima resolución para
+                  // que el backdrop no se vea pixelado.
+                  isLarge ? 'original' : 'w1280',
+                ) ?? ''
+              }
               contentFit="cover"
               transition={200}
               cachePolicy="memory-disk"
@@ -299,21 +340,26 @@ export default function DetailPage() {
             </Typography>
           ) : null}
 
-          <View style={{ flexDirection: 'row', gap: 10 }}>
+          <View style={{ flexDirection: 'row', gap: isTV ? 14 : 10 }}>
             <Button
               variant="primary"
               onPress={handlePlay}
-              style={{
-                flex: 1,
-                backgroundColor: '#fff',
-                flexDirection: 'row',
-                gap: 8,
-                paddingHorizontal: 12,
-              }}
+              {...playFocus.focusProps}
+              style={[
+                {
+                  flex: 1,
+                  backgroundColor: '#fff',
+                  flexDirection: 'row',
+                  gap: 8,
+                  paddingHorizontal: isTV ? 20 : 12,
+                  ...(isTV ? { height: 56 } : null),
+                },
+                tvFocusRing(playFocus.focused),
+              ]}
             >
-              <GlassIcon name="circle-arrow-right" size={20} />
+              <GlassIcon name="circle-arrow-right" size={actionIconSize} />
               <Typography
-                type="body-sm"
+                type={isTV ? 'body' : 'body-sm'}
                 weight="semibold"
                 numberOfLines={1}
                 style={{ color: '#000', flexShrink: 1 }}
@@ -325,25 +371,58 @@ export default function DetailPage() {
               variant="secondary"
               onPress={() => toggleSaved('watchlist')}
               isDisabled={savingWatch}
-              style={{
-                width: 52,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+              {...watchFocus.focusProps}
+              style={[
+                {
+                  // En TV hay espacio: botón con texto. En móvil, solo icono.
+                  ...(isTV
+                    ? { height: 56, paddingHorizontal: 18, gap: 8 }
+                    : { width: sideBtnW }),
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                },
+                tvFocusRing(watchFocus.focused),
+              ]}
             >
-              <GlassIcon name="doc-folder" size={20} opacity={watchlist ? 1 : 0.6} />
+              <GlassIcon
+                name="doc-folder"
+                size={actionIconSize}
+                opacity={watchlist ? 1 : 0.6}
+              />
+              {isTV ? (
+                <Typography type="body" weight="semibold" numberOfLines={1}>
+                  Ver después
+                </Typography>
+              ) : null}
             </Button>
             <Button
               variant="secondary"
               onPress={() => toggleSaved('favorite')}
               isDisabled={savingFav}
-              style={{
-                width: 52,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+              {...favFocus.focusProps}
+              style={[
+                {
+                  ...(isTV
+                    ? { height: 56, paddingHorizontal: 18, gap: 8 }
+                    : { width: sideBtnW }),
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                },
+                tvFocusRing(favFocus.focused),
+              ]}
             >
-              <GlassIcon name="heart" size={20} opacity={favorite ? 1 : 0.6} />
+              <GlassIcon
+                name="heart"
+                size={actionIconSize}
+                opacity={favorite ? 1 : 0.6}
+              />
+              {isTV ? (
+                <Typography type="body" weight="semibold" numberOfLines={1}>
+                  Favoritos
+                </Typography>
+              ) : null}
             </Button>
           </View>
 
@@ -464,7 +543,7 @@ export default function DetailPage() {
                 renderItem={({ item }) => (
                   <PosterCard
                     item={item}
-                    width={130}
+                    width={posterWidth}
                     onPress={() => handlePressRelated(item)}
                   />
                 )}
@@ -480,6 +559,82 @@ export default function DetailPage() {
           </View>
         ) : null}
       </ScrollView>
+
+      {/* TV: fuentes inline en un panel lateral derecho (no navega a otra
+          página). El backdrop atenuado cierra el panel al tocarlo. */}
+      {isTV && tvSources ? (
+        <View style={StyleSheet.absoluteFill}>
+          <Pressable
+            // No enfocable: si no, el D-pad se queda en este fondo (que cierra
+            // al seleccionar) en vez de llegar a las fuentes.
+            focusable={false}
+            style={[
+              StyleSheet.absoluteFill,
+              { backgroundColor: 'rgba(0,0,0,0.55)' },
+            ]}
+            onPress={() => setTvSources(null)}
+          />
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              right: 0,
+              width: 600,
+              maxWidth: '50%',
+              backgroundColor: COLORS.surface,
+              borderLeftWidth: 1,
+              borderLeftColor: 'rgba(255,255,255,0.08)',
+            }}
+          >
+            <SafeAreaView edges={['top']} style={{ paddingHorizontal: 16 }}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                  paddingVertical: 12,
+                }}
+              >
+                <Pressable
+                  onPress={() => setTvSources(null)}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: 'rgba(255,255,255,0.1)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <ArrowLeft size={22} color="#fff" />
+                </Pressable>
+                <Typography type="h4" weight="bold">
+                  Fuentes
+                </Typography>
+              </View>
+            </SafeAreaView>
+            <SourcesList
+              type={type}
+              id={id}
+              season={tvSources.season}
+              episode={tvSources.episode}
+              onSelect={(s) => {
+                setTvSources(null);
+                router.push({
+                  pathname: '/player',
+                  params: {
+                    url: s.url,
+                    title: meta?.name ?? s.title,
+                    background: artParams.background,
+                    logo: artParams.logo,
+                  },
+                });
+              }}
+            />
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -508,12 +663,15 @@ function SeasonTab({
   return (
     <Pressable
       onPress={onPress}
-      style={{
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        borderRadius: 999,
-        backgroundColor: selected ? '#fff' : 'rgba(255,255,255,0.08)',
-      }}
+      style={(s) => [
+        {
+          paddingHorizontal: 16,
+          paddingVertical: 10,
+          borderRadius: 999,
+          backgroundColor: selected ? '#fff' : 'rgba(255,255,255,0.08)',
+        },
+        tvFocusRing((s as { focused?: boolean }).focused ?? false),
+      ]}
     >
       <Typography
         type="body-sm"
@@ -544,13 +702,16 @@ function EpisodeCard({
   return (
     <Pressable
       onPress={onPress}
-      style={{
-        width: CARD_W,
-        height: CARD_H,
-        borderRadius: 16,
-        overflow: 'hidden',
-        backgroundColor: '#111',
-      }}
+      style={(s) => [
+        {
+          width: CARD_W,
+          height: CARD_H,
+          borderRadius: 16,
+          overflow: 'hidden',
+          backgroundColor: '#111',
+        },
+        tvFocusRing((s as { focused?: boolean }).focused ?? false),
+      ]}
     >
       {image ? (
         <Image

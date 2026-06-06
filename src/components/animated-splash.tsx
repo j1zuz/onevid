@@ -1,7 +1,8 @@
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useRef } from 'react';
-import { StyleSheet, useWindowDimensions } from 'react-native';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -70,13 +71,25 @@ export function AnimatedSplash({ onFinish, onLayoutReady }: Props) {
       style={[styles.overlay, overlayStyle]}
       onLayout={() => onLayoutReady?.()}
     >
-      <VideoView
-        player={player}
+      <View
         style={[styles.videoBand, { height: height * TOP_BAND_RATIO }]}
-        contentFit="cover"
-        nativeControls={false}
         pointerEvents="none"
-      />
+      >
+        <VideoView
+          player={player}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          nativeControls={false}
+          pointerEvents="none"
+        />
+        {/* Degradado a negro para que el video se funda con el fondo del splash
+            y no quede un corte visible. */}
+        <LinearGradient
+          colors={['transparent', '#000000']}
+          style={styles.videoFade}
+          pointerEvents="none"
+        />
+      </View>
       <Image source={LOGO_SOURCE} style={styles.logo} contentFit="contain" />
     </Animated.View>
   );
@@ -96,5 +109,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   videoBand: { position: 'absolute', top: 0, left: 0, right: 0 },
+  videoFade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '55%' },
   logo: { width: LOGO_WIDTH, aspectRatio: 1 },
 });

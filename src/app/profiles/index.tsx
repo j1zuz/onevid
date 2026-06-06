@@ -104,11 +104,15 @@ export default function ProfilesScreen() {
             }}
           >
             {[0, 1, 2].map((i) => (
-              <View key={i} style={{ alignItems: 'center', gap: 10 }}>
+              // Misma estructura/altura que el item real (avatar + gap 10 +
+              // nombre body-sm) para que la grilla no salte al cargar.
+              <View key={i} style={{ alignItems: 'center', gap: 10, width: AVATAR }}>
                 <Skeleton
                   style={{ width: AVATAR, height: AVATAR, borderRadius: 20 }}
                 />
-                <Skeleton style={{ width: 64, height: 12, borderRadius: 4 }} />
+                <View style={{ alignItems: 'center', gap: 3 }}>
+                  <Skeleton style={{ width: 64, height: 18, borderRadius: 4 }} />
+                </View>
               </View>
             ))}
           </View>
