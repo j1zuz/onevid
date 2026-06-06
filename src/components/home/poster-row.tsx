@@ -4,6 +4,7 @@ import { FlatList, View } from 'react-native';
 import type { MediaMeta } from '@/lib/api';
 import { PosterCard } from '@/components/poster-card';
 import { useResponsive } from '@/hooks/use-responsive';
+import { COLORS } from '@/lib/theme';
 
 interface PosterRowProps {
   title: string;
@@ -37,7 +38,11 @@ export function PosterRow({ title, items, loading, onPressItem }: PosterRowProps
           ))}
         </View>
       ) : (
-        <ScrollShadow size={32} LinearGradientComponent={LinearGradient}>
+        <ScrollShadow
+          size={32}
+          color={COLORS.background}
+          LinearGradientComponent={LinearGradient}
+        >
           <FlatList
             horizontal
             showsHorizontalScrollIndicator={false}

@@ -1,132 +1,111 @@
 import { useQuery } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { ScrollShadow, SearchField, Skeleton, Typography } from 'heroui-native';
-import { BottomSheet } from 'heroui-native/bottom-sheet';
-import { Check, ChevronDown } from 'lucide-react-native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, ScrollView, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { FlatList, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PosterCard } from '@/components/poster-card';
+import { PosterRow } from '@/components/home/poster-row';
 import { useResponsive } from '@/hooks/use-responsive';
-import { tvFocusRing } from '@/hooks/use-tv-focus';
+import { useTvFocus } from '@/hooks/use-tv-focus';
 import { apiFetch, type MediaMeta } from '@/lib/api';
 import { COLORS } from '@/lib/theme';
 
-interface SelectOption {
+interface Network {
+  /** ID de la cadena en TMDB (lo entiende /api/onevid-catalog?network=). */
   value: string;
   label: string;
+  /** Ruta del logo en TMDB (negro sobre transparente → va en tarjeta clara). */
+  logo: string;
 }
 
-type FilterKey = 'type' | 'catalog' | 'network';
-
-const TYPE_OPTIONS: SelectOption[] = [
-  { value: 'movie', label: 'Película' },
-  { value: 'series', label: 'Series' },
+// Cadenas que soportamos. Los logos son de TMDB (image.tmdb.org sirve imágenes
+// sin API key); al ser negros sobre transparente se muestran en tarjeta blanca.
+const NETWORKS: Network[] = [
+  { value: '213', label: 'Netflix', logo: '/wwemzKWzjKYJFfCeiB57q3r4Bcm.png' },
+  { value: '1024', label: 'Prime Video', logo: '/w7HfLNm9CWwRmAMU58udl2L7We7.png' },
+  { value: '2739', label: 'Disney+', logo: '/1edZOYAfoyZyZ3rklNSiUpXX30Q.png' },
+  { value: '2552', label: 'Apple TV+', logo: '/bngHRFi794mnMq34gfVcm9nDxN1.png' },
+  { value: '49', label: 'HBO', logo: '/tuomPhY2UtuPTqqFnKMVHvSb724.png' },
+  { value: '4330', label: 'Paramount+', logo: '/fi83B1oztoS47xxcemFdPMhIzK.png' },
+  // Hulu no opera en varias regiones móviles → solo se muestra en TV.
+  { value: '453', label: 'Hulu', logo: '/pqUTCleNUiTLAVlelGxUgWn1ELh.png' },
 ];
 
-const CATALOG_OPTIONS: SelectOption[] = [
-  { value: 'top', label: 'Populares' },
-  { value: 'year', label: 'Estrenos' },
-  { value: 'imdbrating', label: 'Destacados' },
-];
-
-const NETWORK_OPTIONS: SelectOption[] = [
-  { value: 'all', label: 'Todos los servicios' },
-  { value: '213', label: 'Netflix' },
-  { value: '2739', label: 'Disney+' },
-  { value: '49', label: 'HBO' },
-  { value: '1024', label: 'Amazon' },
-  { value: '2552', label: 'Apple TV+' },
-  { value: '4330', label: 'Paramount+' },
-  { value: '453', label: 'Hulu' },
-  { value: '6171', label: 'Max' },
-];
-
-const FILTER_TITLES: Record<FilterKey, string> = {
-  type: 'Seleccionar tipo',
-  catalog: 'Seleccionar catálogo',
-  network: 'Seleccionar servicio',
-};
-
-const FILTER_OPTIONS: Record<FilterKey, SelectOption[]> = {
-  type: TYPE_OPTIONS,
-  catalog: CATALOG_OPTIONS,
-  network: NETWORK_OPTIONS,
-};
+const networkLogoUrl = (logo: string) => `https://image.tmdb.org/t/p/w300${logo}`;
 
 export default function DiscoverTab() {
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [type, setType] = useState<SelectOption>(TYPE_OPTIONS[0]);
-  const [catalog, setCatalog] = useState<SelectOption>(CATALOG_OPTIONS[0]);
-  const [network, setNetwork] = useState<SelectOption>(NETWORK_OPTIONS[0]);
-  const [activeFilter, setActiveFilter] = useState<FilterKey | null>(null);
-  const { posterColumns } = useResponsive();
+  const [network, setNetwork] = useState<Network>(NETWORKS[0]);
+  const { posterColumns, isTV } = useResponsive();
 
   const isSearching = query.trim().length > 0;
 
-  // Debounce de la búsqueda: la query (cacheada) solo dispara con el texto ya
-  // estabilizado.
+  // Tarjetas de cadenas en el slider horizontal: más grandes en TV.
+  const cardW = isTV ? 200 : 132;
+  // Hulu solo en TV (no opera en varias regiones móviles).
+  const networks = isTV ? NETWORKS : NETWORKS.filter((n) => n.value !== '453');
+
+  // Debounce de la búsqueda.
   useEffect(() => {
     const trimmed = query.trim();
     const timer = setTimeout(() => setDebouncedQuery(trimmed), 400);
     return () => clearTimeout(timer);
   }, [query]);
 
-  // Catálogo (modo navegación). Cacheado por type/catalog/network → cambiar de
-  // filtro y volver no re-fetchea.
-  const browseQuery = useQuery({
-    queryKey: ['catalog', type.value, catalog.value, network.value],
-    queryFn: () => {
-      const params = new URLSearchParams({
-        type: type.value,
-        catalog: catalog.value,
-      });
-      if (network.value !== 'all') params.set('network', network.value);
-      return apiFetch<{ results: MediaMeta[] }>(
-        `/api/onevid-catalog?${params.toString()}`,
-      ).then((r) => r.results ?? []);
-    },
+  // Populares de la cadena seleccionada (películas y series), cacheadas por red.
+  const moviesQuery = useQuery({
+    queryKey: ['catalog', 'movie', 'top', network.value],
+    queryFn: () =>
+      apiFetch<{ results: MediaMeta[] }>(
+        `/api/onevid-catalog?type=movie&catalog=top&network=${network.value}`,
+      ).then((r) => r.results ?? []),
+    enabled: !isSearching,
+  });
+  const seriesQuery = useQuery({
+    queryKey: ['catalog', 'series', 'top', network.value],
+    queryFn: () =>
+      apiFetch<{ results: MediaMeta[] }>(
+        `/api/onevid-catalog?type=series&catalog=top&network=${network.value}`,
+      ).then((r) => r.results ?? []),
     enabled: !isSearching,
   });
 
-  // Búsqueda. Cacheada por término + tipo.
-  const searchQuery = useQuery({
-    queryKey: ['search', debouncedQuery, type.value],
-    queryFn: () => {
-      const params = new URLSearchParams({
-        q: debouncedQuery,
-        type: type.value,
-      });
-      return apiFetch<{ results: MediaMeta[] }>(
-        `/api/search?${params.toString()}`,
-      ).then((r) => r.results ?? []);
-    },
+  // Búsqueda: cubre películas y series, intercaladas.
+  const searchMoviesQuery = useQuery({
+    queryKey: ['search', debouncedQuery, 'movie'],
+    queryFn: () =>
+      apiFetch<{ results: MediaMeta[] }>(
+        `/api/search?q=${encodeURIComponent(debouncedQuery)}&type=movie`,
+      ).then((r) => r.results ?? []),
+    enabled: isSearching && debouncedQuery.length > 0,
+  });
+  const searchSeriesQuery = useQuery({
+    queryKey: ['search', debouncedQuery, 'series'],
+    queryFn: () =>
+      apiFetch<{ results: MediaMeta[] }>(
+        `/api/search?q=${encodeURIComponent(debouncedQuery)}&type=series`,
+      ).then((r) => r.results ?? []),
     enabled: isSearching && debouncedQuery.length > 0,
   });
 
-  const activeQuery = isSearching ? searchQuery : browseQuery;
-  const results = activeQuery.data ?? [];
-  // En búsqueda, también mostramos skeleton mientras el debounce no alcanzó al
-  // texto actual.
-  const loading = isSearching
-    ? searchQuery.isLoading || debouncedQuery !== query.trim()
-    : browseQuery.isLoading;
-  const error =
-    !loading && activeQuery.isError
-      ? activeQuery.error instanceof Error
-        ? activeQuery.error.message
-        : isSearching
-          ? 'Error de búsqueda'
-          : 'Error de red'
+  const searchResults = interleave(
+    searchMoviesQuery.data ?? [],
+    searchSeriesQuery.data ?? [],
+  );
+  const searchLoading =
+    searchMoviesQuery.isLoading ||
+    searchSeriesQuery.isLoading ||
+    debouncedQuery !== query.trim();
+  const searchError =
+    !searchLoading &&
+    searchMoviesQuery.isError &&
+    searchSeriesQuery.isError
+      ? 'Error de búsqueda'
       : null;
-
-  const breadcrumb = useMemo(() => {
-    const parts = [type.label, catalog.label];
-    if (network.value !== 'all') parts.push(network.label);
-    return parts.join(' · ');
-  }, [type.label, catalog.label, network.value, network.label]);
 
   const handlePressItem = useCallback((item: MediaMeta) => {
     router.push({
@@ -134,30 +113,6 @@ export default function DiscoverTab() {
       params: { type: item.type, id: item.id },
     });
   }, []);
-
-  const handlePickOption = useCallback(
-    (opt: SelectOption) => {
-      if (!activeFilter) return;
-      if (activeFilter === 'type') setType(opt);
-      else if (activeFilter === 'catalog') setCatalog(opt);
-      else if (activeFilter === 'network') setNetwork(opt);
-      setActiveFilter(null);
-    },
-    [activeFilter],
-  );
-
-  const activeOptions = activeFilter ? FILTER_OPTIONS[activeFilter] : [];
-  // Altura fija por cantidad de opciones → el sheet abre directo, sin el salto
-  // del dynamic sizing. (título+padding ~96 + ~52 por item, tope ~85% pantalla)
-  const sheetHeight = Math.min(96 + activeOptions.length * 52, 560);
-  const activeSelected =
-    activeFilter === 'type'
-      ? type
-      : activeFilter === 'catalog'
-        ? catalog
-        : activeFilter === 'network'
-          ? network
-          : null;
 
   return (
     <SafeAreaView
@@ -167,171 +122,167 @@ export default function DiscoverTab() {
       <ScrollShadow
         style={{ flex: 1 }}
         size={28}
+        color={COLORS.background}
         LinearGradientComponent={LinearGradient}
       >
-      <ScrollView
-        contentContainerStyle={{
-          gap: 16,
-          paddingHorizontal: 16,
-          paddingVertical: 16,
-          paddingBottom: 32,
-        }}
-      >
-        <Typography type="h2">Buscar</Typography>
-
-        <SearchField value={query} onChange={setQuery}>
-          <SearchField.Group>
-            <SearchField.SearchIcon />
-            <SearchField.Input placeholder="Buscar películas, series…" />
-            <SearchField.ClearButton />
-          </SearchField.Group>
-        </SearchField>
-
-        {!isSearching ? (
-          <>
-            <Typography type="h2">Descubrir</Typography>
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 8, paddingRight: 16 }}
-            >
-              <FilterChip
-                label={type.label}
-                onPress={() => setActiveFilter('type')}
-              />
-              <FilterChip
-                label={catalog.label}
-                onPress={() => setActiveFilter('catalog')}
-              />
-              <FilterChip
-                label={network.label}
-                onPress={() => setActiveFilter('network')}
-              />
-            </ScrollView>
-
-            <Typography type="body-sm" color="muted">
-              {breadcrumb}
-            </Typography>
-          </>
-        ) : null}
-
-        {loading ? <SkeletonGrid columns={posterColumns} /> : null}
-
-        {!loading && error ? (
-          <Typography type="body-sm" color="muted" align="center">
-            {error}
-          </Typography>
-        ) : null}
-
-        {!loading && !error && isSearching && results.length === 0 ? (
-          <Typography type="body" color="muted" align="center">
-            No encontramos nada para «{query.trim()}».
-          </Typography>
-        ) : null}
-
-        {!loading && results.length > 0 ? (
-          <FlatList
-            // RN exige re-montar el FlatList al cambiar numColumns.
-            key={posterColumns}
-            data={results}
-            keyExtractor={(item) => `${item.type}:${item.id}`}
-            numColumns={posterColumns}
-            scrollEnabled={false}
-            columnWrapperStyle={{ gap: 12 }}
-            contentContainerStyle={{ gap: 16 }}
-            renderItem={({ item }) => (
-              <View style={{ flex: 1 / posterColumns }}>
-                <PosterCard item={item} onPress={() => handlePressItem(item)} />
-              </View>
-            )}
-          />
-        ) : null}
-      </ScrollView>
-      </ScrollShadow>
-
-      {/* Sólo se monta cuando hay un filtro activo → no puede abrirse solo. */}
-      {activeFilter ? (
-        <BottomSheet
-          isOpen
-          onOpenChange={(open) => {
-            if (!open) setActiveFilter(null);
-          }}
+        <ScrollView
+          contentContainerStyle={{ gap: 16, paddingVertical: 16, paddingBottom: 32 }}
         >
-          <BottomSheet.Portal>
-            <BottomSheet.Overlay />
-            <BottomSheet.Content
-              enableDynamicSizing={false}
-              snapPoints={[sheetHeight]}
-            >
-              <BottomSheet.Title>
-                {FILTER_TITLES[activeFilter]}
-              </BottomSheet.Title>
-              <View style={{ marginTop: 16 }}>
-                {activeOptions.map((opt) => {
-                  const selected = opt.value === activeSelected?.value;
-                  return (
-                    <Pressable
-                      key={opt.value}
-                      onPress={() => handlePickOption(opt)}
-                      style={(s) => [
-                        {
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          paddingVertical: 14,
-                          paddingHorizontal: 12,
-                          borderRadius: 12,
-                        },
-                        tvFocusRing((s as { focused?: boolean }).focused ?? false),
-                      ]}
-                    >
-                      <Typography
-                        type="body"
-                        weight={selected ? 'semibold' : 'medium'}
-                      >
-                        {opt.label}
-                      </Typography>
-                      {selected ? <Check size={20} color="#fff" /> : null}
-                    </Pressable>
-                  );
-                })}
+          <View style={{ paddingHorizontal: 16, gap: 16 }}>
+            <Typography type="h2">Buscar</Typography>
+            <SearchField value={query} onChange={setQuery}>
+              <SearchField.Group>
+                <SearchField.SearchIcon />
+                <SearchField.Input placeholder="Buscar películas, series…" />
+                <SearchField.ClearButton />
+              </SearchField.Group>
+            </SearchField>
+          </View>
+
+          {isSearching ? (
+            <View style={{ paddingHorizontal: 16, gap: 16 }}>
+              {searchLoading ? <SkeletonGrid columns={posterColumns} /> : null}
+
+              {!searchLoading && searchError ? (
+                <Typography type="body-sm" color="muted" align="center">
+                  {searchError}
+                </Typography>
+              ) : null}
+
+              {!searchLoading && !searchError && searchResults.length === 0 ? (
+                <Typography type="body" color="muted" align="center">
+                  No encontramos nada para «{query.trim()}».
+                </Typography>
+              ) : null}
+
+              {!searchLoading && searchResults.length > 0 ? (
+                <FlatList
+                  // RN exige re-montar el FlatList al cambiar numColumns.
+                  key={posterColumns}
+                  data={searchResults}
+                  keyExtractor={(item) => `${item.type}:${item.id}`}
+                  numColumns={posterColumns}
+                  scrollEnabled={false}
+                  columnWrapperStyle={{ gap: 12 }}
+                  contentContainerStyle={{ gap: 16 }}
+                  renderItem={({ item }) => (
+                    <View style={{ flex: 1 / posterColumns }}>
+                      <PosterCard
+                        item={item}
+                        onPress={() => handlePressItem(item)}
+                      />
+                    </View>
+                  )}
+                />
+              ) : null}
+            </View>
+          ) : (
+            <>
+              <View style={{ gap: 12 }}>
+                <Typography type="h2" style={{ paddingHorizontal: 16 }}>
+                  Descubrir
+                </Typography>
+                <ScrollShadow
+                  size={32}
+                  color={COLORS.background}
+                  LinearGradientComponent={LinearGradient}
+                >
+                  <FlatList
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    data={networks}
+                    keyExtractor={(n) => n.value}
+                    contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
+                    renderItem={({ item }) => (
+                      <NetworkCard
+                        network={item}
+                        width={cardW}
+                        selected={item.value === network.value}
+                        onPress={() => setNetwork(item)}
+                      />
+                    )}
+                  />
+                </ScrollShadow>
               </View>
-            </BottomSheet.Content>
-          </BottomSheet.Portal>
-        </BottomSheet>
-      ) : null}
+
+              {/* La cadena (network de TMDB) aplica a series; muchas no tienen
+                  películas asociadas. Ocultamos cada fila si no hay resultados. */}
+              {moviesQuery.isLoading || (moviesQuery.data?.length ?? 0) > 0 ? (
+                <PosterRow
+                  title="Películas populares"
+                  items={moviesQuery.data ?? []}
+                  loading={moviesQuery.isLoading}
+                  onPressItem={handlePressItem}
+                />
+              ) : null}
+              {seriesQuery.isLoading || (seriesQuery.data?.length ?? 0) > 0 ? (
+                <PosterRow
+                  title="Series populares"
+                  items={seriesQuery.data ?? []}
+                  loading={seriesQuery.isLoading}
+                  onPressItem={handlePressItem}
+                />
+              ) : null}
+
+              {!moviesQuery.isLoading &&
+              !seriesQuery.isLoading &&
+              (moviesQuery.data?.length ?? 0) === 0 &&
+              (seriesQuery.data?.length ?? 0) === 0 ? (
+                <Typography
+                  type="body-sm"
+                  color="muted"
+                  align="center"
+                  style={{ paddingHorizontal: 16 }}
+                >
+                  No hay títulos para esta cadena.
+                </Typography>
+              ) : null}
+            </>
+          )}
+        </ScrollView>
+      </ScrollShadow>
     </SafeAreaView>
   );
 }
 
-function FilterChip({
-  label,
+function NetworkCard({
+  network,
+  width,
+  selected,
   onPress,
 }: {
-  label: string;
+  network: Network;
+  width: number;
+  selected: boolean;
   onPress: () => void;
 }) {
+  const { focused, focusProps } = useTvFocus();
+  // En TV el anillo sigue al foco del D-pad; en móvil (sin foco) marcamos la
+  // cadena seleccionada con el mismo anillo azul.
+  const ringed = focused || (!Platform.isTV && selected);
   return (
     <Pressable
       onPress={onPress}
-      style={(s) => [
-        {
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 6,
-          paddingHorizontal: 14,
-          paddingVertical: 10,
-          borderRadius: 999,
-          backgroundColor: 'rgba(255,255,255,0.08)',
-        },
-        tvFocusRing((s as { focused?: boolean }).focused ?? false),
-      ]}
+      {...focusProps}
+      style={{
+        width,
+        aspectRatio: 3 / 2,
+        borderRadius: 14,
+        backgroundColor: '#fff',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 12,
+        borderWidth: 3,
+        borderColor: ringed ? '#4f9dff' : 'transparent',
+      }}
     >
-      <Typography type="body-sm" weight="medium">
-        {label}
-      </Typography>
-      <ChevronDown size={16} color="#fff" />
+      <Image
+        source={networkLogoUrl(network.logo)}
+        contentFit="contain"
+        cachePolicy="memory-disk"
+        transition={150}
+        style={{ width: '100%', height: '100%' }}
+      />
     </Pressable>
   );
 }
@@ -359,4 +310,14 @@ function SkeletonGrid({ columns = 2 }: { columns?: number }) {
       ))}
     </View>
   );
+}
+
+function interleave<T>(a: T[], b: T[]): T[] {
+  const out: T[] = [];
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i += 1) {
+    if (a[i]) out.push(a[i]);
+    if (b[i]) out.push(b[i]);
+  }
+  return out;
 }

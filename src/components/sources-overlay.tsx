@@ -13,7 +13,8 @@ import { COLORS } from '@/lib/theme';
  * Panel de fuentes como overlay sobre el detalle. Reemplaza la antigua pantalla
  * /sources: ahora NO se navega a otra página ni en móvil ni en TV.
  *
- * - Móvil: overlay a pantalla completa (misma pantalla, no una ruta aparte).
+ * - Móvil: panel anclado abajo (tipo hoja) sobre el detalle atenuado, dejando
+ *   ver el contenido detrás — igual que en TV, no a pantalla completa.
  * - TV: panel lateral derecho sobre el backdrop difuminado.
  */
 export function SourcesOverlay({
@@ -58,7 +59,10 @@ export function SourcesOverlay({
       />
 
       <View style={isTV ? styles.tvPanel : styles.mobilePanel}>
-        <SafeAreaView edges={['top']} style={{ paddingHorizontal: 16 }}>
+        <SafeAreaView
+          edges={isTV ? ['top'] : []}
+          style={{ paddingHorizontal: 16 }}
+        >
           <View
             style={{
               flexDirection: 'row',
@@ -116,10 +120,19 @@ const styles = StyleSheet.create({
     borderLeftWidth: 1,
     borderLeftColor: 'rgba(255,255,255,0.08)',
   },
-  // Móvil: overlay a pantalla completa (misma pantalla, sin navegar).
+  // Móvil: panel anclado abajo (tipo hoja) sobre el detalle atenuado. Usa
+  // top+bottom para tener altura definida (como tvPanel), así la lista interna
+  // hace scroll correctamente. El 18% superior deja ver el detalle detrás.
   mobilePanel: {
-    flex: 1,
-    backgroundColor: COLORS.background,
+    position: 'absolute',
+    top: '18%',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
   },
   backBtn: {
     width: 40,

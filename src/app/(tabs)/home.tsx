@@ -70,6 +70,7 @@ export default function HomeTab() {
       <ScrollShadow
         style={{ flex: 1 }}
         size={36}
+        color={COLORS.background}
         LinearGradientComponent={ExpoLinearGradient}
       >
       <ScrollView contentContainerStyle={{ paddingBottom: 32, gap: 24 }}>

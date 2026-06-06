@@ -9,11 +9,20 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
 import { Platform, StatusBar as RNStatusBar } from 'react-native';
+import { Uniwind } from 'uniwind';
 import { AnimatedSplash } from '@/components/animated-splash';
 import { getAccessToken } from '@/lib/auth';
 import { loadActiveProfile } from '@/lib/profiles';
 import { queryClient } from '@/lib/query';
 import { COLORS } from '@/lib/theme';
+
+// App dark-only. uniwind resuelve las clases de tema (text-foreground, etc.)
+// según su `currentTheme`, que se fija al construirse leyendo el color scheme
+// del sistema; si éste reporta unspecified/null cae a light → texto oscuro
+// ilegible sobre el fondo oscuro. Appearance.setColorScheme no actualiza ese
+// tema de forma fiable una vez construido uniwind, así que usamos su API propia
+// setTheme('dark'), que fija el tema y notifica a los componentes de inmediato.
+Uniwind.setTheme('dark');
 
 SplashScreen.preventAutoHideAsync().catch(() => {
   /* ignore */

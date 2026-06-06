@@ -25,16 +25,29 @@ type Props = {
   onLayoutReady?: () => void;
 };
 
+const REVEAL_FALLBACK_MS = 700; // si onFirstFrameRender no dispara, revelar igual
+
 export function AnimatedSplash({ onFinish, onLayoutReady }: Props) {
   const { height } = useWindowDimensions();
   const opacity = useSharedValue(1);
   const finishedRef = useRef(false);
+  const revealedRef = useRef(false);
 
   const player = useVideoPlayer(VIDEO_SOURCE, (p) => {
     p.muted = true;
     p.loop = false;
     p.play();
   });
+
+  // Oculta el splash nativo (el padre llama hideAsync) SOLO cuando el primer
+  // frame del video ya está pintado. Así, al desaparecer el splash nativo, el
+  // icono y el video aparecen a la vez (no el icono primero y el video después).
+  // Se ejecuta una sola vez.
+  const reveal = useCallback(() => {
+    if (revealedRef.current) return;
+    revealedRef.current = true;
+    onLayoutReady?.();
+  }, [onLayoutReady]);
 
   const beginFadeOut = useCallback(() => {
     if (finishedRef.current) return;
@@ -50,13 +63,25 @@ export function AnimatedSplash({ onFinish, onLayoutReady }: Props) {
     return () => sub?.remove();
   }, [player, beginFadeOut]);
 
-  // Si el video falla, no quedarse colgado
+  // Fallback de revelado: en TV onFirstFrameRender puede no emitirse, así que
+  // cuando el player llega a readyToPlay (ya hay frame disponible) revelamos
+  // igual. Si falla, revelamos y arrancamos el fade para no quedarnos colgados.
   useEffect(() => {
     const sub = player.addListener('statusChange', ({ status }) => {
-      if (status === 'error') beginFadeOut();
+      if (status === 'readyToPlay') reveal();
+      if (status === 'error') {
+        reveal();
+        beginFadeOut();
+      }
     });
     return () => sub?.remove();
-  }, [player, beginFadeOut]);
+  }, [player, reveal, beginFadeOut]);
+
+  // Tope de seguridad: nunca dejar el splash nativo colgado esperando un frame.
+  useEffect(() => {
+    const t = setTimeout(reveal, REVEAL_FALLBACK_MS);
+    return () => clearTimeout(t);
+  }, [reveal]);
 
   // Tope duro de tiempo
   useEffect(() => {
@@ -67,10 +92,7 @@ export function AnimatedSplash({ onFinish, onLayoutReady }: Props) {
   const overlayStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   return (
-    <Animated.View
-      style={[styles.overlay, overlayStyle]}
-      onLayout={() => onLayoutReady?.()}
-    >
+    <Animated.View style={[styles.overlay, overlayStyle]}>
       <View
         style={[styles.videoBand, { height: height * TOP_BAND_RATIO }]}
         pointerEvents="none"
@@ -80,6 +102,7 @@ export function AnimatedSplash({ onFinish, onLayoutReady }: Props) {
           style={StyleSheet.absoluteFill}
           contentFit="cover"
           nativeControls={false}
+          onFirstFrameRender={reveal}
           pointerEvents="none"
         />
         {/* Degradado a negro para que el video se funda con el fondo del splash
