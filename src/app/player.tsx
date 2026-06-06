@@ -6,7 +6,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Typography } from 'heroui-native';
 import { ArrowLeft } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
   cancelAnimation,
   Easing,
@@ -81,7 +81,10 @@ export default function PlayerScreen() {
   const [state, setState] = useState<ResolveState>({ kind: 'resolving' });
 
   // Auto-rotate to landscape while the player is mounted; restore on exit.
+  // En Android TV la pantalla ya es landscape fija, así que no tocamos la
+  // orientación.
   useEffect(() => {
+    if (Platform.isTV) return;
     ScreenOrientation.lockAsync(
       ScreenOrientation.OrientationLock.LANDSCAPE,
     ).catch(() => {

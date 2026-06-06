@@ -1,3 +1,4 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -10,7 +11,7 @@ import {
   useToast,
 } from 'heroui-native';
 import { ArrowLeft } from 'lucide-react-native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -29,7 +30,12 @@ import {
   type NetworkInfo,
   tmdbImage,
 } from '@/lib/api';
-import { getSavedStatus, setFavorite, setWatchlist } from '@/lib/saved';
+import {
+  getSavedStatus,
+  type SavedStatus,
+  setFavorite,
+  setWatchlist,
+} from '@/lib/saved';
 import { COLORS } from '@/lib/theme';
 
 interface EpisodeItem {
@@ -55,68 +61,58 @@ export default function DetailPage() {
   const id = params.id;
   const { height } = useWindowDimensions();
   const heroHeight = Math.round(height * 0.55);
+  const queryClient = useQueryClient();
 
-  const [meta, setMeta] = useState<MediaMeta | null>(null);
-  const [series, setSeries] = useState<SeriesMetaResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
-  const [favorite, setFavoriteState] = useState(false);
-  const [watchlist, setWatchlistState] = useState(false);
+  const [seasonOverride, setSeasonOverride] = useState<number | null>(null);
   const [savingFav, setSavingFav] = useState(false);
   const [savingWatch, setSavingWatch] = useState(false);
   const { toast } = useToast();
 
-  useEffect(() => {
-    if (!id || !type) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    const path =
-      type === 'series'
-        ? `/api/series-meta?id=${encodeURIComponent(id)}`
-        : `/api/movie-meta?id=${encodeURIComponent(id)}`;
-    apiFetch<MediaMeta | SeriesMetaResponse>(path)
-      .then((data) => {
-        if (cancelled) return;
-        if (type === 'series') {
-          const sData = data as SeriesMetaResponse;
-          setSeries(sData);
-          setSelectedSeason(sData.seasons?.[0] ?? null);
-          setMeta({ id, type: 'series', ...sData } as MediaMeta);
-        } else {
-          setMeta(data as MediaMeta);
-        }
-      })
-      .catch((e: unknown) => {
-        if (!cancelled)
-          setError(e instanceof Error ? e.message : 'Error de red');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [id, type]);
+  // Metadata del título, cacheada por (type, id): volver a abrir el mismo
+  // título lo muestra al instante sin skeleton.
+  const detailQuery = useQuery({
+    queryKey: ['detail', type, id],
+    queryFn: () => {
+      const path =
+        type === 'series'
+          ? `/api/series-meta?id=${encodeURIComponent(id)}`
+          : `/api/movie-meta?id=${encodeURIComponent(id)}`;
+      return apiFetch<MediaMeta | SeriesMetaResponse>(path);
+    },
+    enabled: Boolean(id && type),
+  });
 
-  // Initial saved (favorite/watchlist) state from TMDB account.
-  useEffect(() => {
-    if (!id || !type) return;
-    let cancelled = false;
-    getSavedStatus(type, id)
-      .then((s) => {
-        if (cancelled) return;
-        setFavoriteState(s.favorite);
-        setWatchlistState(s.watchlist);
-      })
-      .catch(() => {
-        /* not linked yet or transient — leave defaults */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [id, type]);
+  const series: SeriesMetaResponse | null =
+    type === 'series' ? ((detailQuery.data as SeriesMetaResponse) ?? null) : null;
+  const meta: MediaMeta | null = useMemo(() => {
+    if (!detailQuery.data) return null;
+    if (type === 'series') {
+      return { id, type: 'series', ...(detailQuery.data as SeriesMetaResponse) } as MediaMeta;
+    }
+    return detailQuery.data as MediaMeta;
+  }, [detailQuery.data, type, id]);
+
+  const loading = detailQuery.isLoading;
+  const error = detailQuery.isError
+    ? detailQuery.error instanceof Error
+      ? detailQuery.error.message
+      : 'Error de red'
+    : null;
+
+  // Temporada seleccionada: derivada (primera por defecto) + override del user.
+  // Derivar evita un setState-en-effect y un render extra.
+  const selectedSeason = seasonOverride ?? series?.seasons?.[0] ?? null;
+
+  // Estado guardado (favorito/watchlist) desde la cuenta TMDB, cacheado. La
+  // verdad vive en el cache; los toggles lo actualizan de forma optimista.
+  const savedQuery = useQuery({
+    queryKey: ['saved', type, id],
+    queryFn: () => getSavedStatus(type, id),
+    enabled: Boolean(id && type),
+    retry: false,
+  });
+  const favorite = savedQuery.data?.favorite ?? false;
+  const watchlist = savedQuery.data?.watchlist ?? false;
 
   const toggleSaved = useCallback(
     async (kind: 'favorite' | 'watchlist') => {
@@ -124,12 +120,20 @@ export default function DetailPage() {
       const isFav = kind === 'favorite';
       const current = isFav ? favorite : watchlist;
       const next = !current;
-      const setState = isFav ? setFavoriteState : setWatchlistState;
       const setSaving = isFav ? setSavingFav : setSavingWatch;
       const apply = isFav ? setFavorite : setWatchlist;
+      const key = ['saved', type, id];
+
+      // Optimista: escribimos el cache de ['saved', …] y lo revertimos si falla.
+      const writeSaved = (value: boolean) =>
+        queryClient.setQueryData<SavedStatus>(key, (prev) => ({
+          favorite: prev?.favorite ?? false,
+          watchlist: prev?.watchlist ?? false,
+          [kind]: value,
+        }));
 
       setSaving(true);
-      setState(next); // optimista
+      writeSaved(next);
       try {
         // Enviar snapshot para que la Biblioteca lo renderice sin re-fetch.
         await apply(type, id, next, {
@@ -138,8 +142,11 @@ export default function DetailPage() {
           background: meta?.background,
           year: meta?.year,
         });
+        // La Biblioteca lee de ['library']; invalidar hace que se refresque en
+        // segundo plano (sin skeleton) la próxima vez que se muestre.
+        queryClient.invalidateQueries({ queryKey: ['library'] });
       } catch {
-        setState(current); // revertir
+        writeSaved(current); // revertir
         toast.show({
           variant: 'danger',
           label: 'No se pudo guardar',
@@ -149,7 +156,7 @@ export default function DetailPage() {
         setSaving(false);
       }
     },
-    [id, type, favorite, watchlist, meta, toast],
+    [id, type, favorite, watchlist, meta, toast, queryClient],
   );
 
   const seasonEpisodes = useMemo(
@@ -373,7 +380,7 @@ export default function DetailPage() {
                   key={`s${n}`}
                   seasonNumber={n}
                   selected={n === selectedSeason}
-                  onPress={() => setSelectedSeason(n)}
+                  onPress={() => setSeasonOverride(n)}
                 />
               ))}
             </ScrollView>

@@ -3,8 +3,9 @@ import { Button, Chip, Skeleton, Typography, useToast } from 'heroui-native';
 import { router } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Image, Pressable, View } from 'react-native';
+import { Image, Pressable, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { GodRaysBand } from '@/components/god-rays-band';
 import {
   API_URL,
   type DeviceCodeData,
@@ -31,6 +32,7 @@ function formatCountdown(seconds: number): string {
 }
 
 export default function Login() {
+  const { height: windowHeight } = useWindowDimensions();
   const [phase, setPhase] = useState<Phase>('loading');
   const [codeData, setCodeData] = useState<DeviceCodeData | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -142,6 +144,7 @@ export default function Login() {
       style={{ flex: 1, backgroundColor: COLORS.background }}
       edges={['top', 'bottom']}
     >
+      <GodRaysBand height={Math.round(windowHeight * 0.28)} />
       <View style={{ flex: 1 }} className="items-center justify-center px-6">
         <View className="w-full gap-10">
           <View className="items-center gap-3">

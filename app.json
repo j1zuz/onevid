@@ -17,7 +17,8 @@
         "monochromeImage": "./assets/images/icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
-      "usesCleartextTraffic": true
+      "usesCleartextTraffic": true,
+      "package": "com.anonymous.x1vid"
     },
     "androidStatusBar": {
       "translucent": true,
@@ -48,7 +49,9 @@
           "supportsBackgroundPlayback": true,
           "supportsPictureInPicture": true
         }
-      ]
+      ],
+      "expo-image",
+      "@react-native-tvos/config-tv"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,7 +1,8 @@
+import { useQuery } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router, useFocusEffect } from 'expo-router';
+import { router } from 'expo-router';
 import { ScrollShadow, Typography } from 'heroui-native';
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PosterRow } from '@/components/home/poster-row';
@@ -10,31 +11,28 @@ import { getFavorites, getWatchlistItems } from '@/lib/saved';
 import { COLORS } from '@/lib/theme';
 
 export default function LibraryTab() {
-  const [favorites, setFavorites] = useState<MediaMeta[]>([]);
-  const [watchlist, setWatchlist] = useState<MediaMeta[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
+  // Cacheado bajo ['library']: ya no recarga skeleton cada vez que entras a la
+  // pestaña. La pantalla de detalle invalida esta key al guardar/quitar, así
+  // que la lista se actualiza en segundo plano sin parpadeo.
+  const libraryQuery = useQuery({
+    queryKey: ['library'],
+    queryFn: async () => {
       const [favM, favS, watM, watS] = await Promise.all([
         getFavorites('movie').catch(() => []),
         getFavorites('series').catch(() => []),
         getWatchlistItems('movie').catch(() => []),
         getWatchlistItems('series').catch(() => []),
       ]);
-      setFavorites(interleave(favM, favS));
-      setWatchlist(interleave(watM, watS));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return {
+        favorites: interleave(favM, favS),
+        watchlist: interleave(watM, watS),
+      };
+    },
+  });
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load]),
-  );
+  const favorites = libraryQuery.data?.favorites ?? [];
+  const watchlist = libraryQuery.data?.watchlist ?? [];
+  const loading = libraryQuery.isLoading;
 
   const handlePressItem = useCallback((item: MediaMeta) => {
     router.push({

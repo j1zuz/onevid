@@ -1,8 +1,9 @@
+import { useQuery } from '@tanstack/react-query';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { CloudOff } from 'lucide-react-native';
 import { Button, Card, ScrollShadow, Skeleton, Typography } from 'heroui-native';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { Linking, ScrollView, useWindowDimensions, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { HeroCarousel } from '@/components/home/hero-carousel';
@@ -24,44 +25,36 @@ const HERO_TAKE = 8;
 export default function HomeTab() {
   const { height: windowHeight } = useWindowDimensions();
   const heroSkeletonHeight = Math.round(windowHeight * 0.72);
-  const [status, setStatus] = useState<SetupStatus | null>(null);
-  const [movies, setMovies] = useState<MediaMeta[]>([]);
-  const [series, setSeries] = useState<MediaMeta[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    Promise.allSettled([
-      apiFetch<SetupStatus>('/api/onevid-setup-complete'),
+  // useQuery cachea cada catálogo: al volver a Inicio se muestra al instante
+  // (sin skeleton) y solo revalida en segundo plano si pasó el staleTime.
+  const { data: status } = useQuery({
+    queryKey: ['setup-status'],
+    queryFn: () => apiFetch<SetupStatus>('/api/onevid-setup-complete'),
+  });
+  const moviesQuery = useQuery({
+    queryKey: ['catalog', 'movie', 'top'],
+    queryFn: () =>
       apiFetch<{ results: MediaMeta[] }>(
         '/api/onevid-catalog?type=movie&catalog=top',
-      ),
+      ).then((r) => r.results ?? []),
+  });
+  const seriesQuery = useQuery({
+    queryKey: ['catalog', 'series', 'top'],
+    queryFn: () =>
       apiFetch<{ results: MediaMeta[] }>(
         '/api/onevid-catalog?type=series&catalog=top',
-      ),
-    ])
-      .then(([statusRes, moviesRes, seriesRes]) => {
-        if (cancelled) return;
-        if (statusRes.status === 'fulfilled') setStatus(statusRes.value);
-        if (moviesRes.status === 'fulfilled')
-          setMovies(moviesRes.value.results ?? []);
-        if (seriesRes.status === 'fulfilled')
-          setSeries(seriesRes.value.results ?? []);
-        const catalogFailed =
-          moviesRes.status === 'rejected' && seriesRes.status === 'rejected';
-        if (catalogFailed) {
-          setError('No pudimos cargar el catálogo. Reintenta en un momento.');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+      ).then((r) => r.results ?? []),
+  });
+
+  const movies = moviesQuery.data ?? [];
+  const series = seriesQuery.data ?? [];
+  // Solo skeleton si aún no hay datos en cache (primera carga real).
+  const loading = moviesQuery.isLoading || seriesQuery.isLoading;
+  const error =
+    moviesQuery.isError && seriesQuery.isError
+      ? 'No pudimos cargar el catálogo. Reintenta en un momento.'
+      : null;
 
   const heroItems = interleave(movies, series).slice(0, HERO_TAKE);
 

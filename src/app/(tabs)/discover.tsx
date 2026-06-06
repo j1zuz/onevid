@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { ScrollShadow, SearchField, Skeleton, Typography } from 'heroui-native';
@@ -7,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PosterCard } from '@/components/poster-card';
+import { useResponsive } from '@/hooks/use-responsive';
 import { apiFetch, type MediaMeta } from '@/lib/api';
 import { COLORS } from '@/lib/theme';
 
@@ -54,70 +56,70 @@ const FILTER_OPTIONS: Record<FilterKey, SelectOption[]> = {
 
 export default function DiscoverTab() {
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [type, setType] = useState<SelectOption>(TYPE_OPTIONS[0]);
   const [catalog, setCatalog] = useState<SelectOption>(CATALOG_OPTIONS[0]);
   const [network, setNetwork] = useState<SelectOption>(NETWORK_OPTIONS[0]);
   const [activeFilter, setActiveFilter] = useState<FilterKey | null>(null);
-  const [results, setResults] = useState<MediaMeta[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { posterColumns } = useResponsive();
 
   const isSearching = query.trim().length > 0;
 
+  // Debounce de la búsqueda: la query (cacheada) solo dispara con el texto ya
+  // estabilizado.
   useEffect(() => {
     const trimmed = query.trim();
-    if (!trimmed) {
-      setError(null);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const params = new URLSearchParams({ q: trimmed, type: type.value });
-        const data = await apiFetch<{ results: MediaMeta[] }>(
-          `/api/search?${params.toString()}`,
-        );
-        setResults(data.results ?? []);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Error de búsqueda');
-        setResults([]);
-      } finally {
-        setLoading(false);
-      }
-    }, 400);
+    const timer = setTimeout(() => setDebouncedQuery(trimmed), 400);
     return () => clearTimeout(timer);
-  }, [query, type.value]);
+  }, [query]);
 
-  useEffect(() => {
-    if (isSearching) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    const params = new URLSearchParams({
-      type: type.value,
-      catalog: catalog.value,
-    });
-    if (network.value !== 'all') params.set('network', network.value);
-    apiFetch<{ results: MediaMeta[] }>(
-      `/api/onevid-catalog?${params.toString()}`,
-    )
-      .then((data) => {
-        if (!cancelled) setResults(data.results ?? []);
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'Error de red');
-          setResults([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+  // Catálogo (modo navegación). Cacheado por type/catalog/network → cambiar de
+  // filtro y volver no re-fetchea.
+  const browseQuery = useQuery({
+    queryKey: ['catalog', type.value, catalog.value, network.value],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        type: type.value,
+        catalog: catalog.value,
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [isSearching, type.value, catalog.value, network.value]);
+      if (network.value !== 'all') params.set('network', network.value);
+      return apiFetch<{ results: MediaMeta[] }>(
+        `/api/onevid-catalog?${params.toString()}`,
+      ).then((r) => r.results ?? []);
+    },
+    enabled: !isSearching,
+  });
+
+  // Búsqueda. Cacheada por término + tipo.
+  const searchQuery = useQuery({
+    queryKey: ['search', debouncedQuery, type.value],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        q: debouncedQuery,
+        type: type.value,
+      });
+      return apiFetch<{ results: MediaMeta[] }>(
+        `/api/search?${params.toString()}`,
+      ).then((r) => r.results ?? []);
+    },
+    enabled: isSearching && debouncedQuery.length > 0,
+  });
+
+  const activeQuery = isSearching ? searchQuery : browseQuery;
+  const results = activeQuery.data ?? [];
+  // En búsqueda, también mostramos skeleton mientras el debounce no alcanzó al
+  // texto actual.
+  const loading = isSearching
+    ? searchQuery.isLoading || debouncedQuery !== query.trim()
+    : browseQuery.isLoading;
+  const error =
+    !loading && activeQuery.isError
+      ? activeQuery.error instanceof Error
+        ? activeQuery.error.message
+        : isSearching
+          ? 'Error de búsqueda'
+          : 'Error de red'
+      : null;
 
   const breadcrumb = useMemo(() => {
     const parts = [type.label, catalog.label];
@@ -213,7 +215,7 @@ export default function DiscoverTab() {
           </>
         ) : null}
 
-        {loading ? <SkeletonGrid /> : null}
+        {loading ? <SkeletonGrid columns={posterColumns} /> : null}
 
         {!loading && error ? (
           <Typography type="body-sm" color="muted" align="center">
@@ -229,14 +231,16 @@ export default function DiscoverTab() {
 
         {!loading && results.length > 0 ? (
           <FlatList
+            // RN exige re-montar el FlatList al cambiar numColumns.
+            key={posterColumns}
             data={results}
             keyExtractor={(item) => `${item.type}:${item.id}`}
-            numColumns={2}
+            numColumns={posterColumns}
             scrollEnabled={false}
             columnWrapperStyle={{ gap: 12 }}
             contentContainerStyle={{ gap: 16 }}
             renderItem={({ item }) => (
-              <View style={{ flex: 1 / 2 }}>
+              <View style={{ flex: 1 / posterColumns }}>
                 <PosterCard item={item} onPress={() => handlePressItem(item)} />
               </View>
             )}
@@ -324,7 +328,9 @@ function FilterChip({
   );
 }
 
-function SkeletonGrid() {
+function SkeletonGrid({ columns = 2 }: { columns?: number }) {
+  // Ancho por celda dejando ~3% de gap entre columnas.
+  const itemWidth = `${Math.floor(100 / columns) - 3}%` as `${number}%`;
   return (
     <View
       style={{
@@ -333,9 +339,9 @@ function SkeletonGrid() {
         gap: 12,
       }}
     >
-      {Array.from({ length: 6 }).map((_, i) => (
+      {Array.from({ length: columns * 3 }).map((_, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder
-        <View key={i} style={{ width: '48%', gap: 6 }}>
+        <View key={i} style={{ width: itemWidth, gap: 6 }}>
           <Skeleton
             style={{ width: '100%', aspectRatio: 2 / 3, borderRadius: 12 }}
           />
