@@ -7,9 +7,10 @@ import {
   useToast,
 } from 'heroui-native';
 import { Lock, Pencil, Plus, XCircle } from 'lucide-react-native';
-import { useCallback, useState } from 'react';
-import { Pressable, ScrollView, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { BackHandler, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { avatarSource } from '@/lib/avatars';
 import {
   type Profile,
@@ -20,6 +21,10 @@ import {
 import { COLORS } from '@/lib/theme';
 
 const AVATAR = 104;
+// Alto fijo del área del nombre: nombre (body-sm, lineHeight 24) + gap 3 +
+// candado 12. Reservarlo en TODAS las tarjetas (con o sin PIN) y en el skeleton
+// hace que la grilla sea uniforme y no salte al cargar.
+const NAME_AREA_H = 39;
 
 export default function ProfilesScreen() {
   const { manage } = useLocalSearchParams<{ manage?: string }>();
@@ -110,8 +115,10 @@ export default function ProfilesScreen() {
                 <Skeleton
                   style={{ width: AVATAR, height: AVATAR, borderRadius: 20 }}
                 />
-                <View style={{ alignItems: 'center', gap: 3 }}>
-                  <Skeleton style={{ width: 64, height: 18, borderRadius: 4 }} />
+                {/* Mismo alto reservado que las tarjetas reales (nombre +
+                    candado) para que la grilla no cambie de altura al cargar. */}
+                <View style={{ height: NAME_AREA_H, alignItems: 'center', paddingTop: 5 }}>
+                  <Skeleton style={{ width: 64, height: 14, borderRadius: 4 }} />
                 </View>
               </View>
             ))}
@@ -130,68 +137,30 @@ export default function ProfilesScreen() {
               maxWidth: 460,
             }}
           >
-            {profiles.map((p) => (
-              <PressableFeedback
+            {profiles.map((p, i) => (
+              <ProfileCard
                 key={p.id}
+                profile={p}
+                editing={editing}
+                autoFocus={i === 0}
                 onPress={() => handlePick(p)}
-                style={{ alignItems: 'center', gap: 10, width: AVATAR }}
-              >
-                <View
-                  style={{
-                    width: AVATAR,
-                    height: AVATAR,
-                    borderRadius: 20,
-                    overflow: 'hidden',
-                    opacity: editing ? 0.6 : 1,
-                  }}
-                >
-                  <Image
-                    source={avatarSource(p.avatar)}
-                    style={{ width: '100%', height: '100%' }}
-                    contentFit="cover"
-                  />
-                  {editing ? (
-                    <View style={overlayStyle}>
-                      <Pencil size={28} color="#fff" />
-                    </View>
-                  ) : null}
-                </View>
-                <View style={{ alignItems: 'center', gap: 3 }}>
-                  <Typography type="body-sm" weight="medium" numberOfLines={1}>
-                    {p.name}
-                  </Typography>
-                  {p.hasPin ? <Lock size={12} color="#888" /> : null}
-                </View>
-              </PressableFeedback>
+              />
             ))}
 
             {canAdd ? (
-              <PressableFeedback
-                onPress={() => router.push('/profiles/edit')}
-                style={{ alignItems: 'center', gap: 10, width: AVATAR }}
-              >
-                <View
-                  style={{
-                    width: AVATAR,
-                    height: AVATAR,
-                    borderRadius: 20,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: 'rgba(255,255,255,0.08)',
-                  }}
-                >
-                  <Plus size={40} color="#888" />
-                </View>
-                <Typography type="body-sm" color="muted">
-                  Agregar
-                </Typography>
-              </PressableFeedback>
+              <AddCard onPress={() => router.push('/profiles/edit')} />
             ) : null}
           </View>
         )}
 
         {!loading && profiles.length > 0 ? (
-          <Pressable onPress={() => setEditing((v) => !v)}>
+          <Pressable
+            onPress={() => setEditing((v) => !v)}
+            style={(s) => [
+              { paddingVertical: 8, paddingHorizontal: 18, borderRadius: 999 },
+              tvFocusRing((s as { focused?: boolean }).focused ?? false),
+            ]}
+          >
             <Typography type="body-sm" color="muted" weight="medium">
               {editing ? 'Listo' : 'Administrar perfiles'}
             </Typography>
@@ -214,6 +183,91 @@ export default function ProfilesScreen() {
   );
 }
 
+function ProfileCard({
+  profile,
+  editing,
+  autoFocus = false,
+  onPress,
+}: {
+  profile: Profile;
+  editing: boolean;
+  autoFocus?: boolean;
+  onPress: () => void;
+}) {
+  const { focused, focusProps } = useTvFocus();
+  return (
+    <PressableFeedback
+      onPress={onPress}
+      {...focusProps}
+      // Foco inicial en TV: el primer perfil queda enfocado al abrir la pantalla.
+      hasTVPreferredFocus={autoFocus}
+      style={{ alignItems: 'center', gap: 10, width: AVATAR }}
+    >
+      <View
+        style={[
+          {
+            width: AVATAR,
+            height: AVATAR,
+            borderRadius: 20,
+            overflow: 'hidden',
+            opacity: editing ? 0.6 : 1,
+          },
+          tvFocusRing(focused),
+        ]}
+      >
+        <Image
+          source={avatarSource(profile.avatar)}
+          style={{ width: '100%', height: '100%' }}
+          contentFit="cover"
+        />
+        {editing ? (
+          <View style={overlayStyle}>
+            <Pencil size={28} color="#fff" />
+          </View>
+        ) : null}
+      </View>
+      <View style={{ alignItems: 'center', gap: 3, height: NAME_AREA_H }}>
+        <Typography type="body-sm" weight="medium" numberOfLines={1}>
+          {profile.name}
+        </Typography>
+        {profile.hasPin ? <Lock size={12} color="#888" /> : null}
+      </View>
+    </PressableFeedback>
+  );
+}
+
+function AddCard({ onPress }: { onPress: () => void }) {
+  const { focused, focusProps } = useTvFocus();
+  return (
+    <PressableFeedback
+      onPress={onPress}
+      {...focusProps}
+      style={{ alignItems: 'center', gap: 10, width: AVATAR }}
+    >
+      <View
+        style={[
+          {
+            width: AVATAR,
+            height: AVATAR,
+            borderRadius: 20,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(255,255,255,0.08)',
+          },
+          tvFocusRing(focused),
+        ]}
+      >
+        <Plus size={40} color="#888" />
+      </View>
+      <View style={{ height: NAME_AREA_H, alignItems: 'center' }}>
+        <Typography type="body-sm" color="muted">
+          Agregar
+        </Typography>
+      </View>
+    </PressableFeedback>
+  );
+}
+
 function PinPrompt({
   profile,
   onCancel,
@@ -226,6 +280,16 @@ function PinPrompt({
   const { toast } = useToast();
   const [pin, setPin] = useState('');
   const [checking, setChecking] = useState(false);
+  const inputRef = useRef<TextInput>(null);
+
+  // Tras un PIN incorrecto el input se vacía; lo re-enfocamos al terminar la
+  // validación con el campo vacío para poder reintentar sin tocar de nuevo.
+  useEffect(() => {
+    if (!checking && pin.length === 0) {
+      const t = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [checking, pin.length]);
 
   const submit = useCallback(
     async (value: string) => {
@@ -265,6 +329,16 @@ function PinPrompt({
     [submit],
   );
 
+  // En TV el botón Atrás del control debe cerrar el PIN y volver a la grilla de
+  // perfiles (no salir de la app ni quedarse atascado).
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onCancel();
+      return true;
+    });
+    return () => sub.remove();
+  }, [onCancel]);
+
   return (
     <Pressable
       onPress={onCancel}
@@ -293,9 +367,15 @@ function PinPrompt({
           </Typography>
         </View>
 
-        <View style={{ width: 240, height: 56 }}>
+        {/* Tocar/seleccionar las cajas re-enfoca el input → reabre el teclado
+            del sistema (antes, una vez cerrado, ya no volvía a abrirse). */}
+        <Pressable
+          onPress={() => inputRef.current?.focus()}
+          style={{ width: 240, height: 56 }}
+        >
           {/* Input invisible que captura el teclado */}
           <TextInput
+            ref={inputRef}
             value={pin}
             onChangeText={onChange}
             keyboardType="number-pad"
@@ -315,11 +395,7 @@ function PinPrompt({
           {/* Cajas visuales */}
           <View
             pointerEvents="none"
-            style={{
-              flexDirection: 'row',
-              gap: 12,
-              justifyContent: 'center',
-            }}
+            style={{ flexDirection: 'row', gap: 12, justifyContent: 'center' }}
           >
             {[0, 1, 2, 3].map((i) => (
               <View
@@ -348,7 +424,21 @@ function PinPrompt({
               </View>
             ))}
           </View>
-        </View>
+        </Pressable>
+
+        {/* Volver a elegir perfil. En TV es enfocable con el D-pad; en móvil
+            también sirve además de tocar fuera. */}
+        <Pressable
+          onPress={onCancel}
+          style={(s) => [
+            { paddingVertical: 10, paddingHorizontal: 24, borderRadius: 999 },
+            tvFocusRing((s as { focused?: boolean }).focused ?? false),
+          ]}
+        >
+          <Typography type="body-sm" color="muted" weight="medium">
+            Cancelar
+          </Typography>
+        </Pressable>
         </Pressable>
     </Pressable>
   );

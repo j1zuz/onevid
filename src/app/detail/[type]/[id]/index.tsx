@@ -265,18 +265,23 @@ export default function DetailPage() {
 
         <SafeAreaView
           edges={['top']}
-          style={{ position: 'absolute', left: 12, right: 12 }}
+          // En TV no hay inset de notch, así que el botón queda pegado arriba:
+          // lo separamos un poco.
+          style={{ position: 'absolute', left: 12, right: 12, top: isTV ? 16 : 0 }}
         >
           <Pressable
             onPress={() => router.back()}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: 'rgba(0,0,0,0.55)',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
+            style={(s) => [
+              {
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: 'rgba(0,0,0,0.55)',
+                alignItems: 'center',
+                justifyContent: 'center',
+              },
+              tvFocusRing((s as { focused?: boolean }).focused ?? false),
+            ]}
           >
             <ArrowLeft size={22} color="#fff" />
           </Pressable>

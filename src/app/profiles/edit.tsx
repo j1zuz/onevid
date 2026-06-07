@@ -2,9 +2,10 @@ import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Button, Switch, Typography, useToast } from 'heroui-native';
 import { ArrowLeft, Check, Trash2 } from 'lucide-react-native';
-import { useCallback, useEffect, useState } from 'react';
+import { type ComponentProps, useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { AVATAR_KEYS, type AvatarKey, avatarSource } from '@/lib/avatars';
 import {
   clearActiveProfile,
@@ -250,14 +251,17 @@ export default function EditProfileScreen() {
       >
         <Pressable
           onPress={() => router.back()}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: 'rgba(255,255,255,0.1)',
-          }}
+          style={(s) => [
+            {
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: 'rgba(255,255,255,0.1)',
+            },
+            tvFocusRing((s as { focused?: boolean }).focused ?? false),
+          ]}
         >
           <ArrowLeft size={22} color="#fff" />
         </Pressable>
@@ -279,7 +283,7 @@ export default function EditProfileScreen() {
           <Typography type="body-sm" color="muted">
             Nombre
           </Typography>
-          <TextInput
+          <FocusTextInput
             value={name}
             onChangeText={setName}
             placeholder="Nombre del perfil"
@@ -302,38 +306,12 @@ export default function EditProfileScreen() {
           </Typography>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14 }}>
             {AVATAR_KEYS.map((key) => (
-              <Pressable key={key} onPress={() => setAvatar(key)}>
-                <View
-                  style={{
-                    width: 72,
-                    height: 72,
-                    borderRadius: 16,
-                    overflow: 'hidden',
-                    borderWidth: avatar === key ? 3 : 0,
-                    borderColor: '#fff',
-                  }}
-                >
-                  <Image
-                    source={avatarSource(key)}
-                    style={{ width: '100%', height: '100%' }}
-                    contentFit="cover"
-                  />
-                  {avatar === key ? (
-                    <View
-                      style={{
-                        position: 'absolute',
-                        right: 4,
-                        bottom: 4,
-                        backgroundColor: '#fff',
-                        borderRadius: 999,
-                        padding: 2,
-                      }}
-                    >
-                      <Check size={12} color="#000" />
-                    </View>
-                  ) : null}
-                </View>
-              </Pressable>
+              <AvatarOption
+                key={key}
+                avatarKey={key}
+                selected={avatar === key}
+                onPress={() => setAvatar(key)}
+              />
             ))}
           </View>
         </View>
@@ -359,7 +337,7 @@ export default function EditProfileScreen() {
                   ? 'Nuevo PIN (deja vacío para mantener el actual)'
                   : 'PIN de 4 dígitos'}
               </Typography>
-              <TextInput
+              <FocusTextInput
                 value={lockPin}
                 onChangeText={(t) =>
                   setLockPin(t.replace(/\D/g, '').slice(0, 4))
@@ -383,7 +361,7 @@ export default function EditProfileScreen() {
             <Typography type="body-xs" color="muted">
               Ingresa el PIN del perfil principal para autorizar este cambio.
             </Typography>
-            <TextInput
+            <FocusTextInput
               value={authPin}
               onChangeText={(t) => setAuthPin(t.replace(/\D/g, '').slice(0, 4))}
               placeholder="••••"
@@ -396,7 +374,10 @@ export default function EditProfileScreen() {
             <Pressable
               onPress={handleForgotPin}
               disabled={resetting}
-              style={{ marginTop: 2 }}
+              style={(s) => [
+                { marginTop: 2, alignSelf: 'flex-start', borderRadius: 8 },
+                tvFocusRing((s as { focused?: boolean }).focused ?? false),
+              ]}
             >
               <Typography type="body-xs" style={{ color: '#3b82f6' }}>
                 {resetting ? 'Enviando…' : 'Olvidé mi PIN'}
@@ -408,7 +389,7 @@ export default function EditProfileScreen() {
                 <Typography type="body-xs" color="muted">
                   Código de 6 dígitos enviado a tu email:
                 </Typography>
-                <TextInput
+                <FocusTextInput
                   value={resetCode}
                   onChangeText={(t) =>
                     setResetCode(t.replace(/\D/g, '').slice(0, 6))
@@ -419,24 +400,24 @@ export default function EditProfileScreen() {
                   maxLength={6}
                   style={PIN_INPUT_STYLE}
                 />
-                <Button
+                <FocusButton
                   variant="secondary"
                   onPress={handleConfirmReset}
                   isDisabled={resetCode.length < 6}
                 >
                   Borrar PIN del perfil principal
-                </Button>
+                </FocusButton>
               </View>
             ) : null}
           </View>
         ) : null}
 
-        <Button onPress={handleSave} isDisabled={saving}>
+        <FocusButton onPress={handleSave} isDisabled={saving}>
           {saving ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Crear perfil'}
-        </Button>
+        </FocusButton>
 
         {isEdit ? (
-          <Button
+          <FocusButton
             variant="secondary"
             onPress={handleDelete}
             isDisabled={saving}
@@ -446,7 +427,7 @@ export default function EditProfileScreen() {
             <Typography weight="semibold" style={{ color: '#ef4444' }}>
               Eliminar perfil
             </Typography>
-          </Button>
+          </FocusButton>
         ) : null}
       </ScrollView>
     </SafeAreaView>
@@ -464,13 +445,22 @@ function ToggleRow({
   value: boolean;
   onChange: (v: boolean) => void;
 }) {
+  const { focused, focusProps } = useTvFocus();
   return (
-    <View
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-      }}
+    // Toda la fila es enfocable/pulsable: en TV se navega a la fila y OK
+    // alterna; el Switch queda solo como indicador (pointerEvents none).
+    <Pressable
+      onPress={() => onChange(!value)}
+      {...focusProps}
+      style={[
+        {
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderRadius: 12,
+        },
+        tvFocusRing(focused),
+      ]}
     >
       <View style={{ flex: 1, paddingRight: 16 }}>
         <Typography type="body" weight="medium">
@@ -480,7 +470,81 @@ function ToggleRow({
           {subtitle}
         </Typography>
       </View>
-      <Switch isSelected={value} onSelectedChange={onChange} />
-    </View>
+      <View pointerEvents="none">
+        <Switch isSelected={value} onSelectedChange={onChange} />
+      </View>
+    </Pressable>
+  );
+}
+
+function AvatarOption({
+  avatarKey,
+  selected,
+  onPress,
+}: {
+  avatarKey: AvatarKey;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { focused, focusProps } = useTvFocus();
+  return (
+    <Pressable onPress={onPress} {...focusProps}>
+      <View
+        style={{
+          width: 72,
+          height: 72,
+          borderRadius: 16,
+          overflow: 'hidden',
+          borderWidth: selected || focused ? 3 : 0,
+          borderColor: focused ? '#4f9dff' : '#fff',
+        }}
+      >
+        <Image
+          source={avatarSource(avatarKey)}
+          style={{ width: '100%', height: '100%' }}
+          contentFit="cover"
+        />
+        {selected ? (
+          <View
+            style={{
+              position: 'absolute',
+              right: 4,
+              bottom: 4,
+              backgroundColor: '#fff',
+              borderRadius: 999,
+              padding: 2,
+            }}
+          >
+            <Check size={12} color="#000" />
+          </View>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
+// Button de HeroUI con anillo de foco para TV (en móvil tvFocusRing es null).
+function FocusButton({ children, style, ...props }: ComponentProps<typeof Button>) {
+  const { focused, focusProps } = useTvFocus();
+  return (
+    <Button {...props} {...focusProps} style={[style, tvFocusRing(focused)]}>
+      {children}
+    </Button>
+  );
+}
+
+// TextInput con borde de foco para TV.
+function FocusTextInput({ style, ...props }: ComponentProps<typeof TextInput>) {
+  const { focused, focusProps } = useTvFocus();
+  return (
+    <TextInput
+      {...props}
+      onFocus={focusProps.onFocus}
+      onBlur={focusProps.onBlur}
+      style={[
+        style,
+        focused ? { borderWidth: 2, borderColor: '#4f9dff' } : null,
+      ]}
+    />
   );
 }

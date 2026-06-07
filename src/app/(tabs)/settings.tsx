@@ -9,11 +9,12 @@ import {
   Skeleton,
   Typography,
 } from 'heroui-native';
-import { useCallback, useEffect, useState } from 'react';
+import { type ComponentProps, useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { apiFetch } from '@/lib/api';
 import { clearAccessToken } from '@/lib/auth';
+import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { avatarSource } from '@/lib/avatars';
 import {
   clearActiveProfile,
@@ -92,10 +93,54 @@ export default function SettingsTab() {
         </View>
 
         {loading ? (
-          <View style={{ gap: 16 }}>
-            <Skeleton style={{ height: 88, borderRadius: 16 }} />
-            <Skeleton style={{ height: 130, borderRadius: 16 }} />
-          </View>
+          <>
+            {/* Tarjeta de perfil (avatar + Perfil/nombre + Cambiar) */}
+            <Card>
+              <Card.Body className="flex-row items-center gap-4">
+                <Skeleton style={{ width: 56, height: 56, borderRadius: 14 }} />
+                <View style={{ flex: 1, gap: 6 }}>
+                  <Skeleton style={{ width: 44, height: 12, borderRadius: 4 }} />
+                  <Skeleton style={{ width: 110, height: 20, borderRadius: 4 }} />
+                </View>
+                <Skeleton style={{ width: 56, height: 16, borderRadius: 4 }} />
+              </Card.Body>
+            </Card>
+
+            {/* Lista Email / Usuario (icono + título + descripción) */}
+            <Card>
+              <Card.Body className="gap-0">
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 16,
+                    paddingVertical: 8,
+                  }}
+                >
+                  <Skeleton style={{ width: 36, height: 36, borderRadius: 10 }} />
+                  <View style={{ gap: 6 }}>
+                    <Skeleton style={{ width: 60, height: 14, borderRadius: 4 }} />
+                    <Skeleton style={{ width: 170, height: 12, borderRadius: 4 }} />
+                  </View>
+                </View>
+                <Separator className="mx-4" />
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 16,
+                    paddingVertical: 8,
+                  }}
+                >
+                  <Skeleton style={{ width: 36, height: 36, borderRadius: 10 }} />
+                  <View style={{ gap: 6 }}>
+                    <Skeleton style={{ width: 70, height: 14, borderRadius: 4 }} />
+                    <Skeleton style={{ width: 90, height: 12, borderRadius: 4 }} />
+                  </View>
+                </View>
+              </Card.Body>
+            </Card>
+          </>
         ) : null}
 
         {error ? (
@@ -122,7 +167,13 @@ export default function SettingsTab() {
                 </Typography>
                 <Typography type="h5">{profile.name}</Typography>
               </View>
-              <Pressable onPress={handleSwitchProfile}>
+              <Pressable
+                onPress={handleSwitchProfile}
+                style={(s) => [
+                  { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 999 },
+                  tvFocusRing((s as { focused?: boolean }).focused ?? false),
+                ]}
+              >
                 <Typography
                   type="body-sm"
                   weight="medium"
@@ -165,10 +216,20 @@ export default function SettingsTab() {
           </>
         ) : null}
 
-        <Button onPress={handleLogout} variant="secondary">
+        <FocusButton onPress={handleLogout} variant="secondary">
           Cerrar sesión
-        </Button>
+        </FocusButton>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+// Button de HeroUI con anillo de foco para TV (en móvil tvFocusRing es null).
+function FocusButton({ children, style, ...props }: ComponentProps<typeof Button>) {
+  const { focused, focusProps } = useTvFocus();
+  return (
+    <Button {...props} {...focusProps} style={[style, tvFocusRing(focused)]}>
+      {children}
+    </Button>
   );
 }

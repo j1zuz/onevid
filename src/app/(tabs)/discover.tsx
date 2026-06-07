@@ -30,8 +30,6 @@ const NETWORKS: Network[] = [
   { value: '2552', label: 'Apple TV+', logo: '/bngHRFi794mnMq34gfVcm9nDxN1.png' },
   { value: '49', label: 'HBO', logo: '/tuomPhY2UtuPTqqFnKMVHvSb724.png' },
   { value: '4330', label: 'Paramount+', logo: '/fi83B1oztoS47xxcemFdPMhIzK.png' },
-  // Hulu no opera en varias regiones móviles → solo se muestra en TV.
-  { value: '453', label: 'Hulu', logo: '/pqUTCleNUiTLAVlelGxUgWn1ELh.png' },
 ];
 
 const networkLogoUrl = (logo: string) => `https://image.tmdb.org/t/p/w300${logo}`;
@@ -46,8 +44,6 @@ export default function DiscoverTab() {
 
   // Tarjetas de cadenas en el slider horizontal: más grandes en TV.
   const cardW = isTV ? 200 : 132;
-  // Hulu solo en TV (no opera en varias regiones móviles).
-  const networks = isTV ? NETWORKS : NETWORKS.filter((n) => n.value !== '453');
 
   // Debounce de la búsqueda.
   useEffect(() => {
@@ -190,7 +186,7 @@ export default function DiscoverTab() {
                   <FlatList
                     horizontal
                     showsHorizontalScrollIndicator={false}
-                    data={networks}
+                    data={NETWORKS}
                     keyExtractor={(n) => n.value}
                     contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
                     renderItem={({ item }) => (
