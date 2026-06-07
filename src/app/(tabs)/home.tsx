@@ -2,9 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { CloudOff } from 'lucide-react-native';
-import { Button, Card, ScrollShadow, Skeleton, Typography } from 'heroui-native';
+import { ScrollShadow, Skeleton, Typography } from 'heroui-native';
 import { useCallback } from 'react';
-import { Linking, ScrollView, useWindowDimensions, View } from 'react-native';
+import { ScrollView, useWindowDimensions, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { HeroCarousel } from '@/components/home/hero-carousel';
 import { PosterRow } from '@/components/home/poster-row';
@@ -19,7 +19,7 @@ interface SetupStatus {
   addonsCount: number;
 }
 
-const SETUP_URL = `${API_URL}/home/1vid`;
+const SETUP_URL = `${API_URL}/home/projects/1vid`;
 const HERO_TAKE = 8;
 
 export default function HomeTab() {
@@ -65,6 +65,32 @@ export default function HomeTab() {
     });
   }, []);
 
+  if (status && !status.setupCompleted) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: COLORS.background,
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingHorizontal: 32,
+          gap: 16,
+        }}
+      >
+        <CloudOff size={48} color="#888" />
+        <Typography type="h5" align="center">
+          Configura 1vid para empezar
+        </Typography>
+        <Typography type="body-sm" color="muted" align="center">
+          Aún no completaste la configuración. Sigue los pasos en:
+        </Typography>
+        <Typography type="body-sm" align="center">
+          {SETUP_URL}
+        </Typography>
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
       <ScrollShadow
@@ -97,29 +123,6 @@ export default function HomeTab() {
         ) : (
           <HeroCarousel items={heroItems} />
         )}
-
-        {status && !status.setupCompleted ? (
-          <View style={{ paddingHorizontal: 16 }}>
-            <Card>
-              <Card.Body className="items-center gap-4 py-6">
-                <CloudOff size={48} color="#888" />
-                <View className="items-center gap-2">
-                  <Typography type="h5" align="center">
-                    Configura 1vid para empezar
-                  </Typography>
-                  <Typography type="body-sm" color="muted" align="center">
-                    Aún no completaste la configuración. Abre hackw.tech en tu
-                    navegador, agrega tu token de TMDB, tu API key de TorBox y
-                    al menos un addon.
-                  </Typography>
-                </View>
-                <Button onPress={() => Linking.openURL(SETUP_URL)}>
-                  Configurar en hackw.tech
-                </Button>
-              </Card.Body>
-            </Card>
-          </View>
-        ) : null}
 
         <PosterRow
           title="Películas populares"
