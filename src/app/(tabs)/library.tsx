@@ -6,6 +6,7 @@ import { useCallback } from 'react';
 import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PosterRow } from '@/components/home/poster-row';
+import { SetupPrompt, useSetupStatus } from '@/components/setup-prompt';
 import type { MediaMeta } from '@/lib/api';
 import { getFavorites, getWatchlistItems } from '@/lib/saved';
 import { COLORS } from '@/lib/theme';
@@ -40,6 +41,9 @@ export default function LibraryTab() {
       params: { type: item.type, id: item.id },
     });
   }, []);
+
+  const { data: status } = useSetupStatus();
+  if (status && !status.setupCompleted) return <SetupPrompt />;
 
   return (
     <SafeAreaView

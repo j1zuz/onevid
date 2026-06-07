@@ -8,6 +8,7 @@ import { FlatList, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PosterCard } from '@/components/poster-card';
 import { PosterRow } from '@/components/home/poster-row';
+import { SetupPrompt, useSetupStatus } from '@/components/setup-prompt';
 import { useResponsive } from '@/hooks/use-responsive';
 import { useTvFocus } from '@/hooks/use-tv-focus';
 import { apiFetch, type MediaMeta } from '@/lib/api';
@@ -109,6 +110,9 @@ export default function DiscoverTab() {
       params: { type: item.type, id: item.id },
     });
   }, []);
+
+  const { data: status } = useSetupStatus();
+  if (status && !status.setupCompleted) return <SetupPrompt />;
 
   return (
     <SafeAreaView
