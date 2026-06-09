@@ -8,7 +8,8 @@
     "scheme": "1vid",
     "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "tech.hackw.onevid"
     },
     "android": {
       "adaptiveIcon": {
@@ -18,7 +19,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "usesCleartextTraffic": true,
-      "package": "com.anonymous.x1vid"
+      "package": "tech.hackw.onevid"
     },
     "androidStatusBar": {
       "translucent": true,
@@ -51,11 +52,25 @@
         }
       ],
       "expo-image",
-      "@react-native-tvos/config-tv"
+      "@react-native-tvos/config-tv",
+      [
+        "expo-libvlc-player",
+        {
+          "localNetworkPermission": "Permite a $(PRODUCT_NAME) acceder a tu red local para reproducir contenido.",
+          "supportsPictureInPicture": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "05fa14f6-8ade-486d-b56d-8ded1eba3bbe"
+      }
+    },
+    "owner": "j1zuz"
   }
 }
