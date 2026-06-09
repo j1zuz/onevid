@@ -52,7 +52,14 @@
         }
       ],
       "expo-image",
-      "@react-native-tvos/config-tv"
+      "@react-native-tvos/config-tv",
+      [
+        "expo-libvlc-player",
+        {
+          "localNetworkPermission": "Permite a $(PRODUCT_NAME) acceder a tu red local para reproducir contenido.",
+          "supportsPictureInPicture": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
