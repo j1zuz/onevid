@@ -114,6 +114,7 @@ export default function PlayerScreen() {
     id?: string;
     season?: string;
     episode?: string;
+    episodeTitle?: string;
   }>();
   const title = params.title;
   const background = params.background || undefined;
@@ -122,6 +123,13 @@ export default function PlayerScreen() {
   const mediaType = params.type === 'series' ? 'series' : 'movie';
   const mediaId = params.id || undefined;
   const canChangeSource = Boolean(mediaId);
+  // Subtítulo: para series "S1E1 · Nombre del episodio".
+  const subtitle =
+    mediaType === 'series' && params.season && params.episode
+      ? `S${params.season}E${params.episode}${
+          params.episodeTitle ? ` · ${params.episodeTitle}` : ''
+        }`
+      : undefined;
 
   // `rawUrl` es estado: al elegir otra fuente lo cambiamos y se re-resuelve.
   const [rawUrl, setRawUrl] = useState(params.url ?? '');
@@ -197,6 +205,7 @@ export default function PlayerScreen() {
           key={state.url}
           url={state.url}
           title={title}
+          subtitle={subtitle}
           background={background}
           logo={logo}
           onChangeSource={canChangeSource ? () => setPickerOpen(true) : undefined}
@@ -279,12 +288,14 @@ function SourcePicker({
 function Player({
   url,
   title,
+  subtitle,
   background,
   logo,
   onChangeSource,
 }: {
   url: string;
   title?: string;
+  subtitle?: string;
   background?: string;
   logo?: string;
   onChangeSource?: () => void;
@@ -389,9 +400,13 @@ function Player({
         ref={playerRef}
         style={StyleSheet.absoluteFill}
         source={url}
-        // Caching de red más alto → menos cortes de buffering en streams remotos
-        // (a costa de unos ms más de arranque). Tunable.
-        options={[':network-caching=3000', ':file-caching=3000']}
+        // Caching de red más alto + reconexión HTTP → menos cortes y recupera
+        // fuentes que cierran la conexión a mitad. Tunable.
+        options={[
+          ':network-caching=3000',
+          ':file-caching=3000',
+          ':http-reconnect',
+        ]}
         contentFit="contain"
         autoplay
         pictureInPicture
@@ -458,23 +473,75 @@ function Player({
       {/* Controles */}
       {!showArt && controlsVisible ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          {/* Título arriba */}
+          {/* Arriba: título (izquierda) + acciones (derecha) */}
           <View
             style={[
               styles.topBar,
               {
                 paddingTop: insets.top + 6,
-                paddingLeft: insets.left + 64,
-                paddingRight: insets.right + 16,
+                paddingLeft: insets.left + 60,
+                paddingRight: insets.right + 12,
               },
             ]}
-            pointerEvents="none"
+            pointerEvents="box-none"
           >
-            {title ? (
-              <Text style={styles.topTitle} numberOfLines={1}>
-                {title}
-              </Text>
-            ) : null}
+            <View style={styles.topTitleBlock} pointerEvents="none">
+              {title ? (
+                <Text style={styles.topTitle} numberOfLines={1}>
+                  {title}
+                </Text>
+              ) : null}
+              {subtitle ? (
+                <Text style={styles.topSubtitle} numberOfLines={1}>
+                  {subtitle}
+                </Text>
+              ) : null}
+            </View>
+            <View style={styles.topActions}>
+              {tracks.audio.length > 0 ? (
+                <Pressable
+                  style={styles.actionBtn}
+                  onPress={() => {
+                    setMenu('audio');
+                    showControls();
+                  }}
+                  hitSlop={6}
+                >
+                  <Languages size={20} color="#fff" />
+                </Pressable>
+              ) : null}
+              {tracks.subtitle.length > 0 ? (
+                <Pressable
+                  style={styles.actionBtn}
+                  onPress={() => {
+                    setMenu('subtitle');
+                    showControls();
+                  }}
+                  hitSlop={6}
+                >
+                  <Captions size={20} color="#fff" />
+                </Pressable>
+              ) : null}
+              {onChangeSource ? (
+                <Pressable
+                  style={styles.actionBtn}
+                  onPress={() => {
+                    onChangeSource();
+                    showControls();
+                  }}
+                  hitSlop={6}
+                >
+                  <ListVideo size={20} color="#fff" />
+                </Pressable>
+              ) : null}
+              <Pressable
+                style={styles.actionBtn}
+                onPress={() => playerRef.current?.startPictureInPicture?.()}
+                hitSlop={6}
+              >
+                <PictureInPicture2 size={20} color="#fff" />
+              </Pressable>
+            </View>
           </View>
 
           {/* Centro: retroceder 10s · play/pausa · adelantar 10s */}
@@ -513,14 +580,6 @@ function Player({
               },
             ]}
           >
-            <Pressable style={styles.pillBtn} onPress={togglePlay} hitSlop={8}>
-              {playing ? (
-                <Pause size={22} color="#fff" fill="#fff" />
-              ) : (
-                <Play size={22} color="#fff" fill="#fff" />
-              )}
-            </Pressable>
-
             <Text style={styles.timeText}>{formatTime(progress)}</Text>
 
             <View
@@ -540,50 +599,6 @@ function Player({
             </View>
 
             <Text style={styles.timeText}>{formatTime(duration)}</Text>
-
-            {tracks.audio.length > 0 ? (
-              <Pressable
-                style={styles.pillBtn}
-                onPress={() => {
-                  setMenu('audio');
-                  showControls();
-                }}
-                hitSlop={8}
-              >
-                <Languages size={19} color="#fff" />
-              </Pressable>
-            ) : null}
-            {tracks.subtitle.length > 0 ? (
-              <Pressable
-                style={styles.pillBtn}
-                onPress={() => {
-                  setMenu('subtitle');
-                  showControls();
-                }}
-                hitSlop={8}
-              >
-                <Captions size={19} color="#fff" />
-              </Pressable>
-            ) : null}
-            {onChangeSource ? (
-              <Pressable
-                style={styles.pillBtn}
-                onPress={() => {
-                  onChangeSource();
-                  showControls();
-                }}
-                hitSlop={8}
-              >
-                <ListVideo size={19} color="#fff" />
-              </Pressable>
-            ) : null}
-            <Pressable
-              style={styles.pillBtn}
-              onPress={() => playerRef.current?.startPictureInPicture?.()}
-              hitSlop={8}
-            >
-              <PictureInPicture2 size={19} color="#fff" />
-            </Pressable>
           </View>
         </View>
       ) : null}
@@ -819,14 +834,40 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    alignItems: 'center',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  topTitleBlock: {
+    flex: 1,
   },
   topTitle: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowRadius: 6,
+  },
+  topSubtitle: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 12,
+    marginTop: 2,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowRadius: 6,
+  },
+  topActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  actionBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
   centerRow: {
     flex: 1,
@@ -860,13 +901,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 30,
     backgroundColor: 'rgba(18,18,18,0.72)',
-  },
-  pillBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   timeText: {
     color: '#fff',

@@ -1,7 +1,11 @@
+import { Image } from 'expo-image';
 import { Tabs } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { TabIcon, type TabIconName } from '@/components/tab-icon';
 import { TvSidebar } from '@/components/tv-sidebar';
+import { avatarSource } from '@/lib/avatars';
+import { loadActiveProfile } from '@/lib/profiles';
 import { COLORS } from '@/lib/theme';
 
 function icon(name: TabIconName) {
@@ -10,7 +14,32 @@ function icon(name: TabIconName) {
   );
 }
 
+// Ícono del tab "Perfil": el avatar del perfil activo (en vez de un ícono fijo).
+function profileIcon(avatar: string | undefined) {
+  return ({ focused, size }: { focused: boolean; size: number }) => {
+    const d = size + 4;
+    return (
+      <Image
+        source={avatarSource(avatar)}
+        style={{
+          width: d,
+          height: d,
+          borderRadius: d / 2,
+          opacity: focused ? 1 : 0.55,
+          borderWidth: focused ? 2 : 0,
+          borderColor: '#fff',
+        }}
+      />
+    );
+  };
+}
+
 export default function TabsLayout() {
+  const [avatar, setAvatar] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    loadActiveProfile().then((p) => setAvatar(p?.avatar)).catch(() => {});
+  }, []);
+
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
       <Tabs
@@ -42,7 +71,7 @@ export default function TabsLayout() {
         />
         <Tabs.Screen
           name="settings"
-          options={{ title: 'Configuración', tabBarIcon: icon('settings') }}
+          options={{ title: 'Perfil', tabBarIcon: profileIcon(avatar) }}
         />
       </Tabs>
 
