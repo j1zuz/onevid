@@ -5,6 +5,7 @@ import {
   type Track,
 } from 'expo-libvlc-player';
 import { Image } from 'expo-image';
+import * as NavigationBar from 'expo-navigation-bar';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { Typography } from 'heroui-native';
@@ -13,7 +14,9 @@ import {
   Captions,
   Check,
   Languages,
+  ListVideo,
   Pause,
+  PictureInPicture2,
   Play,
   RotateCcw,
   RotateCw,
@@ -25,6 +28,7 @@ import {
   Pressable,
   type GestureResponderEvent,
   type LayoutChangeEvent,
+  StatusBar as RNStatusBar,
   StyleSheet,
   Text,
   View,
@@ -37,7 +41,11 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
+import { SourcesList, type StreamSource } from '@/components/sources-list';
 import { API_URL, getAccessToken } from '@/lib/auth';
 
 type ResolvedStream = { url: string; fileName?: string };
@@ -102,12 +110,23 @@ export default function PlayerScreen() {
     title?: string;
     background?: string;
     logo?: string;
+    type?: string;
+    id?: string;
+    season?: string;
+    episode?: string;
   }>();
-  const rawUrl = params.url ?? '';
   const title = params.title;
   const background = params.background || undefined;
   const logo = params.logo || undefined;
+  // type/id permiten reabrir la lista de fuentes desde el reproductor.
+  const mediaType = params.type === 'series' ? 'series' : 'movie';
+  const mediaId = params.id || undefined;
+  const canChangeSource = Boolean(mediaId);
+
+  // `rawUrl` es estado: al elegir otra fuente lo cambiamos y se re-resuelve.
+  const [rawUrl, setRawUrl] = useState(params.url ?? '');
   const [state, setState] = useState<ResolveState>({ kind: 'resolving' });
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // Auto-rotate to landscape while the player is mounted; restore on exit.
   // En TV la pantalla ya es landscape fija, así que no tocamos la orientación.
@@ -127,12 +146,32 @@ export default function PlayerScreen() {
     };
   }, []);
 
+  // Pantalla completa inmersiva: oculta barra de estado y de navegación mientras
+  // el reproductor está montado; las restaura al salir.
+  useEffect(() => {
+    RNStatusBar.setHidden(true, 'fade');
+    if (Platform.OS === 'android') {
+      NavigationBar.setVisibilityAsync('hidden').catch(() => {
+        /* ignore */
+      });
+    }
+    return () => {
+      RNStatusBar.setHidden(false, 'fade');
+      if (Platform.OS === 'android') {
+        NavigationBar.setVisibilityAsync('visible').catch(() => {
+          /* ignore */
+        });
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (!rawUrl) {
       setState({ kind: 'error', message: 'Falta la URL del stream.' });
       return;
     }
     let cancelled = false;
+    setState({ kind: 'resolving' });
     resolveStreamUrl(rawUrl)
       .then(({ url, fileName }) => {
         if (!cancelled) setState({ kind: 'ready', url, fileName });
@@ -154,7 +193,14 @@ export default function PlayerScreen() {
   return (
     <View style={styles.root}>
       {state.kind === 'ready' ? (
-        <Player url={state.url} title={title} background={background} logo={logo} />
+        <Player
+          key={state.url}
+          url={state.url}
+          title={title}
+          background={background}
+          logo={logo}
+          onChangeSource={canChangeSource ? () => setPickerOpen(true) : undefined}
+        />
       ) : (
         <LoadingArt
           background={background}
@@ -173,6 +219,59 @@ export default function PlayerScreen() {
           <ArrowLeft size={22} color="#fff" />
         </Pressable>
       </SafeAreaView>
+
+      {pickerOpen && mediaId ? (
+        <SourcePicker
+          type={mediaType}
+          id={mediaId}
+          season={params.season || undefined}
+          episode={params.episode || undefined}
+          onSelect={(s: StreamSource) => {
+            setPickerOpen(false);
+            setRawUrl(s.url);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+function SourcePicker({
+  type,
+  id,
+  season,
+  episode,
+  onSelect,
+  onClose,
+}: {
+  type: 'movie' | 'series';
+  id: string;
+  season?: string;
+  episode?: string;
+  onSelect: (source: StreamSource) => void;
+  onClose: () => void;
+}) {
+  return (
+    <View style={styles.menuRoot}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <View style={styles.pickerCard}>
+        <View style={styles.menuHeader}>
+          <Typography type="h5" weight="bold">
+            Cambiar fuente
+          </Typography>
+          <Pressable onPress={onClose} style={styles.menuClose}>
+            <X size={20} color="#fff" />
+          </Pressable>
+        </View>
+        <SourcesList
+          type={type}
+          id={id}
+          season={season}
+          episode={episode}
+          onSelect={onSelect}
+        />
+      </View>
     </View>
   );
 }
@@ -182,12 +281,15 @@ function Player({
   title,
   background,
   logo,
+  onChangeSource,
 }: {
   url: string;
   title?: string;
   background?: string;
   logo?: string;
+  onChangeSource?: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const playerRef = useRef<LibVlcPlayerViewRef>(null);
   const bufferTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -286,6 +388,9 @@ function Player({
         ref={playerRef}
         style={StyleSheet.absoluteFill}
         source={url}
+        // Caching de red más alto → menos cortes de buffering en streams remotos
+        // (a costa de unos ms más de arranque). Tunable.
+        options={[':network-caching=3000', ':file-caching=3000']}
         contentFit="contain"
         autoplay
         pictureInPicture
@@ -346,84 +451,125 @@ function Player({
         />
       ) : null}
 
-      {/* Controles completos */}
+      {/* Controles */}
       {!showArt && controlsVisible ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
           {/* Título arriba */}
-          <SafeAreaView edges={['top']} style={styles.topBar} pointerEvents="none">
+          <View
+            style={[
+              styles.topBar,
+              {
+                paddingTop: insets.top + 6,
+                paddingLeft: insets.left + 64,
+                paddingRight: insets.right + 16,
+              },
+            ]}
+            pointerEvents="none"
+          >
             {title ? (
               <Text style={styles.topTitle} numberOfLines={1}>
                 {title}
               </Text>
             ) : null}
-          </SafeAreaView>
-
-          {/* Centro: play/pause + saltos */}
-          <View style={styles.centerRow} pointerEvents="box-none">
-            <Pressable style={styles.ctrlBtn} onPress={() => skip(-SEEK_STEP_MS)}>
-              <RotateCcw size={30} color="#fff" />
-            </Pressable>
-            <Pressable style={styles.playBtn} onPress={togglePlay}>
-              {playing ? (
-                <Pause size={38} color="#fff" fill="#fff" />
-              ) : (
-                <Play size={38} color="#fff" fill="#fff" />
-              )}
-            </Pressable>
-            <Pressable style={styles.ctrlBtn} onPress={() => skip(SEEK_STEP_MS)}>
-              <RotateCw size={30} color="#fff" />
-            </Pressable>
           </View>
 
-          {/* Abajo: tiempo + barra + pistas */}
-          <SafeAreaView edges={['bottom']} style={styles.bottomBar}>
-            <View style={styles.bottomRow}>
-              <Text style={styles.timeText}>{formatTime(progress)}</Text>
-              <View
-                style={styles.barTouch}
-                onLayout={onBarLayout}
-                onStartShouldSetResponder={() => true}
-                onMoveShouldSetResponder={() => true}
-                onResponderGrant={beginScrub}
-                onResponderMove={moveScrub}
-                onResponderRelease={endScrub}
-                onResponderTerminate={endScrub}
-              >
-                <View style={styles.barTrack}>
-                  <View style={[styles.barFill, { width: `${pct * 100}%` }]} />
-                  <View style={[styles.barThumb, { left: `${pct * 100}%` }]} />
-                </View>
+          {/* Barra inferior tipo "pill" (estilo imagen 5) */}
+          <View
+            style={[
+              styles.pill,
+              {
+                left: insets.left + 16,
+                right: insets.right + 16,
+                bottom: insets.bottom + 14,
+              },
+            ]}
+          >
+            <Pressable style={styles.pillBtn} onPress={togglePlay} hitSlop={8}>
+              {playing ? (
+                <Pause size={22} color="#fff" fill="#fff" />
+              ) : (
+                <Play size={22} color="#fff" fill="#fff" />
+              )}
+            </Pressable>
+            <Pressable
+              style={styles.pillBtn}
+              onPress={() => skip(-SEEK_STEP_MS)}
+              hitSlop={8}
+            >
+              <RotateCcw size={19} color="#fff" />
+            </Pressable>
+            <Pressable
+              style={styles.pillBtn}
+              onPress={() => skip(SEEK_STEP_MS)}
+              hitSlop={8}
+            >
+              <RotateCw size={19} color="#fff" />
+            </Pressable>
+
+            <Text style={styles.timeText}>{formatTime(progress)}</Text>
+
+            <View
+              style={styles.barTouch}
+              onLayout={onBarLayout}
+              onStartShouldSetResponder={() => true}
+              onMoveShouldSetResponder={() => true}
+              onResponderGrant={beginScrub}
+              onResponderMove={moveScrub}
+              onResponderRelease={endScrub}
+              onResponderTerminate={endScrub}
+            >
+              <View style={styles.barTrack}>
+                <View style={[styles.barFill, { width: `${pct * 100}%` }]} />
+                <View style={[styles.barThumb, { left: `${pct * 100}%` }]} />
               </View>
-              <Text style={styles.timeText}>{formatTime(duration)}</Text>
             </View>
 
-            <View style={styles.trackRow}>
-              {tracks.audio.length > 0 ? (
-                <Pressable
-                  style={styles.trackBtn}
-                  onPress={() => {
-                    setMenu('audio');
-                    showControls();
-                  }}
-                >
-                  <Languages size={18} color="#fff" />
-                  <Text style={styles.trackBtnText}>Audio</Text>
-                </Pressable>
-              ) : null}
-              {tracks.subtitle.length > 0 ? (
-                <Pressable
-                  style={styles.trackBtn}
-                  onPress={() => {
-                    setMenu('subtitle');
-                    showControls();
-                  }}
-                >
-                  <Captions size={18} color="#fff" />
-                  <Text style={styles.trackBtnText}>Subtítulos</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </SafeAreaView>
+            <Text style={styles.timeText}>{formatTime(duration)}</Text>
+
+            {tracks.audio.length > 0 ? (
+              <Pressable
+                style={styles.pillBtn}
+                onPress={() => {
+                  setMenu('audio');
+                  showControls();
+                }}
+                hitSlop={8}
+              >
+                <Languages size={19} color="#fff" />
+              </Pressable>
+            ) : null}
+            {tracks.subtitle.length > 0 ? (
+              <Pressable
+                style={styles.pillBtn}
+                onPress={() => {
+                  setMenu('subtitle');
+                  showControls();
+                }}
+                hitSlop={8}
+              >
+                <Captions size={19} color="#fff" />
+              </Pressable>
+            ) : null}
+            {onChangeSource ? (
+              <Pressable
+                style={styles.pillBtn}
+                onPress={() => {
+                  onChangeSource();
+                  showControls();
+                }}
+                hitSlop={8}
+              >
+                <ListVideo size={19} color="#fff" />
+              </Pressable>
+            ) : null}
+            <Pressable
+              style={styles.pillBtn}
+              onPress={() => playerRef.current?.startPictureInPicture?.()}
+              hitSlop={8}
+            >
+              <PictureInPicture2 size={19} color="#fff" />
+            </Pressable>
+          </View>
         </View>
       ) : null}
 
@@ -623,13 +769,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   bufferWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
   spinner: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 3,
     borderColor: '#fff',
     borderTopColor: 'transparent',
@@ -639,8 +790,6 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 64,
-    paddingTop: 10,
     alignItems: 'center',
   },
   topTitle: {
@@ -650,53 +799,35 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowRadius: 6,
   },
-  centerRow: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 40,
-  },
-  ctrlBtn: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  playBtn: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  bottomBar: {
+  pill: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: 20,
-    paddingBottom: 8,
-  },
-  bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 30,
+    backgroundColor: 'rgba(18,18,18,0.72)',
+  },
+  pillBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   timeText: {
     color: '#fff',
     fontSize: 12,
     fontVariant: ['tabular-nums'],
-    minWidth: 44,
+    minWidth: 42,
     textAlign: 'center',
   },
   barTouch: {
     flex: 1,
     height: 28,
     justifyContent: 'center',
+    marginHorizontal: 4,
   },
   barTrack: {
     height: 4,
@@ -719,22 +850,6 @@ const styles = StyleSheet.create({
     marginLeft: -7,
     backgroundColor: '#fff',
   },
-  trackRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-    marginTop: 6,
-  },
-  trackBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  trackBtnText: { color: '#fff', fontSize: 13, fontWeight: '500' },
   menuRoot: {
     position: 'absolute',
     top: 0,
@@ -754,6 +869,15 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 8,
     paddingHorizontal: 4,
+  },
+  pickerCard: {
+    width: '86%',
+    maxWidth: 560,
+    maxHeight: '88%',
+    backgroundColor: '#161616',
+    borderRadius: 16,
+    paddingTop: 8,
+    overflow: 'hidden',
   },
   menuHeader: {
     flexDirection: 'row',

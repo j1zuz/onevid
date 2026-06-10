@@ -125,16 +125,19 @@ function HeroSlide({
 }) {
   const { isLarge } = useResponsive();
   const playFocus = useTvFocus();
-  // En pantallas grandes/TV pedimos la máxima resolución del backdrop.
+  // Resolución acotada: en móvil 'w780' (suficiente y mucho más liviano en RAM
+  // que 'w1280'/'original', que en gama baja se desalojan al reproducir y dejan
+  // el hero en negro). En TV/pantallas grandes 'w1280'.
   const bg = tmdbImage(
     item.background ?? item.poster,
-    isLarge ? 'original' : 'w1280',
+    isLarge ? 'w1280' : 'w780',
   );
   return (
     <View style={{ width, height }}>
       {bg ? (
         <Image
           source={bg}
+          recyclingKey={bg}
           contentFit="cover"
           transition={200}
           cachePolicy="memory-disk"

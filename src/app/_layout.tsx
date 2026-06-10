@@ -7,6 +7,7 @@ import { Stack } from 'expo-router';
 import { NavigationBar } from 'expo-navigation-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as SplashScreen from 'expo-splash-screen';
+import * as SystemUI from 'expo-system-ui';
 import { useEffect, useState } from 'react';
 import { Platform, StatusBar as RNStatusBar } from 'react-native';
 import { Uniwind } from 'uniwind';
@@ -37,7 +38,13 @@ if (Platform.OS === 'android') {
   RNStatusBar.setTranslucent(true);
   RNStatusBar.setBackgroundColor('transparent');
   RNStatusBar.setBarStyle('light-content');
-  NavigationBar.setStyle('dark');
+  // Con edge-to-edge (Android 15) la barra de navegación es transparente y
+  // muestra el fondo de la ventana: lo fijamos en negro para que se vea oscura,
+  // y ponemos los iconos en claro (blanco) encima.
+  SystemUI.setBackgroundColorAsync('#000000').catch(() => {
+    /* ignore */
+  });
+  NavigationBar.setStyle('light');
 }
 
 export default function RootLayout() {

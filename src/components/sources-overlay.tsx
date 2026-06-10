@@ -98,6 +98,11 @@ export function SourcesOverlay({
                 title: title || s.title,
                 background: background ?? '',
                 logo: logo ?? '',
+                // Para poder cambiar de fuente desde el reproductor.
+                type,
+                id,
+                ...(season ? { season } : {}),
+                ...(episode ? { episode } : {}),
               },
             });
           }}

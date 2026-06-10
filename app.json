@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "1vid",
+    "name": "onevid",
     "slug": "1vid",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
-    "scheme": "1vid",
+    "scheme": "onevid",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
@@ -18,16 +18,11 @@
         "monochromeImage": "./assets/images/icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
-      "usesCleartextTraffic": true,
       "package": "tech.hackw.onevid"
     },
     "androidStatusBar": {
       "translucent": true,
       "backgroundColor": "#00000000",
-      "barStyle": "light-content"
-    },
-    "androidNavigationBar": {
-      "backgroundColor": "#000000",
       "barStyle": "light-content"
     },
     "web": {
@@ -40,8 +35,8 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#000000",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 220
+          "image": "./assets/images/icon-foreground.png",
+          "imageWidth": 240
         }
       ],
       [
@@ -58,6 +53,14 @@
         {
           "localNetworkPermission": "Permite a $(PRODUCT_NAME) acceder a tu red local para reproducir contenido.",
           "supportsPictureInPicture": true
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
         }
       ]
     ],
