@@ -302,6 +302,7 @@ function Player({
   const [buffering, setBuffering] = useState(true);
   const [hasPlayed, setHasPlayed] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [rawError, setRawError] = useState<string | null>(null);
 
   const [time, setTime] = useState(0); // ms
   const [duration, setDuration] = useState(0); // ms
@@ -409,6 +410,7 @@ function Player({
           setPlaying(true);
           setHasPlayed(true);
           setErrorMsg(null);
+          setRawError(null);
         }}
         onPaused={() => setPlaying(false)}
         onStopped={() => setPlaying(false)}
@@ -420,9 +422,10 @@ function Player({
           setTracks(media);
           setAudioId((prev) => prev ?? pickDefaultAudio(media.audio));
         }}
-        onEncounteredError={({ message }) =>
-          setErrorMsg(humanizePlaybackError(message))
-        }
+        onEncounteredError={({ message }) => {
+          setErrorMsg(humanizePlaybackError(message));
+          setRawError(message || 'EncounteredError (sin mensaje)');
+        }}
       />
 
       {/* Capa táctil para mostrar/ocultar controles */}
@@ -448,6 +451,7 @@ function Player({
           logo={logo}
           title={title}
           error={errorMsg ?? undefined}
+          detail={rawError ?? undefined}
         />
       ) : null}
 
@@ -473,7 +477,32 @@ function Player({
             ) : null}
           </View>
 
-          {/* Barra inferior tipo "pill" (estilo imagen 5) */}
+          {/* Centro: retroceder 10s · play/pausa · adelantar 10s */}
+          <View style={styles.centerRow} pointerEvents="box-none">
+            <Pressable
+              style={styles.ctrlBtn}
+              onPress={() => skip(-SEEK_STEP_MS)}
+              hitSlop={8}
+            >
+              <RotateCcw size={26} color="#fff" />
+            </Pressable>
+            <Pressable style={styles.playBtn} onPress={togglePlay} hitSlop={8}>
+              {playing ? (
+                <Pause size={32} color="#fff" fill="#fff" />
+              ) : (
+                <Play size={32} color="#fff" fill="#fff" />
+              )}
+            </Pressable>
+            <Pressable
+              style={styles.ctrlBtn}
+              onPress={() => skip(SEEK_STEP_MS)}
+              hitSlop={8}
+            >
+              <RotateCw size={26} color="#fff" />
+            </Pressable>
+          </View>
+
+          {/* Barra inferior tipo "pill" */}
           <View
             style={[
               styles.pill,
@@ -490,20 +519,6 @@ function Player({
               ) : (
                 <Play size={22} color="#fff" fill="#fff" />
               )}
-            </Pressable>
-            <Pressable
-              style={styles.pillBtn}
-              onPress={() => skip(-SEEK_STEP_MS)}
-              hitSlop={8}
-            >
-              <RotateCcw size={19} color="#fff" />
-            </Pressable>
-            <Pressable
-              style={styles.pillBtn}
-              onPress={() => skip(SEEK_STEP_MS)}
-              hitSlop={8}
-            >
-              <RotateCw size={19} color="#fff" />
             </Pressable>
 
             <Text style={styles.timeText}>{formatTime(progress)}</Text>
@@ -676,11 +691,13 @@ function LoadingArt({
   logo,
   title,
   error,
+  detail,
 }: {
   background?: string;
   logo?: string;
   title?: string;
   error?: string;
+  detail?: string;
 }) {
   const pulse = useSharedValue(0.55);
 
@@ -703,10 +720,10 @@ function LoadingArt({
           source={background}
           contentFit="cover"
           cachePolicy="memory-disk"
-          style={[StyleSheet.absoluteFill, { opacity: 0.4 }]}
-          blurRadius={20}
+          style={StyleSheet.absoluteFill}
         />
       ) : null}
+      {/* Velo sutil solo para legibilidad del logo/errores (sin blur). */}
       <View style={styles.artScrim} />
 
       {error ? (
@@ -722,6 +739,11 @@ function LoadingArt({
           >
             {error}
           </Typography>
+          {detail ? (
+            <Text style={styles.errorDetail} selectable numberOfLines={4}>
+              {detail}
+            </Text>
+          ) : null}
         </View>
       ) : (
         <Animated.View style={[styles.artCenter, pulseStyle]}>
@@ -768,6 +790,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 32,
   },
+  errorDetail: {
+    marginTop: 14,
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    textAlign: 'center',
+  },
   bufferWrap: {
     position: 'absolute',
     top: 0,
@@ -798,6 +827,29 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowRadius: 6,
+  },
+  centerRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 36,
+  },
+  ctrlBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  playBtn: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   pill: {
     position: 'absolute',
