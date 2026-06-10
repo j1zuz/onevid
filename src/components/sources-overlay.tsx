@@ -22,6 +22,7 @@ export function SourcesOverlay({
   id,
   season,
   episode,
+  episodeTitle,
   title,
   background,
   logo,
@@ -31,6 +32,7 @@ export function SourcesOverlay({
   id: string;
   season?: string;
   episode?: string;
+  episodeTitle?: string;
   title?: string;
   background?: string;
   logo?: string;
@@ -103,6 +105,7 @@ export function SourcesOverlay({
                 id,
                 ...(season ? { season } : {}),
                 ...(episode ? { episode } : {}),
+                ...(episodeTitle ? { episodeTitle } : {}),
               },
             });
           }}

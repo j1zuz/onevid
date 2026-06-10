@@ -4,7 +4,7 @@
     "slug": "1vid",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/onevid.png",
     "scheme": "onevid",
     "userInterfaceStyle": "dark",
     "ios": {
@@ -14,8 +14,8 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#000000",
-        "foregroundImage": "./assets/images/icon-foreground.png",
-        "monochromeImage": "./assets/images/icon-foreground.png"
+        "foregroundImage": "./assets/images/onevid.png",
+        "monochromeImage": "./assets/images/onevid.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "tech.hackw.onevid"
@@ -35,8 +35,8 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#000000",
-          "image": "./assets/images/icon-foreground.png",
-          "imageWidth": 240
+          "image": "./assets/images/onevid.png",
+          "imageWidth": 200
         }
       ],
       [

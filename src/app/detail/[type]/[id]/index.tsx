@@ -83,6 +83,7 @@ export default function DetailPage() {
   const [sources, setSources] = useState<{
     season?: string;
     episode?: string;
+    episodeTitle?: string;
   } | null>(null);
   const { toast } = useToast();
 
@@ -201,14 +202,22 @@ export default function DetailPage() {
     // Mismo overlay de fuentes en móvil y TV (sin navegar a otra página).
     setSources(
       isSeries
-        ? { season: String(first.season), episode: String(first.number) }
+        ? {
+            season: String(first.season),
+            episode: String(first.number),
+            episodeTitle: first.name,
+          }
         : {},
     );
   }, [id, type, seasonEpisodes]);
 
   const handlePlayEpisode = useCallback((ep: EpisodeItem) => {
     if (!id) return;
-    setSources({ season: String(ep.season), episode: String(ep.number) });
+    setSources({
+      season: String(ep.season),
+      episode: String(ep.number),
+      episodeTitle: ep.name,
+    });
   }, [id]);
 
   const handlePressRelated = useCallback((item: MediaMeta) => {
@@ -540,6 +549,7 @@ export default function DetailPage() {
           id={id}
           season={sources.season}
           episode={sources.episode}
+          episodeTitle={sources.episodeTitle}
           title={meta?.name}
           background={artParams.background}
           logo={artParams.logo}
