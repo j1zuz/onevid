@@ -399,13 +399,18 @@ function Player({
       <LibVlcPlayerView
         ref={playerRef}
         style={StyleSheet.absoluteFill}
-        source={url}
+        // `null` libera el player (no crear media con URL vacía → evita el
+        // error nativo "media could not be set").
+        source={url?.trim() ? url : null}
         // Caching de red más alto + reconexión HTTP → menos cortes y recupera
-        // fuentes que cierran la conexión a mitad. Tunable.
+        // fuentes que cierran la conexión a mitad. El User-Agent de navegador
+        // evita que hosts que rechazan el UA por defecto de VLC respondan 403
+        // (la causa más común de "media could not be set"). Tunable.
         options={[
           ':network-caching=3000',
           ':file-caching=3000',
           ':http-reconnect',
+          ':http-user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
         ]}
         contentFit="contain"
         autoplay
@@ -678,6 +683,16 @@ function TrackMenu({
 
 function humanizePlaybackError(raw?: string): string {
   const e = (raw ?? '').toLowerCase();
+  // VLC: "Invalid source, media could not be set" / 403 → el host suele
+  // bloquear la reproducción (UA/Referer) o el enlace ya expiró.
+  if (
+    e.includes('invalid source') ||
+    e.includes('could not be set') ||
+    e.includes('403') ||
+    e.includes('forbidden')
+  ) {
+    return 'La fuente bloqueó la reproducción o el enlace expiró. Vuelve atrás y elige otra.';
+  }
   if (e.includes('404') || e.includes('http') || e.includes('not found')) {
     return 'La fuente no está disponible o expiró. Vuelve atrás y elige otra.';
   }

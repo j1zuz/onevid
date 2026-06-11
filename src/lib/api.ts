@@ -1,5 +1,5 @@
 import { getActiveProfileId } from './active-profile';
-import { API_URL, getAccessToken } from './auth';
+import { API_URL, clearAccessToken, getAccessToken } from './auth';
 
 // Rewrite TMDB image URLs to higher resolution. Backend defaults to smaller
 // sizes (w300 for stills, w780 for backdrops) which are blurry on HiDPI mobile
@@ -69,6 +69,11 @@ export async function apiFetch<T = unknown>(
     headers.set('X-Profile-Id', profileId);
   }
   const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  // Sesión inválida/expirada (Better Auth): limpiamos el token para que el
+  // próximo arranque caiga al login en vez de reintentar con un token muerto.
+  if (res.status === 401) {
+    await clearAccessToken();
+  }
   if (res.status === 204) {
     return undefined as T;
   }
