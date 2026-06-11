@@ -7,11 +7,12 @@ import { Stack } from 'expo-router';
 import { NavigationBar } from 'expo-navigation-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as SplashScreen from 'expo-splash-screen';
+import * as SystemUI from 'expo-system-ui';
 import { useEffect, useState } from 'react';
 import { Platform, StatusBar as RNStatusBar } from 'react-native';
 import { Uniwind } from 'uniwind';
 import { AnimatedSplash } from '@/components/animated-splash';
-import { getAccessToken } from '@/lib/auth';
+import { validateSession } from '@/lib/auth';
 import { loadActiveProfile } from '@/lib/profiles';
 import { queryClient } from '@/lib/query';
 import { COLORS } from '@/lib/theme';
@@ -37,7 +38,13 @@ if (Platform.OS === 'android') {
   RNStatusBar.setTranslucent(true);
   RNStatusBar.setBackgroundColor('transparent');
   RNStatusBar.setBarStyle('light-content');
-  NavigationBar.setStyle('dark');
+  // Con edge-to-edge (Android 15) la barra de navegación es transparente y
+  // muestra el fondo de la ventana: lo fijamos en negro para que se vea oscura,
+  // y ponemos los iconos en claro (blanco) encima.
+  SystemUI.setBackgroundColorAsync('#000000').catch(() => {
+    /* ignore */
+  });
+  NavigationBar.setStyle('light');
 }
 
 export default function RootLayout() {
@@ -60,10 +67,14 @@ export default function RootLayout() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const token = await getAccessToken();
-      const profile = token ? await loadActiveProfile() : null;
+      // Validamos la sesión contra el backend (Better Auth) en vez de sólo
+      // comprobar que exista un token: si la sesión expiró o se revocó,
+      // validateSession limpia el token y caemos al login limpiamente en lugar
+      // de entrar a la app con un token muerto.
+      const valid = await validateSession();
+      const profile = valid ? await loadActiveProfile() : null;
       if (cancelled) return;
-      setHasToken(Boolean(token));
+      setHasToken(valid);
       setHasProfile(Boolean(profile));
       setAuthReady(true);
       // El splash nativo lo oculta AnimatedSplash.onLayoutReady, no aquí, para

@@ -5,6 +5,7 @@ import {
   type Track,
 } from 'expo-libvlc-player';
 import { Image } from 'expo-image';
+import * as NavigationBar from 'expo-navigation-bar';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { Typography } from 'heroui-native';
@@ -13,7 +14,9 @@ import {
   Captions,
   Check,
   Languages,
+  ListVideo,
   Pause,
+  PictureInPicture2,
   Play,
   RotateCcw,
   RotateCw,
@@ -25,6 +28,7 @@ import {
   Pressable,
   type GestureResponderEvent,
   type LayoutChangeEvent,
+  StatusBar as RNStatusBar,
   StyleSheet,
   Text,
   View,
@@ -37,7 +41,11 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
+import { SourcesList, type StreamSource } from '@/components/sources-list';
 import { API_URL, getAccessToken } from '@/lib/auth';
 
 type ResolvedStream = { url: string; fileName?: string };
@@ -102,12 +110,31 @@ export default function PlayerScreen() {
     title?: string;
     background?: string;
     logo?: string;
+    type?: string;
+    id?: string;
+    season?: string;
+    episode?: string;
+    episodeTitle?: string;
   }>();
-  const rawUrl = params.url ?? '';
   const title = params.title;
   const background = params.background || undefined;
   const logo = params.logo || undefined;
+  // type/id permiten reabrir la lista de fuentes desde el reproductor.
+  const mediaType = params.type === 'series' ? 'series' : 'movie';
+  const mediaId = params.id || undefined;
+  const canChangeSource = Boolean(mediaId);
+  // Subtítulo: para series "S1E1 · Nombre del episodio".
+  const subtitle =
+    mediaType === 'series' && params.season && params.episode
+      ? `S${params.season}E${params.episode}${
+          params.episodeTitle ? ` · ${params.episodeTitle}` : ''
+        }`
+      : undefined;
+
+  // `rawUrl` es estado: al elegir otra fuente lo cambiamos y se re-resuelve.
+  const [rawUrl, setRawUrl] = useState(params.url ?? '');
   const [state, setState] = useState<ResolveState>({ kind: 'resolving' });
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // Auto-rotate to landscape while the player is mounted; restore on exit.
   // En TV la pantalla ya es landscape fija, así que no tocamos la orientación.
@@ -127,12 +154,32 @@ export default function PlayerScreen() {
     };
   }, []);
 
+  // Pantalla completa inmersiva: oculta barra de estado y de navegación mientras
+  // el reproductor está montado; las restaura al salir.
+  useEffect(() => {
+    RNStatusBar.setHidden(true, 'fade');
+    if (Platform.OS === 'android') {
+      NavigationBar.setVisibilityAsync('hidden').catch(() => {
+        /* ignore */
+      });
+    }
+    return () => {
+      RNStatusBar.setHidden(false, 'fade');
+      if (Platform.OS === 'android') {
+        NavigationBar.setVisibilityAsync('visible').catch(() => {
+          /* ignore */
+        });
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (!rawUrl) {
       setState({ kind: 'error', message: 'Falta la URL del stream.' });
       return;
     }
     let cancelled = false;
+    setState({ kind: 'resolving' });
     resolveStreamUrl(rawUrl)
       .then(({ url, fileName }) => {
         if (!cancelled) setState({ kind: 'ready', url, fileName });
@@ -154,7 +201,15 @@ export default function PlayerScreen() {
   return (
     <View style={styles.root}>
       {state.kind === 'ready' ? (
-        <Player url={state.url} title={title} background={background} logo={logo} />
+        <Player
+          key={state.url}
+          url={state.url}
+          title={title}
+          subtitle={subtitle}
+          background={background}
+          logo={logo}
+          onChangeSource={canChangeSource ? () => setPickerOpen(true) : undefined}
+        />
       ) : (
         <LoadingArt
           background={background}
@@ -173,6 +228,59 @@ export default function PlayerScreen() {
           <ArrowLeft size={22} color="#fff" />
         </Pressable>
       </SafeAreaView>
+
+      {pickerOpen && mediaId ? (
+        <SourcePicker
+          type={mediaType}
+          id={mediaId}
+          season={params.season || undefined}
+          episode={params.episode || undefined}
+          onSelect={(s: StreamSource) => {
+            setPickerOpen(false);
+            setRawUrl(s.url);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+function SourcePicker({
+  type,
+  id,
+  season,
+  episode,
+  onSelect,
+  onClose,
+}: {
+  type: 'movie' | 'series';
+  id: string;
+  season?: string;
+  episode?: string;
+  onSelect: (source: StreamSource) => void;
+  onClose: () => void;
+}) {
+  return (
+    <View style={styles.menuRoot}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <View style={styles.pickerCard}>
+        <View style={styles.menuHeader}>
+          <Typography type="h5" weight="bold">
+            Cambiar fuente
+          </Typography>
+          <Pressable onPress={onClose} style={styles.menuClose}>
+            <X size={20} color="#fff" />
+          </Pressable>
+        </View>
+        <SourcesList
+          type={type}
+          id={id}
+          season={season}
+          episode={episode}
+          onSelect={onSelect}
+        />
+      </View>
     </View>
   );
 }
@@ -180,14 +288,19 @@ export default function PlayerScreen() {
 function Player({
   url,
   title,
+  subtitle,
   background,
   logo,
+  onChangeSource,
 }: {
   url: string;
   title?: string;
+  subtitle?: string;
   background?: string;
   logo?: string;
+  onChangeSource?: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const playerRef = useRef<LibVlcPlayerViewRef>(null);
   const bufferTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -200,6 +313,7 @@ function Player({
   const [buffering, setBuffering] = useState(true);
   const [hasPlayed, setHasPlayed] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [rawError, setRawError] = useState<string | null>(null);
 
   const [time, setTime] = useState(0); // ms
   const [duration, setDuration] = useState(0); // ms
@@ -285,7 +399,19 @@ function Player({
       <LibVlcPlayerView
         ref={playerRef}
         style={StyleSheet.absoluteFill}
-        source={url}
+        // `null` libera el player (no crear media con URL vacía → evita el
+        // error nativo "media could not be set").
+        source={url?.trim() ? url : null}
+        // Caching de red más alto + reconexión HTTP → menos cortes y recupera
+        // fuentes que cierran la conexión a mitad. El User-Agent de navegador
+        // evita que hosts que rechazan el UA por defecto de VLC respondan 403
+        // (la causa más común de "media could not be set"). Tunable.
+        options={[
+          ':network-caching=3000',
+          ':file-caching=3000',
+          ':http-reconnect',
+          ':http-user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+        ]}
         contentFit="contain"
         autoplay
         pictureInPicture
@@ -304,6 +430,7 @@ function Player({
           setPlaying(true);
           setHasPlayed(true);
           setErrorMsg(null);
+          setRawError(null);
         }}
         onPaused={() => setPlaying(false)}
         onStopped={() => setPlaying(false)}
@@ -315,9 +442,10 @@ function Player({
           setTracks(media);
           setAudioId((prev) => prev ?? pickDefaultAudio(media.audio));
         }}
-        onEncounteredError={({ message }) =>
-          setErrorMsg(humanizePlaybackError(message))
-        }
+        onEncounteredError={({ message }) => {
+          setErrorMsg(humanizePlaybackError(message));
+          setRawError(message || 'EncounteredError (sin mensaje)');
+        }}
       />
 
       {/* Capa táctil para mostrar/ocultar controles */}
@@ -343,87 +471,140 @@ function Player({
           logo={logo}
           title={title}
           error={errorMsg ?? undefined}
+          detail={rawError ?? undefined}
         />
       ) : null}
 
-      {/* Controles completos */}
+      {/* Controles */}
       {!showArt && controlsVisible ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          {/* Título arriba */}
-          <SafeAreaView edges={['top']} style={styles.topBar} pointerEvents="none">
-            {title ? (
-              <Text style={styles.topTitle} numberOfLines={1}>
-                {title}
-              </Text>
-            ) : null}
-          </SafeAreaView>
-
-          {/* Centro: play/pause + saltos */}
-          <View style={styles.centerRow} pointerEvents="box-none">
-            <Pressable style={styles.ctrlBtn} onPress={() => skip(-SEEK_STEP_MS)}>
-              <RotateCcw size={30} color="#fff" />
-            </Pressable>
-            <Pressable style={styles.playBtn} onPress={togglePlay}>
-              {playing ? (
-                <Pause size={38} color="#fff" fill="#fff" />
-              ) : (
-                <Play size={38} color="#fff" fill="#fff" />
-              )}
-            </Pressable>
-            <Pressable style={styles.ctrlBtn} onPress={() => skip(SEEK_STEP_MS)}>
-              <RotateCw size={30} color="#fff" />
-            </Pressable>
-          </View>
-
-          {/* Abajo: tiempo + barra + pistas */}
-          <SafeAreaView edges={['bottom']} style={styles.bottomBar}>
-            <View style={styles.bottomRow}>
-              <Text style={styles.timeText}>{formatTime(progress)}</Text>
-              <View
-                style={styles.barTouch}
-                onLayout={onBarLayout}
-                onStartShouldSetResponder={() => true}
-                onMoveShouldSetResponder={() => true}
-                onResponderGrant={beginScrub}
-                onResponderMove={moveScrub}
-                onResponderRelease={endScrub}
-                onResponderTerminate={endScrub}
-              >
-                <View style={styles.barTrack}>
-                  <View style={[styles.barFill, { width: `${pct * 100}%` }]} />
-                  <View style={[styles.barThumb, { left: `${pct * 100}%` }]} />
-                </View>
-              </View>
-              <Text style={styles.timeText}>{formatTime(duration)}</Text>
+          {/* Arriba: título (izquierda) + acciones (derecha) */}
+          <View
+            style={[
+              styles.topBar,
+              {
+                paddingTop: insets.top + 6,
+                paddingLeft: insets.left + 60,
+                paddingRight: insets.right + 12,
+              },
+            ]}
+            pointerEvents="box-none"
+          >
+            <View style={styles.topTitleBlock} pointerEvents="none">
+              {title ? (
+                <Text style={styles.topTitle} numberOfLines={1}>
+                  {title}
+                </Text>
+              ) : null}
+              {subtitle ? (
+                <Text style={styles.topSubtitle} numberOfLines={1}>
+                  {subtitle}
+                </Text>
+              ) : null}
             </View>
-
-            <View style={styles.trackRow}>
+            <View style={styles.topActions}>
               {tracks.audio.length > 0 ? (
                 <Pressable
-                  style={styles.trackBtn}
+                  style={styles.actionBtn}
                   onPress={() => {
                     setMenu('audio');
                     showControls();
                   }}
+                  hitSlop={6}
                 >
-                  <Languages size={18} color="#fff" />
-                  <Text style={styles.trackBtnText}>Audio</Text>
+                  <Languages size={20} color="#fff" />
                 </Pressable>
               ) : null}
               {tracks.subtitle.length > 0 ? (
                 <Pressable
-                  style={styles.trackBtn}
+                  style={styles.actionBtn}
                   onPress={() => {
                     setMenu('subtitle');
                     showControls();
                   }}
+                  hitSlop={6}
                 >
-                  <Captions size={18} color="#fff" />
-                  <Text style={styles.trackBtnText}>Subtítulos</Text>
+                  <Captions size={20} color="#fff" />
                 </Pressable>
               ) : null}
+              {onChangeSource ? (
+                <Pressable
+                  style={styles.actionBtn}
+                  onPress={() => {
+                    onChangeSource();
+                    showControls();
+                  }}
+                  hitSlop={6}
+                >
+                  <ListVideo size={20} color="#fff" />
+                </Pressable>
+              ) : null}
+              <Pressable
+                style={styles.actionBtn}
+                onPress={() => playerRef.current?.startPictureInPicture?.()}
+                hitSlop={6}
+              >
+                <PictureInPicture2 size={20} color="#fff" />
+              </Pressable>
             </View>
-          </SafeAreaView>
+          </View>
+
+          {/* Centro: retroceder 10s · play/pausa · adelantar 10s */}
+          <View style={styles.centerRow} pointerEvents="box-none">
+            <Pressable
+              style={styles.ctrlBtn}
+              onPress={() => skip(-SEEK_STEP_MS)}
+              hitSlop={8}
+            >
+              <RotateCcw size={26} color="#fff" />
+            </Pressable>
+            <Pressable style={styles.playBtn} onPress={togglePlay} hitSlop={8}>
+              {playing ? (
+                <Pause size={32} color="#fff" fill="#fff" />
+              ) : (
+                <Play size={32} color="#fff" fill="#fff" />
+              )}
+            </Pressable>
+            <Pressable
+              style={styles.ctrlBtn}
+              onPress={() => skip(SEEK_STEP_MS)}
+              hitSlop={8}
+            >
+              <RotateCw size={26} color="#fff" />
+            </Pressable>
+          </View>
+
+          {/* Barra inferior tipo "pill" */}
+          <View
+            style={[
+              styles.pill,
+              {
+                left: insets.left + 16,
+                right: insets.right + 16,
+                bottom: insets.bottom + 14,
+              },
+            ]}
+          >
+            <Text style={styles.timeText}>{formatTime(progress)}</Text>
+
+            <View
+              style={styles.barTouch}
+              onLayout={onBarLayout}
+              onStartShouldSetResponder={() => true}
+              onMoveShouldSetResponder={() => true}
+              onResponderGrant={beginScrub}
+              onResponderMove={moveScrub}
+              onResponderRelease={endScrub}
+              onResponderTerminate={endScrub}
+            >
+              <View style={styles.barTrack}>
+                <View style={[styles.barFill, { width: `${pct * 100}%` }]} />
+                <View style={[styles.barThumb, { left: `${pct * 100}%` }]} />
+              </View>
+            </View>
+
+            <Text style={styles.timeText}>{formatTime(duration)}</Text>
+          </View>
         </View>
       ) : null}
 
@@ -502,6 +683,16 @@ function TrackMenu({
 
 function humanizePlaybackError(raw?: string): string {
   const e = (raw ?? '').toLowerCase();
+  // VLC: "Invalid source, media could not be set" / 403 → el host suele
+  // bloquear la reproducción (UA/Referer) o el enlace ya expiró.
+  if (
+    e.includes('invalid source') ||
+    e.includes('could not be set') ||
+    e.includes('403') ||
+    e.includes('forbidden')
+  ) {
+    return 'La fuente bloqueó la reproducción o el enlace expiró. Vuelve atrás y elige otra.';
+  }
   if (e.includes('404') || e.includes('http') || e.includes('not found')) {
     return 'La fuente no está disponible o expiró. Vuelve atrás y elige otra.';
   }
@@ -530,11 +721,13 @@ function LoadingArt({
   logo,
   title,
   error,
+  detail,
 }: {
   background?: string;
   logo?: string;
   title?: string;
   error?: string;
+  detail?: string;
 }) {
   const pulse = useSharedValue(0.55);
 
@@ -557,10 +750,10 @@ function LoadingArt({
           source={background}
           contentFit="cover"
           cachePolicy="memory-disk"
-          style={[StyleSheet.absoluteFill, { opacity: 0.4 }]}
-          blurRadius={20}
+          style={StyleSheet.absoluteFill}
         />
       ) : null}
+      {/* Velo sutil solo para legibilidad del logo/errores (sin blur). */}
       <View style={styles.artScrim} />
 
       {error ? (
@@ -576,6 +769,11 @@ function LoadingArt({
           >
             {error}
           </Typography>
+          {detail ? (
+            <Text style={styles.errorDetail} selectable numberOfLines={4}>
+              {detail}
+            </Text>
+          ) : null}
         </View>
       ) : (
         <Animated.View style={[styles.artCenter, pulseStyle]}>
@@ -622,14 +820,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 32,
   },
+  errorDetail: {
+    marginTop: 14,
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    textAlign: 'center',
+  },
   bufferWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
   spinner: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 3,
     borderColor: '#fff',
     borderTopColor: 'transparent',
@@ -639,64 +849,86 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 64,
-    paddingTop: 10,
-    alignItems: 'center',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  topTitleBlock: {
+    flex: 1,
   },
   topTitle: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowRadius: 6,
+  },
+  topSubtitle: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 12,
+    marginTop: 2,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowRadius: 6,
+  },
+  topActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  actionBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
   centerRow: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 40,
+    gap: 36,
   },
   ctrlBtn: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
   },
   playBtn: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 66,
+    height: 66,
+    borderRadius: 33,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
-  bottomBar: {
+  pill: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: 20,
-    paddingBottom: 8,
-  },
-  bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 30,
+    backgroundColor: 'rgba(18,18,18,0.72)',
   },
   timeText: {
     color: '#fff',
     fontSize: 12,
     fontVariant: ['tabular-nums'],
-    minWidth: 44,
+    minWidth: 42,
     textAlign: 'center',
   },
   barTouch: {
     flex: 1,
     height: 28,
     justifyContent: 'center',
+    marginHorizontal: 4,
   },
   barTrack: {
     height: 4,
@@ -719,22 +951,6 @@ const styles = StyleSheet.create({
     marginLeft: -7,
     backgroundColor: '#fff',
   },
-  trackRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-    marginTop: 6,
-  },
-  trackBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  trackBtnText: { color: '#fff', fontSize: 13, fontWeight: '500' },
   menuRoot: {
     position: 'absolute',
     top: 0,
@@ -754,6 +970,15 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 8,
     paddingHorizontal: 4,
+  },
+  pickerCard: {
+    width: '86%',
+    maxWidth: 560,
+    maxHeight: '88%',
+    backgroundColor: '#161616',
+    borderRadius: 16,
+    paddingTop: 8,
+    overflow: 'hidden',
   },
   menuHeader: {
     flexDirection: 'row',

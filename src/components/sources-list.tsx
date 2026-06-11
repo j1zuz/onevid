@@ -138,10 +138,17 @@ function SourceCard({
   source: StreamSource;
   onPress: () => void;
 }) {
-  const lines = [source.title, source.description, source.name].filter(
-    (l): l is string => Boolean(l),
-  );
-  const haystack = `${source.title} ${source.description ?? ''}`;
+  // `behaviors` trae las líneas de detalle del addon (códec, idiomas, tamaño,
+  // uploader, etc.) que el backend reenvía desde `metadata`. Sin esto la tarjeta
+  // se ve vacía aunque la info ya llegue.
+  const behaviors = source.behaviors ?? [];
+  const lines = [
+    source.title,
+    source.description,
+    source.name,
+    ...behaviors,
+  ].filter((l): l is string => Boolean(l));
+  const haystack = `${source.title} ${source.description ?? ''} ${behaviors.join(' ')}`;
   const quality = extractQuality(source.title);
   const size = extractSize(haystack);
   const { focused, focusProps } = useTvFocus();

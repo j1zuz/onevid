@@ -11,9 +11,10 @@ import Animated, {
 } from 'react-native-reanimated';
 
 const VIDEO_SOURCE = require('../../assets/videos/god-rays.mp4');
-const LOGO_SOURCE = require('../../assets/images/splash-icon.png');
+// Logo onevid (mismo que el splash nativo) para que no haya salto al revelar.
+const LOGO_SOURCE = require('../../assets/images/onevid.png');
 
-const LOGO_WIDTH = 220; // = imageWidth del splash nativo → sin salto
+const LOGO_WIDTH = 200; // = imageWidth del splash nativo → sin salto
 const TOP_BAND_RATIO = 0.28; // banda de video en el ~28% superior
 const MAX_DURATION_MS = 2500; // fallback si el video no reporta fin
 const FADE_OUT_MS = 400;
