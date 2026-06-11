@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import { storageDelete, storageGet, storageSet } from './storage';
 
 export const API_URL =
   process.env.EXPO_PUBLIC_API_URL ?? 'https://www.hackw.tech';
@@ -112,15 +112,15 @@ export async function pollDeviceToken(deviceCode: string): Promise<PollOutcome> 
 }
 
 export async function saveAccessToken(token: string): Promise<void> {
-  await SecureStore.setItemAsync(TOKEN_KEY, token);
+  await storageSet(TOKEN_KEY, token);
 }
 
 export async function getAccessToken(): Promise<string | null> {
-  return SecureStore.getItemAsync(TOKEN_KEY);
+  return storageGet(TOKEN_KEY);
 }
 
 export async function clearAccessToken(): Promise<void> {
-  await SecureStore.deleteItemAsync(TOKEN_KEY);
+  await storageDelete(TOKEN_KEY);
 }
 
 // El backend usa Better Auth (sesiones de 7 días), no OAuth con refresh: el

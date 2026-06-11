@@ -1,7 +1,7 @@
-import * as SecureStore from 'expo-secure-store';
 import { setActiveProfileId } from './active-profile';
 import { apiFetch } from './api';
 import type { AvatarKey } from './avatars';
+import { storageDelete, storageGet, storageSet } from './storage';
 
 export interface Profile {
   id: string;
@@ -20,7 +20,7 @@ export interface ProfilesResponse {
 const ACTIVE_KEY = 'onevid_active_profile';
 
 export async function loadActiveProfile(): Promise<Profile | null> {
-  const raw = await SecureStore.getItemAsync(ACTIVE_KEY);
+  const raw = await storageGet(ACTIVE_KEY);
   if (!raw) {
     setActiveProfileId(null);
     return null;
@@ -37,12 +37,12 @@ export async function loadActiveProfile(): Promise<Profile | null> {
 
 export async function setActiveProfile(p: Profile): Promise<void> {
   setActiveProfileId(p.id);
-  await SecureStore.setItemAsync(ACTIVE_KEY, JSON.stringify(p));
+  await storageSet(ACTIVE_KEY, JSON.stringify(p));
 }
 
 export async function clearActiveProfile(): Promise<void> {
   setActiveProfileId(null);
-  await SecureStore.deleteItemAsync(ACTIVE_KEY);
+  await storageDelete(ACTIVE_KEY);
 }
 
 // ─── API ────────────────────────────────────────────────────────────

@@ -29,9 +29,11 @@ import {
   type GestureResponderEvent,
   type LayoutChangeEvent,
   StatusBar as RNStatusBar,
+  type StyleProp,
   StyleSheet,
   Text,
   View,
+  type ViewStyle,
 } from 'react-native';
 import Animated, {
   cancelAnimation,
@@ -46,7 +48,18 @@ import {
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 import { SourcesList, type StreamSource } from '@/components/sources-list';
+import { tvFocusRing } from '@/hooks/use-tv-focus';
 import { API_URL, getAccessToken } from '@/lib/auth';
+
+// Anillo de foco para botones del reproductor en TV. Patrón Pressable-callback:
+// `style={focusStyle(base)}` añade el borde azul al enfocar con el control
+// remoto. Fuera de TV `tvFocusRing` devuelve null, así que es un no-op.
+function focusStyle(base: StyleProp<ViewStyle>) {
+  return (state: { focused?: boolean }): StyleProp<ViewStyle> => [
+    base,
+    tvFocusRing(state.focused ?? false),
+  ];
+}
 
 type ResolvedStream = { url: string; fileName?: string };
 
@@ -224,7 +237,10 @@ export default function PlayerScreen() {
         style={styles.backWrap}
         pointerEvents="box-none"
       >
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable
+          onPress={() => router.back()}
+          style={focusStyle(styles.backBtn)}
+        >
           <ArrowLeft size={22} color="#fff" />
         </Pressable>
       </SafeAreaView>
@@ -263,13 +279,17 @@ function SourcePicker({
 }) {
   return (
     <View style={styles.menuRoot}>
-      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <Pressable
+        focusable={false}
+        style={StyleSheet.absoluteFill}
+        onPress={onClose}
+      />
       <View style={styles.pickerCard}>
         <View style={styles.menuHeader}>
           <Typography type="h5" weight="bold">
             Cambiar fuente
           </Typography>
-          <Pressable onPress={onClose} style={styles.menuClose}>
+          <Pressable onPress={onClose} style={focusStyle(styles.menuClose)}>
             <X size={20} color="#fff" />
           </Pressable>
         </View>
@@ -448,9 +468,11 @@ function Player({
         }}
       />
 
-      {/* Capa táctil para mostrar/ocultar controles */}
+      {/* Capa táctil para mostrar/ocultar controles. focusable={false} para que
+          el D-pad de TV no se quede atrapado en esta capa a pantalla completa. */}
       {!showArt ? (
         <Pressable
+          focusable={false}
           style={StyleSheet.absoluteFill}
           onPress={() =>
             controlsVisible ? setControlsVisible(false) : showControls()
@@ -505,7 +527,7 @@ function Player({
             <View style={styles.topActions}>
               {tracks.audio.length > 0 ? (
                 <Pressable
-                  style={styles.actionBtn}
+                  style={focusStyle(styles.actionBtn)}
                   onPress={() => {
                     setMenu('audio');
                     showControls();
@@ -517,7 +539,7 @@ function Player({
               ) : null}
               {tracks.subtitle.length > 0 ? (
                 <Pressable
-                  style={styles.actionBtn}
+                  style={focusStyle(styles.actionBtn)}
                   onPress={() => {
                     setMenu('subtitle');
                     showControls();
@@ -529,7 +551,7 @@ function Player({
               ) : null}
               {onChangeSource ? (
                 <Pressable
-                  style={styles.actionBtn}
+                  style={focusStyle(styles.actionBtn)}
                   onPress={() => {
                     onChangeSource();
                     showControls();
@@ -540,7 +562,7 @@ function Player({
                 </Pressable>
               ) : null}
               <Pressable
-                style={styles.actionBtn}
+                style={focusStyle(styles.actionBtn)}
                 onPress={() => playerRef.current?.startPictureInPicture?.()}
                 hitSlop={6}
               >
@@ -552,13 +574,18 @@ function Player({
           {/* Centro: retroceder 10s · play/pausa · adelantar 10s */}
           <View style={styles.centerRow} pointerEvents="box-none">
             <Pressable
-              style={styles.ctrlBtn}
+              style={focusStyle(styles.ctrlBtn)}
               onPress={() => skip(-SEEK_STEP_MS)}
               hitSlop={8}
             >
               <RotateCcw size={26} color="#fff" />
             </Pressable>
-            <Pressable style={styles.playBtn} onPress={togglePlay} hitSlop={8}>
+            <Pressable
+              style={focusStyle(styles.playBtn)}
+              onPress={togglePlay}
+              hitSlop={8}
+              hasTVPreferredFocus
+            >
               {playing ? (
                 <Pause size={32} color="#fff" fill="#fff" />
               ) : (
@@ -566,7 +593,7 @@ function Player({
               )}
             </Pressable>
             <Pressable
-              style={styles.ctrlBtn}
+              style={focusStyle(styles.ctrlBtn)}
               onPress={() => skip(SEEK_STEP_MS)}
               hitSlop={8}
             >
@@ -648,18 +675,26 @@ function TrackMenu({
 }) {
   return (
     <View style={styles.menuRoot}>
-      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <Pressable
+        focusable={false}
+        style={StyleSheet.absoluteFill}
+        onPress={onClose}
+      />
       <View style={styles.menuCard}>
         <View style={styles.menuHeader}>
           <Text style={styles.menuTitle}>
             {kind === 'audio' ? 'Pista de audio' : 'Subtítulos'}
           </Text>
-          <Pressable onPress={onClose} style={styles.menuClose}>
+          <Pressable onPress={onClose} style={focusStyle(styles.menuClose)}>
             <X size={20} color="#fff" />
           </Pressable>
         </View>
         {allowOff ? (
-          <Pressable style={styles.menuItem} onPress={() => onSelect(null)}>
+          <Pressable
+            style={focusStyle(styles.menuItem)}
+            onPress={() => onSelect(null)}
+            hasTVPreferredFocus={selectedId == null}
+          >
             <Text style={styles.menuItemText}>Desactivados</Text>
             {selectedId == null ? <Check size={18} color="#7CFC9B" /> : null}
           </Pressable>
@@ -667,8 +702,9 @@ function TrackMenu({
         {tracks.map((t) => (
           <Pressable
             key={t.id}
-            style={styles.menuItem}
+            style={focusStyle(styles.menuItem)}
             onPress={() => onSelect(t.id)}
+            hasTVPreferredFocus={selectedId === t.id}
           >
             <Text style={styles.menuItemText} numberOfLines={1}>
               {t.name || `Pista ${t.id}`}

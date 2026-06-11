@@ -125,26 +125,40 @@ function HeroSlide({
 }) {
   const { isLarge } = useResponsive();
   const playFocus = useTvFocus();
+  // Si la imagen de fondo falla o tarda, caemos al póster; así el hero no se
+  // queda en negro cuando un backdrop no carga.
+  const [useFallback, setUseFallback] = useState(false);
+  const primary = item.background ?? item.poster;
+  const fallback = item.poster ?? item.background;
+  const chosen = useFallback ? fallback : primary;
   // Resolución acotada: en móvil 'w780' (suficiente y mucho más liviano en RAM
   // que 'w1280'/'original', que en gama baja se desalojan al reproducir y dejan
   // el hero en negro). En TV/pantallas grandes 'w1280'.
-  const bg = tmdbImage(
-    item.background ?? item.poster,
-    isLarge ? 'w1280' : 'w780',
-  );
+  const bg = tmdbImage(chosen, isLarge ? 'w1280' : 'w780');
+  // Miniatura de baja resolución como placeholder: aparece al instante mientras
+  // carga la grande, en vez de un rectángulo negro.
+  const placeholder = tmdbImage(chosen, 'w500');
   return (
     <View style={{ width, height }}>
       {bg ? (
         <Image
           source={bg}
+          placeholder={placeholder ? { uri: placeholder } : undefined}
+          placeholderContentFit="cover"
           recyclingKey={bg}
           contentFit="cover"
           transition={200}
           cachePolicy="memory-disk"
-          style={{ width: '100%', height: '100%' }}
+          onError={() => {
+            // Sólo reintentamos una vez y sólo si el póster es distinto.
+            if (!useFallback && fallback && fallback !== primary) {
+              setUseFallback(true);
+            }
+          }}
+          style={{ width: '100%', height: '100%', backgroundColor: '#11161d' }}
         />
       ) : (
-        <View style={{ width: '100%', height: '100%', backgroundColor: '#222' }} />
+        <View style={{ width: '100%', height: '100%', backgroundColor: '#11161d' }} />
       )}
       <Svg
         pointerEvents="none"
