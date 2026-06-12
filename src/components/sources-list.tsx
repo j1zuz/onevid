@@ -16,10 +16,35 @@ export interface StreamSource {
   behaviors?: string[];
 }
 
-interface SourcesResponse {
+export interface SourcesResponse {
   sources: StreamSource[];
   addonErrors: { addonId: string; addonName: string; error: string }[];
   totalAddonsTried: number;
+}
+
+/**
+ * Opciones de query compartidas para pedir las fuentes de un título. Las usan
+ * `SourcesList`, el prefetch del detalle y el auto-play del reproductor con la
+ * MISMA `queryKey`, así que comparten caché (sin fetches duplicados).
+ */
+export function sourcesQueryOptions(
+  type: 'movie' | 'series',
+  id: string,
+  season?: string,
+  episode?: string,
+) {
+  const compoundId =
+    type === 'series' && season && episode
+      ? `${id}:${season}:${episode}`
+      : id;
+  return {
+    queryKey: ['sources', compoundId, type] as const,
+    queryFn: () =>
+      apiFetch<SourcesResponse>('/api/stream/sources', {
+        method: 'POST',
+        body: JSON.stringify({ id: compoundId, type }),
+      }),
+  };
 }
 
 /**
@@ -40,18 +65,8 @@ export function SourcesList({
   episode?: string;
   onSelect: (source: StreamSource) => void;
 }) {
-  const compoundId =
-    type === 'series' && season && episode
-      ? `${id}:${season}:${episode}`
-      : id;
-
   const query = useQuery({
-    queryKey: ['sources', compoundId, type],
-    queryFn: () =>
-      apiFetch<SourcesResponse>('/api/stream/sources', {
-        method: 'POST',
-        body: JSON.stringify({ id: compoundId, type }),
-      }),
+    ...sourcesQueryOptions(type, id, season, episode),
     enabled: Boolean(id),
   });
 

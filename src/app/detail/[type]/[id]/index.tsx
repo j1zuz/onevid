@@ -11,7 +11,7 @@ import {
   useToast,
 } from 'heroui-native';
 import { ArrowLeft } from 'lucide-react-native';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -23,7 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { GlassIcon } from '@/components/glass-icon';
 import { PosterCard } from '@/components/poster-card';
-import { SourcesOverlay } from '@/components/sources-overlay';
+import { sourcesQueryOptions } from '@/components/sources-list';
 import { useResponsive } from '@/hooks/use-responsive';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import {
@@ -78,13 +78,6 @@ export default function DetailPage() {
   const [seasonOverride, setSeasonOverride] = useState<number | null>(null);
   const [savingFav, setSavingFav] = useState(false);
   const [savingWatch, setSavingWatch] = useState(false);
-  // Fuentes como overlay (móvil y TV), sin navegar a otra página.
-  // null = cerrado; {} = película; {season,episode} = episodio.
-  const [sources, setSources] = useState<{
-    season?: string;
-    episode?: string;
-    episodeTitle?: string;
-  } | null>(null);
   const { toast } = useToast();
 
   // Metadata del título, cacheada por (type, id): volver a abrir el mismo
@@ -195,30 +188,63 @@ export default function DetailPage() {
     [meta?.background, meta?.logo, meta?.name, isLarge],
   );
 
+  // Al reproducir vamos directo al player SIN `url`: esa ausencia es la señal de
+  // "reproduce la 1ª fuente disponible". El player muestra su `LoadingArt`
+  // mientras obtiene las fuentes y resuelve, sin parpadeo del selector.
   const handlePlay = useCallback(() => {
     if (!id || !type) return;
     const first = seasonEpisodes[0];
     const isSeries = type === 'series' && first;
-    // Mismo overlay de fuentes en móvil y TV (sin navegar a otra página).
-    setSources(
-      isSeries
-        ? {
-            season: String(first.season),
-            episode: String(first.number),
-            episodeTitle: first.name,
-          }
-        : {},
-    );
-  }, [id, type, seasonEpisodes]);
-
-  const handlePlayEpisode = useCallback((ep: EpisodeItem) => {
-    if (!id) return;
-    setSources({
-      season: String(ep.season),
-      episode: String(ep.number),
-      episodeTitle: ep.name,
+    router.push({
+      pathname: '/player',
+      params: {
+        title: meta?.name ?? '',
+        background: artParams.background,
+        logo: artParams.logo,
+        type,
+        id,
+        ...(isSeries
+          ? {
+              season: String(first.season),
+              episode: String(first.number),
+              episodeTitle: first.name,
+            }
+          : {}),
+      },
     });
-  }, [id]);
+  }, [id, type, seasonEpisodes, meta?.name, artParams]);
+
+  const handlePlayEpisode = useCallback(
+    (ep: EpisodeItem) => {
+      if (!id || !type) return;
+      router.push({
+        pathname: '/player',
+        params: {
+          title: meta?.name ?? '',
+          background: artParams.background,
+          logo: artParams.logo,
+          type,
+          id,
+          season: String(ep.season),
+          episode: String(ep.number),
+          episodeTitle: ep.name,
+        },
+      });
+    },
+    [id, type, meta?.name, artParams],
+  );
+
+  // Prefetch de las fuentes del destino por defecto (película o 1er episodio)
+  // para que "Reproducir" arranque al instante. Comparte `queryKey` con el
+  // reproductor y el SourcePicker, así que no hay fetch duplicado.
+  useEffect(() => {
+    if (!id || !type) return;
+    const first = seasonEpisodes[0];
+    if (type === 'series' && !first) return; // episodios aún no cargados
+    const season = first ? String(first.season) : undefined;
+    const episode = first ? String(first.number) : undefined;
+    queryClient.prefetchQuery(sourcesQueryOptions(type, id, season, episode));
+  }, [id, type, seasonEpisodes, queryClient]);
 
   const handlePressRelated = useCallback((item: MediaMeta) => {
     router.push({
@@ -541,21 +567,6 @@ export default function DetailPage() {
           </View>
         ) : null}
       </ScrollView>
-
-      {/* Fuentes como overlay compartido (móvil y TV), sin navegar. */}
-      {sources ? (
-        <SourcesOverlay
-          type={type}
-          id={id}
-          season={sources.season}
-          episode={sources.episode}
-          episodeTitle={sources.episodeTitle}
-          title={meta?.name}
-          background={artParams.background}
-          logo={artParams.logo}
-          onClose={() => setSources(null)}
-        />
-      ) : null}
     </View>
   );
 }
