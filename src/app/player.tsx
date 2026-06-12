@@ -629,8 +629,10 @@ function Player({
         />
       ) : null}
 
-      {/* Spinner de buffering durante la reproducción */}
-      {hasPlayed && buffering && !errorMsg ? (
+      {/* Spinner de buffering solo en re-buffering a mitad de reproducción.
+          Exigir `coverGone` evita que se cuele durante el fundido inicial de
+          la carátula (VLC vuelve a emitir onBuffering en esos 260 ms). */}
+      {hasPlayed && coverGone && buffering && !errorMsg ? (
         <View style={styles.bufferWrap} pointerEvents="none">
           <BufferingPulse />
         </View>
