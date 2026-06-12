@@ -986,6 +986,20 @@ function LoadingArt({
   error?: string;
   detail?: string;
 }) {
+  const pulse = useSharedValue(0.55);
+
+  useEffect(() => {
+    if (error) return;
+    pulse.value = withRepeat(
+      withTiming(1, { duration: 900, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true,
+    );
+    return () => cancelAnimation(pulse);
+  }, [error, pulse]);
+
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
+
   return (
     <View style={styles.artRoot} pointerEvents={error ? 'auto' : 'none'}>
       {background ? (
@@ -1024,9 +1038,9 @@ function LoadingArt({
           </View>
         </View>
       ) : (
-        // Póster estático (sin animación de "loading"): es la carátula que tapa
-        // el arranque del vídeo y se funde a él al primer fotograma.
-        <View style={styles.artCenter}>
+        // Logo pulsando mientras carga (como antes). Esta carátula tapa el
+        // arranque del vídeo y se funde a él al primer fotograma.
+        <Animated.View style={[styles.artCenter, pulseStyle]}>
           {logo ? (
             <Image
               source={logo}
@@ -1038,7 +1052,7 @@ function LoadingArt({
               {title ?? ''}
             </Typography>
           )}
-        </View>
+        </Animated.View>
       )}
     </View>
   );
