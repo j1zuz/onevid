@@ -14,6 +14,7 @@ import {
   Captions,
   Check,
   Languages,
+  LayoutList,
   ListVideo,
   Pause,
   PictureInPicture2,
@@ -49,6 +50,7 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
+import { EpisodePicker } from '@/components/episode-picker';
 import { SourcesList, type StreamSource } from '@/components/sources-list';
 import { tvFocusRing } from '@/hooks/use-tv-focus';
 import { API_URL, getAccessToken } from '@/lib/auth';
@@ -170,18 +172,26 @@ export default function PlayerScreen() {
   const mediaType = params.type === 'series' ? 'series' : 'movie';
   const mediaId = params.id || undefined;
   const canChangeSource = Boolean(mediaId);
+  const canChangeEpisode = mediaType === 'series' && Boolean(mediaId);
+
+  // Temporada/episodio son estado: al elegir otro episodio se actualizan (y con
+  // ellos el subtítulo y las fuentes que pide el SourcePicker).
+  const [season, setSeason] = useState(params.season || undefined);
+  const [episode, setEpisode] = useState(params.episode || undefined);
+  const [episodeTitle, setEpisodeTitle] = useState(
+    params.episodeTitle || undefined,
+  );
   // Subtítulo: para series "S1E1 · Nombre del episodio".
   const subtitle =
-    mediaType === 'series' && params.season && params.episode
-      ? `S${params.season}E${params.episode}${
-          params.episodeTitle ? ` · ${params.episodeTitle}` : ''
-        }`
+    mediaType === 'series' && season && episode
+      ? `S${season}E${episode}${episodeTitle ? ` · ${episodeTitle}` : ''}`
       : undefined;
 
   // `rawUrl` es estado: al elegir otra fuente lo cambiamos y se re-resuelve.
   const [rawUrl, setRawUrl] = useState(params.url ?? '');
   const [state, setState] = useState<ResolveState>({ kind: 'resolving' });
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [episodePickerOpen, setEpisodePickerOpen] = useState(false);
 
   // Auto-rotate to landscape while the player is mounted; restore on exit.
   // En TV la pantalla ya es landscape fija, así que no tocamos la orientación.
@@ -256,6 +266,9 @@ export default function PlayerScreen() {
           background={background}
           logo={logo}
           onChangeSource={canChangeSource ? () => setPickerOpen(true) : undefined}
+          onChangeEpisode={
+            canChangeEpisode ? () => setEpisodePickerOpen(true) : undefined
+          }
         />
       ) : (
         <LoadingArt
@@ -280,13 +293,30 @@ export default function PlayerScreen() {
         <SourcePicker
           type={mediaType}
           id={mediaId}
-          season={params.season || undefined}
-          episode={params.episode || undefined}
+          season={season}
+          episode={episode}
           onSelect={(s: StreamSource) => {
             setPickerOpen(false);
             setRawUrl(s.url);
           }}
           onClose={() => setPickerOpen(false)}
+        />
+      ) : null}
+
+      {episodePickerOpen && mediaId ? (
+        <EpisodePicker
+          id={mediaId}
+          season={season}
+          episode={episode}
+          onSelect={({ season: s, episode: e, episodeTitle: t }) => {
+            setSeason(s);
+            setEpisode(e);
+            setEpisodeTitle(t);
+            setEpisodePickerOpen(false);
+            // Tras elegir episodio, abrimos las fuentes de ese episodio.
+            setPickerOpen(true);
+          }}
+          onClose={() => setEpisodePickerOpen(false)}
         />
       ) : null}
     </View>
@@ -339,6 +369,7 @@ function Player({
   background,
   logo,
   onChangeSource,
+  onChangeEpisode,
 }: {
   url: string;
   title?: string;
@@ -346,6 +377,7 @@ function Player({
   background?: string;
   logo?: string;
   onChangeSource?: () => void;
+  onChangeEpisode?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const playerRef = useRef<LibVlcPlayerViewRef>(null);
@@ -600,6 +632,18 @@ function Player({
                   hitSlop={6}
                 >
                   <Captions size={20} color="#fff" />
+                </Pressable>
+              ) : null}
+              {onChangeEpisode ? (
+                <Pressable
+                  style={withRing(styles.actionBtn)}
+                  onPress={() => {
+                    onChangeEpisode();
+                    showControls();
+                  }}
+                  hitSlop={6}
+                >
+                  <LayoutList size={20} color="#fff" />
                 </Pressable>
               ) : null}
               {onChangeSource ? (
