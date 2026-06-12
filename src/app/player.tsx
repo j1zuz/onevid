@@ -450,6 +450,10 @@ function Player({
   const [playing, setPlaying] = useState(true);
   const [buffering, setBuffering] = useState(true);
   const [hasPlayed, setHasPlayed] = useState(false);
+  // `firstFrame` = el vídeo ya está mostrando imagen de verdad (el tiempo
+  // avanza). VLC emite "Playing" antes de pintar el primer fotograma, así que
+  // no nos sirve para fundir la carátula: usamos el avance real del tiempo.
+  const [firstFrame, setFirstFrame] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [rawError, setRawError] = useState<string | null>(null);
   const [probe, setProbe] = useState<string | null>(null);
@@ -477,12 +481,23 @@ function Player({
   const coverOpacity = useSharedValue(1);
   const [coverGone, setCoverGone] = useState(false);
   const coverStyle = useAnimatedStyle(() => ({ opacity: coverOpacity.value }));
+  // Fundimos la carátula solo cuando hay imagen real en pantalla (firstFrame),
+  // no en el evento "Playing" de VLC: así nunca se ve negro ni spinner antes
+  // del vídeo. La carátula (logo en pulse) cubre todo el buffering inicial.
   useEffect(() => {
-    if (!hasPlayed) return;
+    if (!firstFrame) return;
     coverOpacity.value = withTiming(0, { duration: 260 }, (finished) => {
       if (finished) runOnJS(setCoverGone)(true);
     });
-  }, [hasPlayed, coverOpacity]);
+  }, [firstFrame, coverOpacity]);
+  // Salvaguarda: si algún stream (p. ej. un directo) no reporta avance de
+  // tiempo, fundimos igualmente unos segundos después de que VLC empiece a
+  // reproducir, para que la carátula nunca se quede pegada sobre el vídeo.
+  useEffect(() => {
+    if (!hasPlayed || firstFrame) return;
+    const t = setTimeout(() => setFirstFrame(true), 4_000);
+    return () => clearTimeout(t);
+  }, [hasPlayed, firstFrame]);
 
   const scheduleHide = useCallback(() => {
     clearTimeout(hideTimer.current);
@@ -603,6 +618,9 @@ function Player({
         onStopped={() => setPlaying(false)}
         onFirstPlay={({ length }) => setDuration(length)}
         onTimeChanged={({ value }) => {
+          // El tiempo avanza ⇒ hay fotogramas pintándose ⇒ ya podemos fundir
+          // la carátula al vídeo (sin pasar por negro ni spinner).
+          if (value > 0 && !firstFrame) setFirstFrame(true);
           if (!scrubbing) setTime(value);
         }}
         onESAdded={(media) => {
