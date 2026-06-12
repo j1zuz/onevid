@@ -11,10 +11,13 @@ import Animated, {
 } from 'react-native-reanimated';
 
 const VIDEO_SOURCE = require('../../assets/videos/god-rays.mp4');
-// Logo onevid (mismo que el splash nativo) para que no haya salto al revelar.
-const LOGO_SOURCE = require('../../assets/images/onevid.png');
+// Wordmark "onevid" azul: es el logo principal del overlay animado (el splash
+// nativo usa el ícono circular onevid.png).
+const LOGO_SOURCE = require('../../assets/images/onevid-text.png');
 
-const LOGO_WIDTH = 200; // = imageWidth del splash nativo → sin salto
+// El wordmark es apaisado (1568×622). Ancho cómodo en el overlay.
+const LOGO_WIDTH = 240;
+const LOGO_ASPECT = 1568 / 622;
 const TOP_BAND_RATIO = 0.28; // banda de video en el ~28% superior
 const MAX_DURATION_MS = 2500; // fallback si el video no reporta fin
 const FADE_OUT_MS = 400;
@@ -134,5 +137,5 @@ const styles = StyleSheet.create({
   },
   videoBand: { position: 'absolute', top: 0, left: 0, right: 0 },
   videoFade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '55%' },
-  logo: { width: LOGO_WIDTH, aspectRatio: 1 },
+  logo: { width: LOGO_WIDTH, aspectRatio: LOGO_ASPECT },
 });
