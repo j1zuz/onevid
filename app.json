@@ -34,7 +34,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#000000"
+          "backgroundColor": "#000000",
+          "image": "./assets/images/onevid-text.png",
+          "imageWidth": 240
         }
       ],
       [
