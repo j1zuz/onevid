@@ -42,6 +42,7 @@ import {
 import Animated, {
   cancelAnimation,
   Easing,
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -469,6 +470,20 @@ function Player({
   const [menu, setMenu] = useState<'audio' | 'subtitle' | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
 
+  // Carátula (póster) que tapa el arranque: mejor práctica de Expo para vídeo
+  // (mostrar una imagen propia y ocultarla al primer fotograma). En vez de un
+  // "loading" animado, mostramos el mismo arte del detalle, estático, y lo
+  // fundimos al vídeo en cuanto reproduce — así no se ve ningún loading.
+  const coverOpacity = useSharedValue(1);
+  const [coverGone, setCoverGone] = useState(false);
+  const coverStyle = useAnimatedStyle(() => ({ opacity: coverOpacity.value }));
+  useEffect(() => {
+    if (!hasPlayed) return;
+    coverOpacity.value = withTiming(0, { duration: 260 }, (finished) => {
+      if (finished) runOnJS(setCoverGone)(true);
+    });
+  }, [hasPlayed, coverOpacity]);
+
   const scheduleHide = useCallback(() => {
     clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => setControlsVisible(false), CONTROLS_HIDE_MS);
@@ -621,9 +636,14 @@ function Player({
         </View>
       ) : null}
 
-      {/* Arte (logo) mientras carga */}
-      {showLoading ? (
-        <LoadingArt background={background} logo={logo} title={title} />
+      {/* Carátula que tapa el arranque y se funde al vídeo (sin loading visible) */}
+      {!coverGone && !errorMsg ? (
+        <Animated.View
+          style={[StyleSheet.absoluteFill, coverStyle]}
+          pointerEvents="none"
+        >
+          <LoadingArt background={background} logo={logo} title={title} />
+        </Animated.View>
       ) : null}
 
       {/* Fondo del póster detrás de los controles si falla antes de reproducir
@@ -966,20 +986,6 @@ function LoadingArt({
   error?: string;
   detail?: string;
 }) {
-  const pulse = useSharedValue(0.55);
-
-  useEffect(() => {
-    if (error) return;
-    pulse.value = withRepeat(
-      withTiming(1, { duration: 900, easing: Easing.inOut(Easing.ease) }),
-      -1,
-      true,
-    );
-    return () => cancelAnimation(pulse);
-  }, [error, pulse]);
-
-  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
-
   return (
     <View style={styles.artRoot} pointerEvents={error ? 'auto' : 'none'}>
       {background ? (
@@ -994,26 +1000,33 @@ function LoadingArt({
       <View style={styles.artScrim} />
 
       {error ? (
+        // Mismo tipo de tarjeta que los errores de reproducción dentro del
+        // player, para que "Sin fuentes disponibles" se vea igual que todo lo
+        // demás (no texto suelto sobre el arte).
         <View style={styles.artCenter}>
-          <Typography type="body" weight="semibold" color="default" align="center">
-            No se pudo reproducir
-          </Typography>
-          <Typography
-            type="body-sm"
-            color="muted"
-            align="center"
-            style={{ marginTop: 8 }}
-          >
-            {error}
-          </Typography>
-          {detail ? (
-            <Text style={styles.errorDetail} selectable numberOfLines={4}>
-              {detail}
-            </Text>
-          ) : null}
+          <View style={styles.errorBox}>
+            <Typography type="body" weight="semibold" color="default" align="center">
+              No se pudo reproducir
+            </Typography>
+            <Typography
+              type="body-sm"
+              color="muted"
+              align="center"
+              style={{ marginTop: 6 }}
+            >
+              {error}
+            </Typography>
+            {detail ? (
+              <Text style={styles.errorDetail} selectable numberOfLines={4}>
+                {detail}
+              </Text>
+            ) : null}
+          </View>
         </View>
       ) : (
-        <Animated.View style={[styles.artCenter, pulseStyle]}>
+        // Póster estático (sin animación de "loading"): es la carátula que tapa
+        // el arranque del vídeo y se funde a él al primer fotograma.
+        <View style={styles.artCenter}>
           {logo ? (
             <Image
               source={logo}
@@ -1025,7 +1038,7 @@ function LoadingArt({
               {title ?? ''}
             </Typography>
           )}
-        </Animated.View>
+        </View>
       )}
     </View>
   );
