@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import {
   LibVlcPlayerView,
   type LibVlcPlayerViewRef,
@@ -51,7 +52,11 @@ import {
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 import { EpisodePicker } from '@/components/episode-picker';
-import { SourcesList, type StreamSource } from '@/components/sources-list';
+import {
+  SourcesList,
+  sourcesQueryOptions,
+  type StreamSource,
+} from '@/components/sources-list';
 import { tvFocusRing } from '@/hooks/use-tv-focus';
 import { API_URL, getAccessToken } from '@/lib/auth';
 
@@ -201,6 +206,16 @@ export default function PlayerScreen() {
   // `rawUrl` es estado: al elegir otra fuente lo cambiamos y se re-resuelve.
   const [rawUrl, setRawUrl] = useState(params.url ?? '');
   const [state, setState] = useState<ResolveState>({ kind: 'resolving' });
+
+  // Si llegamos SIN `url`, reproducimos la 1ª fuente disponible: la pedimos aquí
+  // con la misma `queryKey` que el SourcePicker (comparte caché con el prefetch
+  // del detalle, sin fetch duplicado) y, al resolver, fijamos `rawUrl`. Mientras
+  // tanto `LoadingArt` cubre la espera, así que no hay parpadeo del selector.
+  const autoPlay = !params.url;
+  const sourcesQuery = useQuery({
+    ...sourcesQueryOptions(mediaType, mediaId ?? '', season, episode),
+    enabled: autoPlay && Boolean(mediaId),
+  });
   const [pickerOpen, setPickerOpen] = useState(false);
   const [episodePickerOpen, setEpisodePickerOpen] = useState(false);
 
@@ -243,7 +258,32 @@ export default function PlayerScreen() {
 
   useEffect(() => {
     if (!rawUrl) {
-      setState({ kind: 'error', message: 'Falta la URL del stream.' });
+      // Sin URL directa: esperamos la 1ª fuente del auto-play.
+      if (!autoPlay || !mediaId) {
+        setState({ kind: 'error', message: 'Falta la URL del stream.' });
+        return;
+      }
+      if (sourcesQuery.isError) {
+        setState({
+          kind: 'error',
+          message:
+            sourcesQuery.error instanceof Error
+              ? sourcesQuery.error.message
+              : 'No pudimos cargar las fuentes.',
+        });
+        return;
+      }
+      const first = sourcesQuery.data?.sources[0];
+      if (first) {
+        setRawUrl(first.url); // re-dispara este efecto ya con URL.
+        return;
+      }
+      if (sourcesQuery.data) {
+        // Respondió, pero ningún addon devolvió fuentes.
+        setState({ kind: 'error', message: 'Sin fuentes disponibles' });
+        return;
+      }
+      setState({ kind: 'resolving' }); // fuentes aún cargando.
       return;
     }
     let cancelled = false;
@@ -264,7 +304,14 @@ export default function PlayerScreen() {
     return () => {
       cancelled = true;
     };
-  }, [rawUrl]);
+  }, [
+    rawUrl,
+    autoPlay,
+    mediaId,
+    sourcesQuery.isError,
+    sourcesQuery.error,
+    sourcesQuery.data,
+  ]);
 
   return (
     <View style={styles.root}>
