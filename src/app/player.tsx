@@ -72,6 +72,17 @@ type ResolveState =
   | { kind: 'ready'; url: string; fileName?: string }
   | { kind: 'error'; message: string };
 
+// expo-libvlc-player valida la URL con `java.net.URI(source)` (parser estricto
+// RFC-2396) ANTES de pasarla a libVLC, y lanza "Invalid source, media could not
+// be set" si hay caracteres ilegales sin codificar — aunque el enlace sea válido
+// y `fetch`/`android.net.Uri` lo acepten. Percent-encodeamos solo esos
+// caracteres (sin tocar `%` para no romper secuencias %XX ya válidas).
+function sanitizeUrlForVlc(url: string): string {
+  return url
+    .replace(/[ "<>\\^`{|}\[\]]/g, (c) => encodeURIComponent(c))
+    .replace(/[^\x00-\x7F]/g, (c) => encodeURIComponent(c));
+}
+
 async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
   if (raw.startsWith('/api/')) {
     const sep = raw.includes('?') ? '&' : '?';
@@ -93,9 +104,9 @@ async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
     if (!data.url) {
       throw new Error(data.error ?? 'El stream no devolvió una URL.');
     }
-    return { url: data.url, fileName: data.fileName };
+    return { url: sanitizeUrlForVlc(data.url), fileName: data.fileName };
   }
-  return { url: raw };
+  return { url: sanitizeUrlForVlc(raw) };
 }
 
 const SEEK_STEP_MS = 10_000;
@@ -844,14 +855,15 @@ function TrackMenu({
 
 function humanizePlaybackError(raw?: string): string {
   const e = (raw ?? '').toLowerCase();
-  // VLC: "Invalid source, media could not be set" / 403 → el host suele
-  // bloquear la reproducción (UA/Referer) o el enlace ya expiró.
-  if (
-    e.includes('invalid source') ||
-    e.includes('could not be set') ||
-    e.includes('403') ||
-    e.includes('forbidden')
-  ) {
+  // "Invalid source, media could not be set" lo lanza expo-libvlc-player cuando
+  // la URL no pasa el parser estricto java.net.URI (caracteres ilegales sin
+  // codificar) — NO es bloqueo del host (el enlace suele estar vivo). Ya saneamos
+  // la URL antes de reproducir, así que esto debería ser raro.
+  if (e.includes('invalid source') || e.includes('could not be set')) {
+    return 'El reproductor no pudo abrir esta fuente (URL con formato no válido). Intenta con otra.';
+  }
+  // 403/forbidden → el host bloquea la reproducción (UA/Referer) o el enlace expiró.
+  if (e.includes('403') || e.includes('forbidden')) {
     return 'La fuente bloqueó la reproducción o el enlace expiró. Vuelve atrás y elige otra.';
   }
   if (e.includes('404') || e.includes('http') || e.includes('not found')) {
