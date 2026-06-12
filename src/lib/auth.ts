@@ -19,9 +19,9 @@ export interface DeviceCodeData {
 
 export interface DeviceTokenSuccess {
   // `access_token` es el token de sesión de Better Auth: se guarda y se manda
-  // como `Authorization: Bearer ...`. Better Auth usa sesiones (7 días por
-  // defecto) y NO emite refresh_token, así que no hay nada que renovar; cuando
-  // la sesión expira se vuelve a iniciar con el flujo de dispositivo.
+  // como `Authorization: Bearer ...`. Better Auth usa sesiones (30 días) y NO
+  // emite refresh_token, así que no hay nada que renovar; cuando la sesión
+  // expira se vuelve a iniciar con el flujo de dispositivo.
   access_token: string;
   token_type: string;
   expires_in?: number;
@@ -123,7 +123,7 @@ export async function clearAccessToken(): Promise<void> {
   await SecureStore.deleteItemAsync(TOKEN_KEY);
 }
 
-// El backend usa Better Auth (sesiones de 7 días), no OAuth con refresh: el
+// El backend usa Better Auth (sesiones de 30 días), no OAuth con refresh: el
 // `access_token` que guardamos ES el token de sesión y se valida como Bearer.
 // Por eso, al arrancar, no basta con saber que existe un token: hay que
 // preguntarle al backend si la sesión sigue viva. Devuelve true sólo si
