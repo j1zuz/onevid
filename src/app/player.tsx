@@ -28,10 +28,14 @@ import {
   Pressable,
   type GestureResponderEvent,
   type LayoutChangeEvent,
+  type PressableStateCallbackType,
   StatusBar as RNStatusBar,
+  type StyleProp,
   StyleSheet,
   Text,
+  useTVEventHandler,
   View,
+  type ViewStyle,
 } from 'react-native';
 import Animated, {
   cancelAnimation,
@@ -46,7 +50,18 @@ import {
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 import { SourcesList, type StreamSource } from '@/components/sources-list';
+import { tvFocusRing } from '@/hooks/use-tv-focus';
 import { API_URL, getAccessToken } from '@/lib/auth';
+
+// Aplica el anillo de foco de TV a un Pressable sin estado de foco propio: usa
+// el render-prop de Pressable (`state.focused`, disponible en TV). Fuera de TV
+// `tvFocusRing` devuelve null, así que es no-op en móvil/web.
+const withRing =
+  (base: StyleProp<ViewStyle>) =>
+  (state: PressableStateCallbackType): StyleProp<ViewStyle> => [
+    base,
+    tvFocusRing((state as { focused?: boolean }).focused ?? false),
+  ];
 
 type ResolvedStream = { url: string; fileName?: string };
 
@@ -224,7 +239,7 @@ export default function PlayerScreen() {
         style={styles.backWrap}
         pointerEvents="box-none"
       >
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable onPress={() => router.back()} style={withRing(styles.backBtn)}>
           <ArrowLeft size={22} color="#fff" />
         </Pressable>
       </SafeAreaView>
@@ -269,7 +284,7 @@ function SourcePicker({
           <Typography type="h5" weight="bold">
             Cambiar fuente
           </Typography>
-          <Pressable onPress={onClose} style={styles.menuClose}>
+          <Pressable onPress={onClose} style={withRing(styles.menuClose)}>
             <X size={20} color="#fff" />
           </Pressable>
         </View>
@@ -341,6 +356,14 @@ function Player({
     scheduleHide();
   }, [scheduleHide]);
 
+  // En TV no hay toque para revelar los controles: cualquier evento del mando
+  // los muestra y reinicia el auto-ocultado. No-op fuera de TV.
+  useTVEventHandler((evt) => {
+    if (evt?.eventType && evt.eventType !== 'focus' && evt.eventType !== 'blur') {
+      showControls();
+    }
+  });
+
   useEffect(() => {
     scheduleHide();
     return () => {
@@ -392,7 +415,12 @@ function Player({
 
   const progress = scrubbing ? scrubTime : time;
   const pct = duration > 0 ? Math.min(progress / duration, 1) : 0;
-  const showArt = !hasPlayed || !!errorMsg;
+  // Mientras carga mostramos el arte (logo). En error NO ocultamos el player:
+  // dejamos sus controles normales (incluido "cambiar fuente") y mostramos el
+  // error en el centro, seleccionable para copiarlo.
+  const showLoading = !hasPlayed && !errorMsg;
+  const controlsShown = !!errorMsg || controlsVisible;
+  const tracksInfo = errorMsg ? describeTracks(tracks) : undefined;
 
   return (
     <>
@@ -448,8 +476,9 @@ function Player({
         }}
       />
 
-      {/* Capa táctil para mostrar/ocultar controles */}
-      {!showArt ? (
+      {/* Capa táctil para mostrar/ocultar controles (solo en reproducción
+          normal: en error los controles quedan fijos). */}
+      {!showLoading && !errorMsg ? (
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={() =>
@@ -465,18 +494,27 @@ function Player({
         </View>
       ) : null}
 
-      {showArt ? (
-        <LoadingArt
-          background={background}
-          logo={logo}
-          title={title}
-          error={errorMsg ?? undefined}
-          detail={rawError ?? undefined}
-        />
+      {/* Arte (logo) mientras carga */}
+      {showLoading ? (
+        <LoadingArt background={background} logo={logo} title={title} />
       ) : null}
 
-      {/* Controles */}
-      {!showArt && controlsVisible ? (
+      {/* Fondo del póster detrás de los controles si falla antes de reproducir
+          (el vídeo aún está en negro). */}
+      {errorMsg && background ? (
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <Image
+            source={background}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={styles.artScrim} />
+        </View>
+      ) : null}
+
+      {/* Controles (se mantienen visibles mientras haya error) */}
+      {!showLoading && controlsShown ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
           {/* Arriba: título (izquierda) + acciones (derecha) */}
           <View
@@ -505,7 +543,7 @@ function Player({
             <View style={styles.topActions}>
               {tracks.audio.length > 0 ? (
                 <Pressable
-                  style={styles.actionBtn}
+                  style={withRing(styles.actionBtn)}
                   onPress={() => {
                     setMenu('audio');
                     showControls();
@@ -517,7 +555,7 @@ function Player({
               ) : null}
               {tracks.subtitle.length > 0 ? (
                 <Pressable
-                  style={styles.actionBtn}
+                  style={withRing(styles.actionBtn)}
                   onPress={() => {
                     setMenu('subtitle');
                     showControls();
@@ -529,7 +567,7 @@ function Player({
               ) : null}
               {onChangeSource ? (
                 <Pressable
-                  style={styles.actionBtn}
+                  style={withRing(styles.actionBtn)}
                   onPress={() => {
                     onChangeSource();
                     showControls();
@@ -540,7 +578,7 @@ function Player({
                 </Pressable>
               ) : null}
               <Pressable
-                style={styles.actionBtn}
+                style={withRing(styles.actionBtn)}
                 onPress={() => playerRef.current?.startPictureInPicture?.()}
                 hitSlop={6}
               >
@@ -549,30 +587,64 @@ function Player({
             </View>
           </View>
 
-          {/* Centro: retroceder 10s · play/pausa · adelantar 10s */}
-          <View style={styles.centerRow} pointerEvents="box-none">
-            <Pressable
-              style={styles.ctrlBtn}
-              onPress={() => skip(-SEEK_STEP_MS)}
-              hitSlop={8}
-            >
-              <RotateCcw size={26} color="#fff" />
-            </Pressable>
-            <Pressable style={styles.playBtn} onPress={togglePlay} hitSlop={8}>
-              {playing ? (
-                <Pause size={32} color="#fff" fill="#fff" />
-              ) : (
-                <Play size={32} color="#fff" fill="#fff" />
-              )}
-            </Pressable>
-            <Pressable
-              style={styles.ctrlBtn}
-              onPress={() => skip(SEEK_STEP_MS)}
-              hitSlop={8}
-            >
-              <RotateCw size={26} color="#fff" />
-            </Pressable>
-          </View>
+          {/* Centro: si hay error, el mensaje (seleccionable para copiarlo);
+              si no, retroceder 10s · play/pausa · adelantar 10s. */}
+          {errorMsg ? (
+            <View style={styles.centerRow} pointerEvents="box-none">
+              <View style={styles.errorBox} pointerEvents="auto">
+                <Typography type="body" weight="semibold" align="center">
+                  No se pudo reproducir
+                </Typography>
+                <Typography
+                  type="body-sm"
+                  color="muted"
+                  align="center"
+                  style={{ marginTop: 6 }}
+                >
+                  {errorMsg}
+                </Typography>
+                {rawError ? (
+                  <Text style={styles.errorDetail} selectable>
+                    {rawError}
+                  </Text>
+                ) : null}
+                {tracksInfo ? (
+                  <Text style={styles.tracksDetail} selectable>
+                    {tracksInfo}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          ) : (
+            <View style={styles.centerRow} pointerEvents="box-none">
+              <Pressable
+                style={withRing(styles.ctrlBtn)}
+                onPress={() => skip(-SEEK_STEP_MS)}
+                hitSlop={8}
+              >
+                <RotateCcw size={26} color="#fff" />
+              </Pressable>
+              <Pressable
+                style={withRing(styles.playBtn)}
+                onPress={togglePlay}
+                hitSlop={8}
+                hasTVPreferredFocus
+              >
+                {playing ? (
+                  <Pause size={32} color="#fff" fill="#fff" />
+                ) : (
+                  <Play size={32} color="#fff" fill="#fff" />
+                )}
+              </Pressable>
+              <Pressable
+                style={withRing(styles.ctrlBtn)}
+                onPress={() => skip(SEEK_STEP_MS)}
+                hitSlop={8}
+              >
+                <RotateCw size={26} color="#fff" />
+              </Pressable>
+            </View>
+          )}
 
           {/* Barra inferior tipo "pill" */}
           <View
@@ -654,12 +726,12 @@ function TrackMenu({
           <Text style={styles.menuTitle}>
             {kind === 'audio' ? 'Pista de audio' : 'Subtítulos'}
           </Text>
-          <Pressable onPress={onClose} style={styles.menuClose}>
+          <Pressable onPress={onClose} style={withRing(styles.menuClose)}>
             <X size={20} color="#fff" />
           </Pressable>
         </View>
         {allowOff ? (
-          <Pressable style={styles.menuItem} onPress={() => onSelect(null)}>
+          <Pressable style={withRing(styles.menuItem)} onPress={() => onSelect(null)}>
             <Text style={styles.menuItemText}>Desactivados</Text>
             {selectedId == null ? <Check size={18} color="#7CFC9B" /> : null}
           </Pressable>
@@ -667,7 +739,7 @@ function TrackMenu({
         {tracks.map((t) => (
           <Pressable
             key={t.id}
-            style={styles.menuItem}
+            style={withRing(styles.menuItem)}
             onPress={() => onSelect(t.id)}
           >
             <Text style={styles.menuItemText} numberOfLines={1}>
@@ -714,6 +786,23 @@ function BufferingPulse() {
   }, [pulse]);
   const style = useAnimatedStyle(() => ({ opacity: pulse.value }));
   return <Animated.View style={[styles.spinner, style]} />;
+}
+
+// Resumen de las pistas (códecs) detectadas por VLC antes del fallo. Sirve para
+// verificar si la fuente falla por un códec de vídeo/audio concreto o si ni
+// siquiera llegó a abrir pistas (apunta a red/enlace).
+function describeTracks(tracks?: MediaTracks): string | undefined {
+  if (!tracks) return undefined;
+  const fmt = (list: Track[]) =>
+    list.map((t) => t.name?.trim() || `pista ${t.id}`).join(', ');
+  const lines: string[] = [];
+  if (tracks.video.length) lines.push(`Vídeo: ${fmt(tracks.video)}`);
+  if (tracks.audio.length) lines.push(`Audio: ${fmt(tracks.audio)}`);
+  if (tracks.subtitle.length) lines.push(`Subtítulos: ${fmt(tracks.subtitle)}`);
+  if (lines.length === 0) {
+    return 'No se detectaron pistas antes del fallo (posible problema de red, enlace o resolución, no de códec).';
+  }
+  return lines.join('\n');
 }
 
 function LoadingArt({
@@ -826,6 +915,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     textAlign: 'center',
+  },
+  tracksDetail: {
+    marginTop: 10,
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  errorBox: {
+    maxWidth: 520,
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
   },
   bufferWrap: {
     position: 'absolute',
