@@ -132,12 +132,19 @@ function HeroSlide({
     item.background ?? item.poster,
     isLarge ? 'w1280' : 'w780',
   );
+  // Placeholder de baja resolución (w185) de la MISMA portada: es minúsculo,
+  // rara vez se desaloja de RAM y se muestra al instante mientras la versión
+  // grande (re)carga. Evita que la diapositiva quede en negro cuando el
+  // reproductor desaloja las imágenes grandes en gama baja.
+  const lowRes = tmdbImage(item.background ?? item.poster, 'w185');
   return (
     <View style={{ width, height }}>
       {bg ? (
         <Image
           source={bg}
           recyclingKey={bg}
+          placeholder={lowRes}
+          placeholderContentFit="cover"
           contentFit="cover"
           transition={200}
           cachePolicy="memory-disk"
