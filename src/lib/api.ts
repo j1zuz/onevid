@@ -10,7 +10,7 @@ const TMDB_SIZE_RE =
 
 export function tmdbImage(
   url: string | undefined,
-  targetSize: 'w185' | 'w500' | 'w780' | 'w1280' | 'original' = 'w780',
+  targetSize: 'w185' | 'w300' | 'w500' | 'w780' | 'w1280' | 'original' = 'w780',
 ): string | undefined {
   if (!url) return url;
   return url.replace(TMDB_SIZE_RE, `image.tmdb.org/t/p/${targetSize}/`);

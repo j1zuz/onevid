@@ -14,6 +14,7 @@ import {
   Captions,
   Check,
   Languages,
+  LayoutList,
   ListVideo,
   Pause,
   PictureInPicture2,
@@ -49,6 +50,7 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
+import { EpisodePicker } from '@/components/episode-picker';
 import { SourcesList, type StreamSource } from '@/components/sources-list';
 import { tvFocusRing } from '@/hooks/use-tv-focus';
 import { API_URL, getAccessToken } from '@/lib/auth';
@@ -99,6 +101,38 @@ async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
 const SEEK_STEP_MS = 10_000;
 const CONTROLS_HIDE_MS = 4_000;
 
+// User-Agent de navegador: evita 403 de hosts que rechazan el UA por defecto de
+// VLC. Se usa tanto en las opciones de libVLC como en la sonda de diagnóstico,
+// para que ambos vean exactamente la misma respuesta del host.
+const STREAM_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+
+// Diagnóstico: consulta la URL ya resuelta (1 byte) para ver qué devuelve el
+// host realmente (código HTTP, tipo de contenido, tamaño, redirección). Cuando
+// VLC dice "Invalid source, media could not be set" sin pistas, el fallo es de
+// red/enlace y esto revela la causa concreta (403 bloqueado, página HTML de
+// error, enlace caducado, etc.).
+async function probeStreamUrl(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { Range: 'bytes=0-1', 'User-Agent': STREAM_UA },
+    });
+    const ct = res.headers.get('content-type') ?? '—';
+    const size =
+      res.headers.get('content-range') ??
+      res.headers.get('content-length') ??
+      '—';
+    const redirect =
+      res.url && res.url !== url ? `\n→ redirige a: ${res.url}` : '';
+    return `Diagnóstico: HTTP ${res.status} · ${ct} · ${size}${redirect}`;
+  } catch (e) {
+    return `Diagnóstico: sin respuesta del host (${
+      e instanceof Error ? e.message : 'error de red'
+    }).`;
+  }
+}
+
 function formatTime(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '0:00';
   const total = Math.floor(ms / 1000);
@@ -138,18 +172,26 @@ export default function PlayerScreen() {
   const mediaType = params.type === 'series' ? 'series' : 'movie';
   const mediaId = params.id || undefined;
   const canChangeSource = Boolean(mediaId);
+  const canChangeEpisode = mediaType === 'series' && Boolean(mediaId);
+
+  // Temporada/episodio son estado: al elegir otro episodio se actualizan (y con
+  // ellos el subtítulo y las fuentes que pide el SourcePicker).
+  const [season, setSeason] = useState(params.season || undefined);
+  const [episode, setEpisode] = useState(params.episode || undefined);
+  const [episodeTitle, setEpisodeTitle] = useState(
+    params.episodeTitle || undefined,
+  );
   // Subtítulo: para series "S1E1 · Nombre del episodio".
   const subtitle =
-    mediaType === 'series' && params.season && params.episode
-      ? `S${params.season}E${params.episode}${
-          params.episodeTitle ? ` · ${params.episodeTitle}` : ''
-        }`
+    mediaType === 'series' && season && episode
+      ? `S${season}E${episode}${episodeTitle ? ` · ${episodeTitle}` : ''}`
       : undefined;
 
   // `rawUrl` es estado: al elegir otra fuente lo cambiamos y se re-resuelve.
   const [rawUrl, setRawUrl] = useState(params.url ?? '');
   const [state, setState] = useState<ResolveState>({ kind: 'resolving' });
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [episodePickerOpen, setEpisodePickerOpen] = useState(false);
 
   // Auto-rotate to landscape while the player is mounted; restore on exit.
   // En TV la pantalla ya es landscape fija, así que no tocamos la orientación.
@@ -224,6 +266,9 @@ export default function PlayerScreen() {
           background={background}
           logo={logo}
           onChangeSource={canChangeSource ? () => setPickerOpen(true) : undefined}
+          onChangeEpisode={
+            canChangeEpisode ? () => setEpisodePickerOpen(true) : undefined
+          }
         />
       ) : (
         <LoadingArt
@@ -248,13 +293,30 @@ export default function PlayerScreen() {
         <SourcePicker
           type={mediaType}
           id={mediaId}
-          season={params.season || undefined}
-          episode={params.episode || undefined}
+          season={season}
+          episode={episode}
           onSelect={(s: StreamSource) => {
             setPickerOpen(false);
             setRawUrl(s.url);
           }}
           onClose={() => setPickerOpen(false)}
+        />
+      ) : null}
+
+      {episodePickerOpen && mediaId ? (
+        <EpisodePicker
+          id={mediaId}
+          season={season}
+          episode={episode}
+          onSelect={({ season: s, episode: e, episodeTitle: t }) => {
+            setSeason(s);
+            setEpisode(e);
+            setEpisodeTitle(t);
+            setEpisodePickerOpen(false);
+            // Tras elegir episodio, abrimos las fuentes de ese episodio.
+            setPickerOpen(true);
+          }}
+          onClose={() => setEpisodePickerOpen(false)}
         />
       ) : null}
     </View>
@@ -307,6 +369,7 @@ function Player({
   background,
   logo,
   onChangeSource,
+  onChangeEpisode,
 }: {
   url: string;
   title?: string;
@@ -314,6 +377,7 @@ function Player({
   background?: string;
   logo?: string;
   onChangeSource?: () => void;
+  onChangeEpisode?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const playerRef = useRef<LibVlcPlayerViewRef>(null);
@@ -329,6 +393,7 @@ function Player({
   const [hasPlayed, setHasPlayed] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [rawError, setRawError] = useState<string | null>(null);
+  const [probe, setProbe] = useState<string | null>(null);
 
   const [time, setTime] = useState(0); // ms
   const [duration, setDuration] = useState(0); // ms
@@ -438,7 +503,7 @@ function Player({
           ':network-caching=3000',
           ':file-caching=3000',
           ':http-reconnect',
-          ':http-user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+          `:http-user-agent=${STREAM_UA}`,
         ]}
         contentFit="contain"
         autoplay
@@ -459,6 +524,7 @@ function Player({
           setHasPlayed(true);
           setErrorMsg(null);
           setRawError(null);
+          setProbe(null);
         }}
         onPaused={() => setPlaying(false)}
         onStopped={() => setPlaying(false)}
@@ -473,6 +539,9 @@ function Player({
         onEncounteredError={({ message }) => {
           setErrorMsg(humanizePlaybackError(message));
           setRawError(message || 'EncounteredError (sin mensaje)');
+          // Sonda del enlace: revela la causa real (403/HTML/caducado/redirección).
+          setProbe('Comprobando enlace…');
+          probeStreamUrl(url).then(setProbe);
         }}
       />
 
@@ -565,6 +634,18 @@ function Player({
                   <Captions size={20} color="#fff" />
                 </Pressable>
               ) : null}
+              {onChangeEpisode ? (
+                <Pressable
+                  style={withRing(styles.actionBtn)}
+                  onPress={() => {
+                    onChangeEpisode();
+                    showControls();
+                  }}
+                  hitSlop={6}
+                >
+                  <LayoutList size={20} color="#fff" />
+                </Pressable>
+              ) : null}
               {onChangeSource ? (
                 <Pressable
                   style={withRing(styles.actionBtn)}
@@ -613,6 +694,14 @@ function Player({
                     {tracksInfo}
                   </Text>
                 ) : null}
+                {probe ? (
+                  <Text style={styles.tracksDetail} selectable>
+                    {probe}
+                  </Text>
+                ) : null}
+                <Text style={styles.urlDetail} selectable numberOfLines={3}>
+                  {url}
+                </Text>
               </View>
             </View>
           ) : (
@@ -920,6 +1009,13 @@ const styles = StyleSheet.create({
     marginTop: 10,
     color: 'rgba(255,255,255,0.6)',
     fontSize: 12,
+    textAlign: 'center',
+  },
+  urlDetail: {
+    marginTop: 10,
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: 10,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     textAlign: 'center',
   },
   errorBox: {
