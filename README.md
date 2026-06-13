@@ -25,7 +25,41 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Builds locales (gratis)
 
+> ⚠️ **Importante:** `eas build` **sin** `--local` compila en la nube de Expo y **cobra por build**.
+> Todos los comandos de abajo compilan en **tu máquina** y **no generan cargos**.
+>
+> Las versiones de **Apple (iOS / Apple TV) requieren una Mac con Xcode** y no pueden compilarse
+> en Linux. Este proyecto está preparado para compilar **Android (teléfono) y Android TV** en local.
+
+Esta app usa módulos nativos propios (`expo-libvlc-player`, `react-native-tvos`), por eso no
+funciona en Expo Go: se necesita un *development build* propio (`expo-dev-client`). El switch
+entre móvil y TV lo hace el plugin `@react-native-tvos/config-tv` leyendo la variable de
+entorno `EXPO_TV` en tiempo de build.
+
+### Comandos
+
+| Objetivo | Móvil | Android TV |
+| --- | --- | --- |
+| Dev build + instalar (debug, lo más rápido) | `pnpm android` | `pnpm android:tv` |
+| APK distribuible (sideload) | `pnpm build:android` | `pnpm build:android:tv` |
+| AAB para Play Store | `pnpm build:android:prod` | `pnpm build:android:tv:prod` |
+| Update OTA (sin recompilar) | `pnpm update` | `pnpm update:tv` |
+
+- Los `expo run:*` (`pnpm android` / `pnpm android:tv`) son 100% locales y **no necesitan `eas-cli`**.
+- Los `build:*` usan `eas build --local`: compilan en tu máquina (sin cobro) usando los
+  perfiles de `eas.json`. Los perfiles `-tv` ya inyectan `EXPO_TV=1`.
+- **EAS Update (OTA)** se conserva: es gratis hasta 1,000 usuarios activos/mes y **no** consume
+  builds de pago. Para TV se antepone `EXPO_TV=1` para que el *fingerprint* coincida con el build de TV.
+
+### Requisitos para compilar Android en local
+
+- **JDK 17** (en Arch: `jdk17-openjdk`).
+- **Android SDK** (Android Studio o `cmdline-tools`) con `ANDROID_HOME` exportado.
+- Un **emulador** (AVD de teléfono y/o de Android TV) o un dispositivo real con depuración
+  USB / `adb connect`.
+- Solo para los scripts `build:*` y `update*`: `eas-cli` global (`npm i -g eas-cli`).
 
 ### Other setup steps
 

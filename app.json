@@ -29,6 +29,12 @@
       "output": "static",
       "favicon": "./assets/images/icon.png"
     },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/05fa14f6-8ade-486d-b56d-8ded1eba3bbe"
+    },
     "plugins": [
       "expo-router",
       [

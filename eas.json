@@ -6,21 +6,24 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "channel": "development"
     },
     "development-tv": {
       "extends": "development",
       "env": { "EXPO_TV": "1" }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "channel": "preview"
     },
     "preview-tv": {
       "extends": "preview",
       "env": { "EXPO_TV": "1" }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "channel": "production"
     },
     "production-tv": {
       "extends": "production",
