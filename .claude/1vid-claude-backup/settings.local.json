@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(pnpm --version)",
-      "Bash(pnpm create *)"
-    ]
-  }
-}
