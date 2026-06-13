@@ -11,7 +11,6 @@ import {
   View,
 } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { useResponsive } from '@/hooks/use-responsive';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { type MediaMeta, tmdbImage } from '@/lib/api';
 import { COLORS } from '@/lib/theme';
@@ -123,15 +122,12 @@ function HeroSlide({
   height: number;
   onPressPlay: () => void;
 }) {
-  const { isLarge } = useResponsive();
   const playFocus = useTvFocus();
-  // Resolución acotada: en móvil 'w780' (suficiente y mucho más liviano en RAM
-  // que 'w1280'/'original', que en gama baja se desalojan al reproducir y dejan
-  // el hero en negro). En TV/pantallas grandes 'w1280'.
-  const bg = tmdbImage(
-    item.background ?? item.poster,
-    isLarge ? 'w1280' : 'w780',
-  );
+  // 'w1280' para que el hero a pantalla completa se vea nítido en pantallas
+  // HiDPI ('w780' se veía borroso). El riesgo en gama baja —que el reproductor
+  // desaloje la imagen grande de RAM y deje el hero en negro— lo cubre el
+  // placeholder 'w185' de abajo, que se muestra al instante mientras recarga.
+  const bg = tmdbImage(item.background ?? item.poster, 'w1280');
   // Placeholder de baja resolución (w185) de la MISMA portada: es minúsculo,
   // rara vez se desaloja de RAM y se muestra al instante mientras la versión
   // grande (re)carga. Evita que la diapositiva quede en negro cuando el
