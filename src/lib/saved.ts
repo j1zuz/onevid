@@ -1,7 +1,7 @@
 import * as WebBrowser from 'expo-web-browser';
 import { apiFetch, type MediaMeta } from './api';
 
-const TMDB_REDIRECT = '1vid://tmdb-approved';
+const TMDB_REDIRECT = 'onevid://tmdb-approved';
 
 /** Thrown (by message) when the user hasn't linked their TMDB account yet. */
 export function isNotLinkedError(e: unknown): boolean {

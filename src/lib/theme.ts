@@ -1,5 +1,5 @@
 /**
- * Paleta dark-only de 1vid.
+ * Paleta dark-only de onevid.
  *
  * Uniwind / HeroUI Native respetan @variant light cuando el sistema reporta
  * light (Expo Go ignora userInterfaceStyle), por eso forzamos el background

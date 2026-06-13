@@ -13,10 +13,10 @@ export interface SetupStatus {
   addonsCount: number;
 }
 
-export const SETUP_URL = `${API_URL}/home/projects/1vid`;
+export const SETUP_URL = `${API_URL}/home/projects/onevid`;
 
 /**
- * Estado de configuración de 1vid. Comparte la key ['setup-status'] entre todas
+ * Estado de configuración de onevid. Comparte la key ['setup-status'] entre todas
  * las pestañas, así que un solo fetch sirve para Inicio, Descubrir y Biblioteca.
  */
 export function useSetupStatus() {
@@ -41,7 +41,7 @@ export function SetupPrompt() {
     >
       <CloudOff size={48} color="#888" />
       <Typography type="h5" align="center">
-        Configura 1vid para empezar
+        Configura onevid para empezar
       </Typography>
       <Typography type="body-sm" color="muted" align="center">
         Aún no completaste la configuración.
