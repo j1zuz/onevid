@@ -8,7 +8,6 @@ import {
   FlatList,
   Pressable,
   type PressableStateCallbackType,
-  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -106,11 +105,11 @@ export function EpisodePicker({
         </View>
 
         {series && series.seasons.length > 1 ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.seasonRow}
-          >
+          // Fila que se ajusta sola (flexWrap) en vez de ScrollView horizontal:
+          // el scroll horizontal medía mal el ancho de las pastillas y el texto
+          // colapsaba a un carácter por línea. Con la tarjeta de ancho concreto,
+          // las pastillas fluyen y se parten a otra fila si no caben.
+          <View style={styles.seasonRow}>
             {series.seasons.map((n) => (
               <Pressable
                 key={n}
@@ -121,16 +120,18 @@ export function EpisodePicker({
                   tvFocusRing(isFocused(s)),
                 ]}
               >
-                <Typography
-                  type="body-sm"
-                  weight={n === effectiveSeason ? 'bold' : 'medium'}
-                  style={{ color: n === effectiveSeason ? '#000' : '#fff' }}
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.seasonText,
+                    n === effectiveSeason && styles.seasonTextActive,
+                  ]}
                 >
                   {`Temporada ${n}`}
-                </Typography>
+                </Text>
               </Pressable>
             ))}
-          </ScrollView>
+          </View>
         ) : null}
 
         {query.isLoading ? (
@@ -222,6 +223,8 @@ const styles = StyleSheet.create({
   },
   menuClose: { padding: 4, borderRadius: 8 },
   seasonRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -233,6 +236,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
   seasonTabActive: { backgroundColor: '#fff' },
+  seasonText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  seasonTextActive: { color: '#000', fontWeight: '700' },
   loading: {
     paddingVertical: 40,
     alignItems: 'center',

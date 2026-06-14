@@ -6,6 +6,7 @@
     "orientation": "default",
     "icon": "./assets/images/onevid.png",
     "scheme": "onevid",
+    "buildCacheProvider": "eas",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
