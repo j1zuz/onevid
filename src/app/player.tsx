@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import {
+import LibVlcPlayerModule, {
   LibVlcPlayerView,
   type LibVlcPlayerViewRef,
   type MediaTracks,
@@ -36,6 +36,7 @@ import {
   StyleSheet,
   Text,
   useTVEventHandler,
+  useWindowDimensions,
   View,
   type ViewStyle,
 } from 'react-native';
@@ -74,9 +75,11 @@ const withRing =
 type ResolvedStream = { url: string; fileName?: string };
 
 type ResolveState =
-  | { kind: 'resolving' }
+  | { kind: 'resolving' } // carga inicial de la fuente
+  | { kind: 'switching'; attempt: number; total: number } // probando otra fuente
   | { kind: 'ready'; url: string; fileName?: string }
-  | { kind: 'error'; message: string };
+  | { kind: 'exhausted'; total: number } // todas las fuentes fallaron
+  | { kind: 'error'; message: string }; // error duro (sin lista, sin URL)
 
 // expo-libvlc-player valida la URL con `java.net.URI(source)` (parser estricto
 // RFC-2396) ANTES de pasarla a libVLC, y lanza "Invalid source, media could not
@@ -89,16 +92,37 @@ function sanitizeUrlForVlc(url: string): string {
     .replace(/[^\x00-\x7F]/g, (c) => encodeURIComponent(c));
 }
 
+// `fetch` con tope de tiempo (AbortController). Imprescindible para que una
+// sonda/redirección/resolución contra un host muerto o colgado no deje el flujo
+// esperando: al vencer aborta y el caller hace fallback a otra fuente.
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
   if (raw.startsWith('/api/')) {
     const sep = raw.includes('?') ? '&' : '?';
     const token = await getAccessToken();
-    const res = await fetch(`${API_URL}${raw}${sep}redirect=0`, {
-      headers: {
-        Accept: 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    const res = await fetchWithTimeout(
+      `${API_URL}${raw}${sep}redirect=0`,
+      {
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
       },
-    });
+      8_000,
+    );
     if (!res.ok) {
       throw new Error(`No se pudo resolver el stream (HTTP ${res.status})`);
     }
@@ -117,6 +141,12 @@ async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
 
 const SEEK_STEP_MS = 10_000;
 const CONTROLS_HIDE_MS = 4_000;
+// Si una fuente no produce el primer fotograma en este tiempo (host colgado que
+// ni reproduce ni emite error — el caso "Comprobando enlace…" eterno), la damos
+// por fallida y probamos la siguiente. Tunable: muy bajo descartaría fuentes
+// lentas-pero-buenas; con network-caching=1500, 10 s es un compromiso razonable
+// entre abrir rápido y no tumbar una fuente que solo va lenta.
+const PLAYBACK_START_TIMEOUT_MS = 10_000;
 
 // User-Agent de navegador: evita 403 de hosts que rechazan el UA por defecto de
 // VLC. Se usa tanto en las opciones de libVLC como en la sonda de diagnóstico,
@@ -131,10 +161,11 @@ const STREAM_UA =
 // error, enlace caducado, etc.).
 async function probeStreamUrl(url: string): Promise<string> {
   try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: { Range: 'bytes=0-1', 'User-Agent': STREAM_UA },
-    });
+    const res = await fetchWithTimeout(
+      url,
+      { method: 'GET', headers: { Range: 'bytes=0-1', 'User-Agent': STREAM_UA } },
+      6_000,
+    );
     const ct = res.headers.get('content-type') ?? '—';
     const size =
       res.headers.get('content-range') ??
@@ -148,6 +179,43 @@ async function probeStreamUrl(url: string): Promise<string> {
       e instanceof Error ? e.message : 'error de red'
     }).`;
   }
+}
+
+// Algunos hosts entregan la URL final por redirección (302) y libVLC no siempre
+// la sigue, aunque `fetch` sí lo hace. Seguimos la redirección con el mismo UA y,
+// si el host responde OK con una URL distinta, devolvemos esa URL final para
+// dársela directamente a VLC. Best-effort: ante cualquier fallo devolvemos null.
+async function resolveRedirect(url: string): Promise<string | null> {
+  try {
+    // Tope corto: si el host no responde rápido, no merece la pena esperar —
+    // saltamos a la siguiente fuente en vez de colgar el fallback.
+    const res = await fetchWithTimeout(
+      url,
+      { method: 'GET', headers: { Range: 'bytes=0-1', 'User-Agent': STREAM_UA } },
+      4_000,
+    );
+    if (res.ok && res.url && res.url !== url) return res.url;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Siguiente fuente no probada, buscando hacia delante desde la actual (con
+// envoltura al inicio). Devuelve null cuando todas están en `tried`.
+function pickNextSource(
+  sources: StreamSource[],
+  tried: Set<string>,
+  currentUrl: string,
+): StreamSource | null {
+  const n = sources.length;
+  if (n === 0) return null;
+  const base = sources.findIndex((s) => s.url === currentUrl); // -1 si no está
+  for (let k = 1; k <= n; k++) {
+    const s = sources[(((base + k) % n) + n) % n];
+    if (s && !tried.has(s.url)) return s;
+  }
+  return null;
 }
 
 function formatTime(ms: number): string {
@@ -204,19 +272,85 @@ export default function PlayerScreen() {
       ? `S${season}E${episode}${episodeTitle ? ` · ${episodeTitle}` : ''}`
       : undefined;
 
-  // `rawUrl` es estado: al elegir otra fuente lo cambiamos y se re-resuelve.
+  // `rawUrl` es la URL cruda de la fuente que se está intentando reproducir. El
+  // auto-fallback la reapunta a la siguiente fuente cuando una falla.
   const [rawUrl, setRawUrl] = useState(params.url ?? '');
   const [state, setState] = useState<ResolveState>({ kind: 'resolving' });
 
-  // Si llegamos SIN `url`, reproducimos la 1ª fuente disponible: la pedimos aquí
-  // con la misma `queryKey` que el SourcePicker (comparte caché con el prefetch
-  // del detalle, sin fetch duplicado) y, al resolver, fijamos `rawUrl`. Mientras
-  // tanto `LoadingArt` cubre la espera, así que no hay parpadeo del selector.
+  // Pedimos SIEMPRE la lista de fuentes (no solo en auto-play): la necesitamos
+  // para el fallback automático también cuando se entra con una fuente concreta.
+  // Comparte `queryKey` (y caché) con el prefetch del detalle y el SourcePicker,
+  // así que en la práctica no hay fetch duplicado.
   const autoPlay = !params.url;
   const sourcesQuery = useQuery({
     ...sourcesQueryOptions(mediaType, mediaId ?? '', season, episode),
-    enabled: autoPlay && Boolean(mediaId),
+    enabled: Boolean(mediaId),
   });
+  const sources = sourcesQuery.data?.sources ?? [];
+  const canFallback = sources.length > 0;
+
+  // Control del fallback. Refs porque los leen callbacks async (señal de fallo de
+  // VLC, watchdog) y no deben capturar valores obsoletos ni provocar renders.
+  const triedUrls = useRef<Set<string>>(new Set()); // fuentes ya fallidas
+  const redirectRetried = useRef<Set<string>>(new Set()); // ya reintentadas redirigidas
+  const currentResolvedUrl = useRef<string | null>(null); // última URL final dada a VLC
+  // Refs "último valor" para leer en callbacks async (señal de fallo de VLC,
+  // watchdog) sin capturar valores obsoletos. Se sincronizan tras cada render.
+  const sourcesRef = useRef(sources);
+  const rawUrlRef = useRef(rawUrl);
+  const stateKindRef = useRef(state.kind);
+  useEffect(() => {
+    sourcesRef.current = sources;
+    rawUrlRef.current = rawUrl;
+    stateKindRef.current = state.kind;
+  });
+
+  // Al cambiar la lista de fuentes (p. ej. otro episodio) reiniciamos lo probado.
+  useEffect(() => {
+    triedUrls.current = new Set();
+    redirectRetried.current = new Set();
+  }, [sourcesQuery.data]);
+
+  // Marca la fuente actual como fallida y salta a la siguiente no probada; si no
+  // quedan, agota (muestra el error final). Lee refs → estable.
+  const advanceToNextSource = useCallback(() => {
+    const list = sourcesRef.current;
+    const raw = rawUrlRef.current;
+    if (raw) triedUrls.current.add(raw);
+    const next = pickNextSource(list, triedUrls.current, raw);
+    if (next) {
+      const attempt = Math.min(triedUrls.current.size + 1, list.length || 1);
+      setState({ kind: 'switching', attempt, total: list.length });
+      setRawUrl(next.url);
+    } else {
+      setState({ kind: 'exhausted', total: list.length });
+    }
+  }, []);
+
+  // Señal desde el reproductor: la fuente actual no es reproducible. Antes de
+  // descartarla, si el enlace está vivo pero VLC no lo abrió, la reintentamos una
+  // vez con la URL ya redirigida (caso HTTP 206 video/* que `fetch` sí abre).
+  const handleUnplayable = useCallback(async () => {
+    if (
+      stateKindRef.current === 'switching' ||
+      stateKindRef.current === 'exhausted'
+    ) {
+      return; // ya avanzando: ignora señales tardías del player saliente.
+    }
+    const raw = rawUrlRef.current;
+    const resolved = currentResolvedUrl.current;
+    if (raw && resolved && !redirectRetried.current.has(raw)) {
+      redirectRetried.current.add(raw);
+      const final = await resolveRedirect(resolved);
+      if (final && final !== resolved) {
+        currentResolvedUrl.current = final;
+        setState({ kind: 'ready', url: final }); // remonta el player con la URL final.
+        return;
+      }
+    }
+    advanceToNextSource();
+  }, [advanceToNextSource]);
+
   const [pickerOpen, setPickerOpen] = useState(false);
   const [episodePickerOpen, setEpisodePickerOpen] = useState(false);
 
@@ -287,20 +421,18 @@ export default function PlayerScreen() {
       setState({ kind: 'resolving' }); // fuentes aún cargando.
       return;
     }
+    // No reseteamos a 'resolving' aquí: durante un salto el estado ya es
+    // 'switching' (con su contador) y queremos conservarlo.
     let cancelled = false;
-    setState({ kind: 'resolving' });
     resolveStreamUrl(rawUrl)
       .then(({ url, fileName }) => {
-        if (!cancelled) setState({ kind: 'ready', url, fileName });
+        if (cancelled) return;
+        currentResolvedUrl.current = url;
+        setState({ kind: 'ready', url, fileName });
       })
-      .catch((e: unknown) => {
-        if (!cancelled) {
-          setState({
-            kind: 'error',
-            message:
-              e instanceof Error ? e.message : 'No pudimos abrir el stream.',
-          });
-        }
+      .catch(() => {
+        // Fallo al resolver (DNS/403 del backend): también dispara el fallback.
+        if (!cancelled) advanceToNextSource();
       });
     return () => {
       cancelled = true;
@@ -312,6 +444,7 @@ export default function PlayerScreen() {
     sourcesQuery.isError,
     sourcesQuery.error,
     sourcesQuery.data,
+    advanceToNextSource,
   ]);
 
   return (
@@ -324,6 +457,7 @@ export default function PlayerScreen() {
           subtitle={subtitle}
           background={background}
           logo={logo}
+          onUnplayable={canFallback ? handleUnplayable : undefined}
           onChangeSource={canChangeSource ? () => setPickerOpen(true) : undefined}
           onChangeEpisode={
             canChangeEpisode ? () => setEpisodePickerOpen(true) : undefined
@@ -334,19 +468,35 @@ export default function PlayerScreen() {
           background={background}
           logo={logo}
           title={title}
-          error={state.kind === 'error' ? state.message : undefined}
+          status={
+            state.kind === 'switching'
+              ? `Probando otra fuente… (${state.attempt}/${state.total})`
+              : undefined
+          }
+          error={
+            state.kind === 'error'
+              ? state.message
+              : state.kind === 'exhausted'
+                ? `Ninguna de las ${state.total} fuentes disponibles se pudo reproducir. Vuelve atrás e inténtalo más tarde.`
+                : undefined
+          }
         />
       )}
 
-      <SafeAreaView
-        edges={['top']}
-        style={styles.backWrap}
-        pointerEvents="box-none"
-      >
-        <Pressable onPress={() => router.back()} style={withRing(styles.backBtn)}>
-          <ArrowLeft size={22} color="#fff" />
-        </Pressable>
-      </SafeAreaView>
+      {/* Botón de atrás solo durante la carga/error previo al player; ya
+          reproduciendo, vive en la barra superior de controles (se oculta
+          junto con ellos). */}
+      {state.kind !== 'ready' ? (
+        <SafeAreaView
+          edges={['top']}
+          style={styles.backWrap}
+          pointerEvents="box-none"
+        >
+          <Pressable onPress={() => router.back()} style={withRing(styles.backBtn)}>
+            <ArrowLeft size={22} color="#fff" />
+          </Pressable>
+        </SafeAreaView>
+      ) : null}
 
       {pickerOpen && mediaId ? (
         <SourcePicker
@@ -356,6 +506,10 @@ export default function PlayerScreen() {
           episode={episode}
           onSelect={(s: StreamSource) => {
             setPickerOpen(false);
+            // Elección explícita: la hacemos reintentar (quita su marca de
+            // fallida) y el fallback continúa desde ahí.
+            triedUrls.current.delete(s.url);
+            redirectRetried.current.delete(s.url);
             setRawUrl(s.url);
           }}
           onClose={() => setPickerOpen(false)}
@@ -397,10 +551,14 @@ function SourcePicker({
   onSelect: (source: StreamSource) => void;
   onClose: () => void;
 }) {
+  // Ancho concreto en px (no '86%'): evita que la tarjeta colapse y el texto se
+  // parta a un carácter por línea en el overlay sobre el reproductor horizontal.
+  const { width: winWidth } = useWindowDimensions();
+  const cardWidth = Math.min(560, Math.round(winWidth * 0.86));
   return (
     <View style={styles.menuRoot}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-      <View style={styles.pickerCard}>
+      <View style={[styles.pickerCard, { width: cardWidth }]}>
         <View style={styles.menuHeader}>
           <Typography type="h5" weight="bold">
             Cambiar fuente
@@ -427,6 +585,7 @@ function Player({
   subtitle,
   background,
   logo,
+  onUnplayable,
   onChangeSource,
   onChangeEpisode,
 }: {
@@ -435,6 +594,7 @@ function Player({
   subtitle?: string;
   background?: string;
   logo?: string;
+  onUnplayable?: () => void;
   onChangeSource?: () => void;
   onChangeEpisode?: () => void;
 }) {
@@ -446,6 +606,12 @@ function Player({
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
+  // Auto-fallback: se dispara como mucho una vez por fuente. El ref se reinicia
+  // solo en cada remontaje (key={url}). `startTimer` es el watchdog de arranque y
+  // `firstFrameRef` deja leer el primer fotograma dentro de callbacks.
+  const startTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const firedUnplayable = useRef(false);
+  const firstFrameRef = useRef(false);
 
   const [playing, setPlaying] = useState(true);
   const [buffering, setBuffering] = useState(true);
@@ -473,6 +639,15 @@ function Player({
   const [subtitleId, setSubtitleId] = useState<number | null>(null);
   const [menu, setMenu] = useState<'audio' | 'subtitle' | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
+  // PiP solo se ofrece si el dispositivo lo soporta (los emuladores casi nunca
+  // lo soportan), para no mostrar un botón muerto.
+  const [pipSupported] = useState(() => {
+    try {
+      return LibVlcPlayerModule.isPictureInPictureSupported();
+    } catch {
+      return false;
+    }
+  });
 
   // Carátula (póster) que tapa el arranque: mejor práctica de Expo para vídeo
   // (mostrar una imagen propia y ocultarla al primer fotograma). En vez de un
@@ -498,6 +673,34 @@ function Player({
     const t = setTimeout(() => setFirstFrame(true), 4_000);
     return () => clearTimeout(t);
   }, [hasPlayed, firstFrame]);
+
+  // Mantiene `firstFrameRef` sincronizado y cancela el watchdog en cuanto hay
+  // imagen real (la fuente arrancó bien).
+  useEffect(() => {
+    if (firstFrame) {
+      firstFrameRef.current = true;
+      clearTimeout(startTimer.current);
+    }
+  }, [firstFrame]);
+
+  // Reporta la fuente como no reproducible al padre (auto-fallback). Una sola vez
+  // por fuente y solo si aún no se había visto imagen: un corte tras el primer
+  // fotograma lo recupera VLC con http-reconnect, no queremos tirar una fuente
+  // buena. No-op si no hay manejador (sin fallback posible).
+  const reportUnplayable = useCallback(() => {
+    if (firedUnplayable.current || firstFrameRef.current) return;
+    firedUnplayable.current = true;
+    clearTimeout(startTimer.current);
+    onUnplayable?.();
+  }, [onUnplayable]);
+
+  // Watchdog de arranque: si la fuente no produce imagen a tiempo (host colgado),
+  // la saltamos. Se reinicia por fuente gracias al remontaje (key={url}).
+  useEffect(() => {
+    if (!onUnplayable) return;
+    startTimer.current = setTimeout(reportUnplayable, PLAYBACK_START_TIMEOUT_MS);
+    return () => clearTimeout(startTimer.current);
+  }, [onUnplayable, reportUnplayable]);
 
   const scheduleHide = useCallback(() => {
     clearTimeout(hideTimer.current);
@@ -583,13 +786,15 @@ function Player({
         // `null` libera el player (no crear media con URL vacía → evita el
         // error nativo "media could not be set").
         source={url?.trim() ? url : null}
-        // Caching de red más alto + reconexión HTTP → menos cortes y recupera
-        // fuentes que cierran la conexión a mitad. El User-Agent de navegador
-        // evita que hosts que rechazan el UA por defecto de VLC respondan 403
-        // (la causa más común de "media could not be set"). Tunable.
+        // network-caching = ms de buffer antes de empezar: es el factor que más
+        // pesa en "tarda en abrir". 1500 ms abre ~1,5 s más rápido que 3000 con
+        // un riesgo de micro-cortes asumible (que recupera :http-reconnect; un
+        // corte tras el primer fotograma NO tira la fuente). El User-Agent de
+        // navegador evita 403 de hosts que rechazan el UA por defecto de VLC.
+        // Tunable: subir a 2500-3000 si hay rebuffering en redes lentas.
         options={[
-          ':network-caching=3000',
-          ':file-caching=3000',
+          ':network-caching=1500',
+          ':file-caching=1500',
           ':http-reconnect',
           `:http-user-agent=${STREAM_UA}`,
         ]}
@@ -628,6 +833,14 @@ function Player({
           setAudioId((prev) => prev ?? pickDefaultAudio(media.audio));
         }}
         onEncounteredError={({ message }) => {
+          // Con fallback y antes del primer fotograma, el padre prueba otra
+          // fuente automáticamente. Tras el primer fotograma (error fatal a
+          // mitad) o sin fallback, mostramos la tarjeta de error in-place con el
+          // diagnóstico y los controles (incluido "cambiar fuente"), como antes.
+          if (onUnplayable && !firstFrame) {
+            reportUnplayable();
+            return;
+          }
           setErrorMsg(humanizePlaybackError(message));
           setRawError(message || 'EncounteredError (sin mensaje)');
           // Sonda del enlace: revela la causa real (403/HTML/caducado/redirección).
@@ -688,13 +901,20 @@ function Player({
             style={[
               styles.topBar,
               {
-                paddingTop: insets.top + 6,
-                paddingLeft: insets.left + 60,
+                paddingTop: insets.top + 14,
+                paddingLeft: insets.left + 12,
                 paddingRight: insets.right + 12,
               },
             ]}
             pointerEvents="box-none"
           >
+            <Pressable
+              onPress={() => router.back()}
+              style={withRing(styles.backBtn)}
+              hitSlop={6}
+            >
+              <ArrowLeft size={22} color="#fff" />
+            </Pressable>
             <View style={styles.topTitleBlock} pointerEvents="none">
               {title ? (
                 <Text style={styles.topTitle} numberOfLines={1}>
@@ -756,13 +976,15 @@ function Player({
                   <ListVideo size={20} color="#fff" />
                 </Pressable>
               ) : null}
-              <Pressable
-                style={withRing(styles.actionBtn)}
-                onPress={() => playerRef.current?.startPictureInPicture?.()}
-                hitSlop={6}
-              >
-                <PictureInPicture2 size={20} color="#fff" />
-              </Pressable>
+              {pipSupported ? (
+                <Pressable
+                  style={withRing(styles.actionBtn)}
+                  onPress={() => playerRef.current?.startPictureInPicture?.()}
+                  hitSlop={6}
+                >
+                  <PictureInPicture2 size={20} color="#fff" />
+                </Pressable>
+              ) : null}
             </View>
           </View>
 
@@ -905,10 +1127,12 @@ function TrackMenu({
   onSelect: (id: number | null) => void;
   onClose: () => void;
 }) {
+  const { width: winWidth } = useWindowDimensions();
+  const cardWidth = Math.min(420, Math.round(winWidth * 0.7));
   return (
     <View style={styles.menuRoot}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-      <View style={styles.menuCard}>
+      <View style={[styles.menuCard, { width: cardWidth }]}>
         <View style={styles.menuHeader}>
           <Text style={styles.menuTitle}>
             {kind === 'audio' ? 'Pista de audio' : 'Subtítulos'}
@@ -999,12 +1223,14 @@ function LoadingArt({
   title,
   error,
   detail,
+  status,
 }: {
   background?: string;
   logo?: string;
   title?: string;
   error?: string;
   detail?: string;
+  status?: string;
 }) {
   const pulse = useSharedValue(0.55);
 
@@ -1072,6 +1298,16 @@ function LoadingArt({
               {title ?? ''}
             </Typography>
           )}
+          {status ? (
+            <Typography
+              type="body-sm"
+              color="muted"
+              align="center"
+              style={{ marginTop: 16 }}
+            >
+              {status}
+            </Typography>
+          ) : null}
         </Animated.View>
       )}
     </View>
@@ -1155,7 +1391,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
   },
@@ -1268,8 +1504,7 @@ const styles = StyleSheet.create({
     zIndex: 30,
   },
   menuCard: {
-    width: '70%',
-    maxWidth: 420,
+    // El ancho se fija inline desde useWindowDimensions (ver TrackMenu).
     maxHeight: '80%',
     backgroundColor: '#161616',
     borderRadius: 14,
@@ -1277,8 +1512,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   pickerCard: {
-    width: '86%',
-    maxWidth: 560,
+    // El ancho se fija inline desde useWindowDimensions (ver SourcePicker).
     maxHeight: '88%',
     backgroundColor: '#161616',
     borderRadius: 16,
@@ -1312,6 +1546,5 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
   },
 });

@@ -21,17 +21,17 @@ export default function HomeTab() {
   // (sin skeleton) y solo revalida en segundo plano si pasó el staleTime.
   const { data: status } = useSetupStatus();
   const moviesQuery = useQuery({
-    queryKey: ['catalog', 'movie', 'top'],
+    queryKey: ['catalog', 'movie', 'trending'],
     queryFn: () =>
       apiFetch<{ results: MediaMeta[] }>(
-        '/api/onevid-catalog?type=movie&catalog=top',
+        '/api/onevid-catalog?type=movie&catalog=trending',
       ).then((r) => r.results ?? []),
   });
   const seriesQuery = useQuery({
-    queryKey: ['catalog', 'series', 'top'],
+    queryKey: ['catalog', 'series', 'trending'],
     queryFn: () =>
       apiFetch<{ results: MediaMeta[] }>(
-        '/api/onevid-catalog?type=series&catalog=top',
+        '/api/onevid-catalog?type=series&catalog=trending',
       ).then((r) => r.results ?? []),
   });
 
@@ -89,13 +89,13 @@ export default function HomeTab() {
         )}
 
         <PosterRow
-          title="Películas populares"
+          title="Películas en tendencia"
           items={movies}
           loading={loading}
           onPressItem={handlePressItem}
         />
         <PosterRow
-          title="Series populares"
+          title="Series en tendencia"
           items={series}
           loading={loading}
           onPressItem={handlePressItem}

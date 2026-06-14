@@ -27,6 +27,7 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
   const slideHeight = Math.round(windowHeight * HERO_HEIGHT_RATIO);
   const listRef = useRef<FlatList<MediaMeta>>(null);
   const [index, setIndex] = useState(0);
+  const indexRef = useRef(0);
   const userInteractingRef = useRef(false);
 
   useEffect(() => {
@@ -35,6 +36,7 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
       if (userInteractingRef.current) return;
       setIndex((prev) => {
         const next = (prev + 1) % items.length;
+        indexRef.current = next;
         listRef.current?.scrollToOffset({
           offset: next * width,
           animated: true,
@@ -45,9 +47,22 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
     return () => clearInterval(id);
   }, [items.length, width]);
 
+  // Al cambiar el ancho (p. ej. volver del reproductor en horizontal a la
+  // pantalla en vertical) las diapositivas se redimensionan pero el scroll
+  // queda en el offset viejo y el carrusel se ve en blanco. Re-alineamos la
+  // diapositiva actual al nuevo ancho.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      const i = Math.min(indexRef.current, Math.max(0, items.length - 1));
+      listRef.current?.scrollToOffset({ offset: i * width, animated: false });
+    }, 0);
+    return () => clearTimeout(id);
+  }, [width, items.length]);
+
   const onMomentumEnd = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const next = Math.round(e.nativeEvent.contentOffset.x / width);
+      indexRef.current = next;
       setIndex(next);
       userInteractingRef.current = false;
     },
@@ -69,6 +84,7 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
           userInteractingRef.current = true;
         }}
         onMomentumScrollEnd={onMomentumEnd}
+        getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
         renderItem={({ item }) => (
           <HeroSlide
             item={item}
