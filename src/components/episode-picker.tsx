@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { tvFocusRing } from '@/hooks/use-tv-focus';
@@ -70,6 +71,13 @@ export function EpisodePicker({
   });
   const series = query.data;
 
+  // Ancho concreto en px (no porcentaje): en este overlay absoluto sobre el
+  // reproductor en horizontal, `width: '86%'` puede colapsar a casi 0 y el texto
+  // se parte a un carácter por línea. `useWindowDimensions` da el ancho real ya
+  // rotado, así que la tarjeta siempre tiene un tamaño legible.
+  const { width: winWidth } = useWindowDimensions();
+  const cardWidth = Math.min(560, Math.round(winWidth * 0.86));
+
   const [selectedSeason, setSelectedSeason] = useState(
     season ? Number(season) : null,
   );
@@ -84,7 +92,7 @@ export function EpisodePicker({
   return (
     <View style={styles.menuRoot}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-      <View style={styles.pickerCard}>
+      <View style={[styles.pickerCard, { width: cardWidth }]}>
         <View style={styles.menuHeader}>
           <Typography type="h5" weight="bold">
             Episodios
@@ -113,14 +121,13 @@ export function EpisodePicker({
                   tvFocusRing(isFocused(s)),
                 ]}
               >
-                <Text
-                  style={[
-                    styles.seasonText,
-                    n === effectiveSeason && styles.seasonTextActive,
-                  ]}
+                <Typography
+                  type="body-sm"
+                  weight={n === effectiveSeason ? 'bold' : 'medium'}
+                  style={{ color: n === effectiveSeason ? '#000' : '#fff' }}
                 >
-                  T{n}
-                </Text>
+                  {`Temporada ${n}`}
+                </Typography>
               </Pressable>
             ))}
           </ScrollView>
@@ -199,8 +206,7 @@ const styles = StyleSheet.create({
     zIndex: 30,
   },
   pickerCard: {
-    width: '86%',
-    maxWidth: 560,
+    // El ancho se fija inline desde useWindowDimensions (ver componente).
     maxHeight: '88%',
     backgroundColor: '#161616',
     borderRadius: 16,
@@ -227,8 +233,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
   seasonTabActive: { backgroundColor: '#fff' },
-  seasonText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  seasonTextActive: { color: '#000' },
   loading: {
     paddingVertical: 40,
     alignItems: 'center',

@@ -1,6 +1,6 @@
 import { CheckCircle2 } from 'lucide-react-native';
 import { Button, Chip, Skeleton, Typography, useToast } from 'heroui-native';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Pressable, useWindowDimensions, View } from 'react-native';
@@ -9,10 +9,12 @@ import { GodRaysBand } from '@/components/god-rays-band';
 import {
   API_URL,
   type DeviceCodeData,
+  getAccessToken,
   pollDeviceToken,
   requestDeviceCode,
   saveAccessToken,
 } from '@/lib/auth';
+import { loadActiveProfile } from '@/lib/profiles';
 import { COLORS } from '@/lib/theme';
 
 type Phase = 'loading' | 'waiting' | 'denied' | 'expired' | 'error';
@@ -39,6 +41,10 @@ export default function Login() {
   const [secondsLeft, setSecondsLeft] = useState(COUNTDOWN_SECONDS);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
+  // Gate de sesión: 'checking' mientras leemos el token, 'authed' si ya hay
+  // sesión (redirigimos sin mostrar login), 'login' si toca iniciar sesión.
+  const [gate, setGate] = useState<'checking' | 'login' | 'authed'>('checking');
+  const [authedHref, setAuthedHref] = useState<'/home' | '/profiles'>('/home');
 
   const clearTimer = useCallback(() => {
     if (pollTimerRef.current) {
@@ -67,10 +73,36 @@ export default function Login() {
     }
   }, [clearTimer]);
 
+  // Si ya hay una sesión guardada, saltamos el login y entramos directo. El
+  // _layout ya validó la sesión contra el backend (y limpió el token si estaba
+  // expirado) antes de montar esta pantalla, así que aquí basta con leer el
+  // token local. Sin esto, la ruta '/' mostraba el login en cada arranque en
+  // frío aunque la sesión siguiera viva.
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const token = await getAccessToken();
+      if (cancelled) return;
+      if (!token) {
+        setGate('login');
+        return;
+      }
+      const profile = await loadActiveProfile();
+      if (cancelled) return;
+      setAuthedHref(profile ? '/home' : '/profiles');
+      setGate('authed');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Solo pedimos un código de dispositivo cuando de verdad toca iniciar sesión.
+  useEffect(() => {
+    if (gate !== 'login') return;
     requestCode();
     return clearTimer;
-  }, [requestCode, clearTimer]);
+  }, [gate, requestCode, clearTimer]);
 
   // Polling al backend
   useEffect(() => {
@@ -138,6 +170,9 @@ export default function Login() {
       icon: <CheckCircle2 size={20} color="#22c55e" />,
     });
   }, [codeData, toast]);
+
+  if (gate === 'checking') return null;
+  if (gate === 'authed') return <Redirect href={authedHref} />;
 
   return (
     <SafeAreaView

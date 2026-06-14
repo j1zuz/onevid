@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "onevid",
-    "slug": "1vid",
+    "slug": "onevid",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/images/onevid.png",
@@ -28,6 +28,12 @@
     "web": {
       "output": "static",
       "favicon": "./assets/images/icon.png"
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/12ded851-07f6-492d-bd60-76f3e8b412a9"
     },
     "plugins": [
       "expo-router",
@@ -71,7 +77,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "05fa14f6-8ade-486d-b56d-8ded1eba3bbe"
+        "projectId": "12ded851-07f6-492d-bd60-76f3e8b412a9"
       }
     },
     "owner": "j1zuz"
