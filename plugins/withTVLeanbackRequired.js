@@ -1,4 +1,8 @@
-const { withAndroidManifest } = require('@expo/config-plugins');
+// Importar desde `expo/config-plugins` (no `@expo/config-plugins`): `expo` es
+// dependencia directa, así que el subpath resuelve siempre. Con pnpm,
+// `@expo/config-plugins` NO está en la raíz y el worker de EAS falla con
+// "Cannot find module '@expo/config-plugins'".
+const { withAndroidManifest } = require('expo/config-plugins');
 
 const LEANBACK = 'android.software.leanback';
 
