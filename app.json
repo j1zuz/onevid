@@ -55,6 +55,7 @@
       ],
       "expo-image",
       "@react-native-tvos/config-tv",
+      "./plugins/withTVLeanbackRequired",
       [
         "expo-libvlc-player",
         {
