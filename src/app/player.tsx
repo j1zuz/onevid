@@ -7,9 +7,9 @@ import LibVlcPlayerModule, {
 } from 'expo-libvlc-player';
 import { Image } from 'expo-image';
 import * as NavigationBar from 'expo-navigation-bar';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { Slider, Typography } from 'heroui-native';
+import { Slider, Spinner, Typography } from 'heroui-native';
 import {
   ArrowLeft,
   Captions,
@@ -41,16 +41,12 @@ import {
 import Animated, {
   cancelAnimation,
   Easing,
-  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EpisodePicker } from '@/components/episode-picker';
 import {
   SourcesList,
@@ -148,6 +144,26 @@ async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
   return { url: final ? sanitizeUrlForVlc(final) : url, fileName };
 }
 
+// Caché de resoluciones (a nivel de módulo, sobrevive a salir/volver al player):
+// al re-entrar al mismo vídeo nos saltamos el fetch de resolución + redirección,
+// que es la parte lenta antes del buffer de VLC. TTL corto porque los enlaces de
+// debrid caducan; si caduca el enlace real, el fallback salta de fuente igual.
+const RESOLVE_CACHE_TTL_MS = 5 * 60_000;
+const resolvedCache = new Map<string, { value: ResolvedStream; at: number }>();
+
+async function resolveStreamUrlCached(raw: string): Promise<ResolvedStream> {
+  const hit = resolvedCache.get(raw);
+  if (hit && Date.now() - hit.at < RESOLVE_CACHE_TTL_MS) return hit.value;
+  const value = await resolveStreamUrl(raw);
+  resolvedCache.set(raw, { value, at: Date.now() });
+  return value;
+}
+
+// Contenidos cuyo primer fotograma ya se vio (clave estable por contenido).
+// Sobrevive a salir/volver: al re-entrar a algo ya reproducido mostramos solo el
+// logo de carga, no el poster de fondo (igual que al cambiar de fuente en vivo).
+const revealedContent = new Set<string>();
+
 const SEEK_STEP_MS = 10_000;
 const CONTROLS_HIDE_MS = 4_000;
 // Watchdog en DOS fases (las fuentes debrid/torbox tardan en arrancar):
@@ -244,16 +260,21 @@ function formatTime(ms: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-// Elige por defecto la pista de audio en español; si no hay, la primera.
+// Elige por defecto la pista de audio en español; si no hay, la primera REAL.
+// Ignora la pista sintética "Disable" (id -1) que libVLC añade al principio de la
+// lista: sin coincidencia de idioma antes caíamos en audio[0] = "Disable" y el
+// vídeo se quedaba SIN sonido (p. ej. pistas tipo "Track 1 - [aka]").
 function pickDefaultAudio(audio: Track[]): number | null {
-  if (audio.length === 0) return null;
-  const es = audio.find((t) =>
+  const real = audio.filter((t) => t.id >= 0);
+  if (real.length === 0) return null;
+  const es = real.find((t) =>
     /espa|castell|spanish|latino|\bes\b|lat/i.test(t.name ?? ''),
   );
-  return (es ?? audio[0]).id;
+  return (es ?? real[0]).id;
 }
 
 export default function PlayerScreen() {
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     url: string;
     title?: string;
@@ -295,6 +316,42 @@ export default function PlayerScreen() {
   // de auto-saltar (respeta su elección). El auto-fallback lo pone en false.
   const [manualSource, setManualSource] = useState(false);
 
+  // Clave estable del contenido para recordar entre montajes si ya se reprodujo
+  // (al salir y volver no mostramos el poster otra vez, solo el logo). En
+  // auto-play (sin params.url) la formamos con tipo+id+temporada+episodio.
+  const contentKey =
+    params.url || `${mediaType}:${mediaId ?? ''}:${season ?? ''}:${episode ?? ''}`;
+
+  // Carátula ÚNICA y persistente (fondo + logo): cubre desde "resolviendo" hasta
+  // el primer fotograma de la fuente actual y luego se funde al vídeo. Antes
+  // había dos LoadingArt (uno aquí mientras resolvía y otro dentro del Player);
+  // al cambiar de uno a otro el fondo se recargaba y el pulso del logo se
+  // reiniciaba → ese "salto". Con una sola carátula que no se desmonta en la
+  // transición, no hay salto. El error (sin fuentes / agotadas) se muestra aquí
+  // mismo, dentro de la propia pantalla del reproductor.
+  const [revealedUrl, setRevealedUrl] = useState<string | null>(null);
+  const coverOpacity = useSharedValue(1);
+  const coverStyle = useAnimatedStyle(() => ({ opacity: coverOpacity.value }));
+
+  // ¿Ya se vio vídeo (en esta sesión, o antes con este mismo contenido)? Si es
+  // así, las cargas posteriores —cambiar de fuente, salir y volver a entrar— se
+  // pintan DENTRO del player (su chrome de controles + el logo mientras abre la
+  // nueva fuente), no con la carátula externa a pantalla completa, que parecía un
+  // arranque desde cero. La PRIMERA apertura sí usa la carátula con poster.
+  const playedBefore = revealedUrl !== null || revealedContent.has(contentKey);
+  const coverBackground = playedBefore ? undefined : background;
+
+  // Carátula EXTERNA: se reserva para estados SIN Player montado (resolviendo,
+  // probando otra fuente, error/agotado) y para la primera apertura. Cuando ya se
+  // vio vídeo y hay Player montado ('ready'), la carga de la nueva fuente la pinta
+  // el propio Player (in-player), así que aquí se oculta. Sigue montada siempre con
+  // opacidad animada (no se remonta) para evitar saltos.
+  const coverShown =
+    state.kind !== 'ready' || (state.url !== revealedUrl && !playedBefore);
+  useEffect(() => {
+    coverOpacity.value = coverShown ? 1 : withTiming(0, { duration: 260 });
+  }, [coverShown, coverOpacity]);
+
   // Pedimos SIEMPRE la lista de fuentes (no solo en auto-play): la necesitamos
   // para el fallback automático también cuando se entra con una fuente concreta.
   // Comparte `queryKey` (y caché) con el prefetch del detalle y el SourcePicker,
@@ -331,7 +388,11 @@ export default function PlayerScreen() {
   const advanceToNextSource = useCallback(() => {
     const list = sourcesRef.current;
     const raw = rawUrlRef.current;
-    if (raw) triedUrls.current.add(raw);
+    if (raw) {
+      triedUrls.current.add(raw);
+      // No reutilices la resolución cacheada de una fuente que acaba de fallar.
+      resolvedCache.delete(raw);
+    }
     const next = pickNextSource(list, triedUrls.current, raw);
     if (next) {
       const attempt = Math.min(triedUrls.current.size + 1, list.length || 1);
@@ -359,23 +420,29 @@ export default function PlayerScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [episodePickerOpen, setEpisodePickerOpen] = useState(false);
 
-  // Auto-rotate to landscape while the player is mounted; restore on exit.
+  // Forzamos landscape mientras el reproductor está enfocado y restauramos
+  // portrait al salir. Usamos useFocusEffect (no un useEffect de montaje): el lock
+  // en el montaje a veces NO se aplicaba —compite con la transición de navegación
+  // y lockAsync falla en silencio— y la pantalla se quedaba vertical. Reaplicarlo
+  // en cada foco lo hace fiable (y cubre la vuelta desde PiP/segundo plano).
   // En TV la pantalla ya es landscape fija, así que no tocamos la orientación.
-  useEffect(() => {
-    if (Platform.isTV) return;
-    ScreenOrientation.lockAsync(
-      ScreenOrientation.OrientationLock.LANDSCAPE,
-    ).catch(() => {
-      /* ignore */
-    });
-    return () => {
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.isTV) return;
       ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.PORTRAIT_UP,
+        ScreenOrientation.OrientationLock.LANDSCAPE,
       ).catch(() => {
         /* ignore */
       });
-    };
-  }, []);
+      return () => {
+        ScreenOrientation.lockAsync(
+          ScreenOrientation.OrientationLock.PORTRAIT_UP,
+        ).catch(() => {
+          /* ignore */
+        });
+      };
+    }, []),
+  );
 
   // Pantalla completa inmersiva: oculta barra de estado y de navegación mientras
   // el reproductor está montado; las restaura al salir.
@@ -429,7 +496,7 @@ export default function PlayerScreen() {
     // No reseteamos a 'resolving' aquí: durante un salto el estado ya es
     // 'switching' (con su contador) y queremos conservarlo.
     let cancelled = false;
-    resolveStreamUrl(rawUrl)
+    resolveStreamUrlCached(rawUrl)
       .then(({ url, fileName }) => {
         if (cancelled) return;
         setState({ kind: 'ready', url, fileName });
@@ -459,22 +526,36 @@ export default function PlayerScreen() {
           url={state.url}
           title={title}
           subtitle={subtitle}
-          background={background}
-          logo={logo}
+          // Cuando ya se vio vídeo, la carga de la nueva fuente se pinta dentro
+          // del player (chrome + spinner) en vez de la carátula externa.
+          loadingInline={playedBefore}
           startTimeoutMs={
             manualSource
               ? PLAYBACK_MANUAL_TIMEOUT_MS
               : PLAYBACK_START_TIMEOUT_MS
           }
+          onReveal={() => {
+            setRevealedUrl(state.url);
+            revealedContent.add(contentKey);
+          }}
           onUnplayable={canFallback ? handleUnplayable : undefined}
           onChangeSource={canChangeSource ? () => setPickerOpen(true) : undefined}
           onChangeEpisode={
             canChangeEpisode ? () => setEpisodePickerOpen(true) : undefined
           }
         />
-      ) : (
+      ) : null}
+
+      {/* Carátula ÚNICA persistente: fondo + logo (o estado/error) que se funde
+          al vídeo en el primer fotograma. Sin salto entre "resolviendo" y el
+          player; el "sin fuentes" se muestra aquí mismo, dentro del player.
+          Montada siempre (opacidad 0 cuando hay vídeo) para no remontar. */}
+      <Animated.View
+        style={[StyleSheet.absoluteFill, coverStyle]}
+        pointerEvents="none"
+      >
         <LoadingArt
-          background={background}
+          background={coverBackground}
           logo={logo}
           title={title}
           status={
@@ -490,21 +571,21 @@ export default function PlayerScreen() {
                 : undefined
           }
         />
-      )}
+      </Animated.View>
 
-      {/* Botón de atrás solo durante la carga/error previo al player; ya
-          reproduciendo, vive en la barra superior de controles (se oculta
-          junto con ellos). */}
-      {state.kind !== 'ready' ? (
-        <SafeAreaView
-          edges={['top']}
-          style={styles.backWrap}
+      {/* Botón de atrás mientras la carátula cubre (carga/error/buffering inicial);
+          ya con vídeo visible vive en la barra superior de controles del player.
+          Lo separamos del borde igual que los controles (insets.top + 14): en
+          horizontal el inset superior es ~0 y se pegaba arriba. */}
+      {coverShown ? (
+        <View
+          style={[styles.backWrap, { top: insets.top + 14, left: insets.left + 12 }]}
           pointerEvents="box-none"
         >
           <Pressable onPress={() => router.back()} style={withRing(styles.backBtn)}>
             <ArrowLeft size={22} color="#fff" />
           </Pressable>
-        </SafeAreaView>
+        </View>
       ) : null}
 
       {pickerOpen && mediaId ? (
@@ -596,9 +677,9 @@ function Player({
   url,
   title,
   subtitle,
-  background,
-  logo,
+  loadingInline,
   startTimeoutMs = PLAYBACK_START_TIMEOUT_MS,
+  onReveal,
   onUnplayable,
   onChangeSource,
   onChangeEpisode,
@@ -606,9 +687,12 @@ function Player({
   url: string;
   title?: string;
   subtitle?: string;
-  background?: string;
-  logo?: string;
+  /** Carga "dentro del player" (chrome + spinner) en vez de la carátula externa:
+   *  true al cambiar de fuente o re-entrar a algo ya visto. */
+  loadingInline?: boolean;
   startTimeoutMs?: number;
+  /** Avisa al padre de que ya hay imagen (o error local) → funde la carátula. */
+  onReveal?: () => void;
   onUnplayable?: () => void;
   onChangeSource?: () => void;
   onChangeEpisode?: () => void;
@@ -664,39 +748,24 @@ function Player({
     }
   });
 
-  // Carátula (póster) que tapa el arranque: mejor práctica de Expo para vídeo
-  // (mostrar una imagen propia y ocultarla al primer fotograma). En vez de un
-  // "loading" animado, mostramos el mismo arte del detalle, estático, y lo
-  // fundimos al vídeo en cuanto reproduce — así no se ve ningún loading.
-  const coverOpacity = useSharedValue(1);
-  const [coverGone, setCoverGone] = useState(false);
-  const coverStyle = useAnimatedStyle(() => ({ opacity: coverOpacity.value }));
-  // Fundimos la carátula solo cuando hay imagen real en pantalla (firstFrame),
-  // no en el evento "Playing" de VLC: así nunca se ve negro ni spinner antes
-  // del vídeo. La carátula (logo en pulse) cubre todo el buffering inicial.
-  useEffect(() => {
-    if (!firstFrame) return;
-    coverOpacity.value = withTiming(0, { duration: 260 }, (finished) => {
-      if (finished) runOnJS(setCoverGone)(true);
-    });
-  }, [firstFrame, coverOpacity]);
   // Salvaguarda: si algún stream (p. ej. un directo) no reporta avance de
-  // tiempo, fundimos igualmente unos segundos después de que VLC empiece a
-  // reproducir, para que la carátula nunca se quede pegada sobre el vídeo.
+  // tiempo, marcamos el primer fotograma unos segundos después de que VLC
+  // empiece a reproducir, para que la carátula nunca se quede pegada.
   useEffect(() => {
     if (!hasPlayed || firstFrame) return;
     const t = setTimeout(() => setFirstFrame(true), 4_000);
     return () => clearTimeout(t);
   }, [hasPlayed, firstFrame]);
 
-  // Mantiene `firstFrameRef` sincronizado y cancela el watchdog en cuanto hay
-  // imagen real (la fuente arrancó bien).
+  // Primer fotograma real → sincronizamos el ref, cancelamos el watchdog y
+  // avisamos al padre para que funda la carátula única (que vive en PlayerScreen).
   useEffect(() => {
     if (firstFrame) {
       firstFrameRef.current = true;
       clearTimeout(startTimer.current);
+      onReveal?.();
     }
-  }, [firstFrame]);
+  }, [firstFrame, onReveal]);
 
   // Reporta la fuente como no reproducible al padre (auto-fallback). Una sola vez
   // por fuente y solo si aún no se había visto imagen: un corte tras el primer
@@ -783,7 +852,11 @@ function Player({
   // dejamos sus controles normales (incluido "cambiar fuente") y mostramos el
   // error en el centro, seleccionable para copiarlo.
   const showLoading = !hasPlayed && !errorMsg;
-  const controlsShown = !!errorMsg || controlsVisible;
+  // Carga "dentro del player": al cambiar de fuente / re-entrar mostramos el chrome
+  // (controles) + el logo sobre el vídeo mientras abre, en vez de la carátula
+  // externa. Forzamos los controles visibles durante esta carga.
+  const inPlayerLoading = !!loadingInline && showLoading;
+  const controlsShown = !!errorMsg || controlsVisible || inPlayerLoading;
   const tracksInfo = errorMsg ? describeTracks(tracks) : undefined;
 
   return (
@@ -794,15 +867,20 @@ function Player({
         // `null` libera el player (no crear media con URL vacía → evita el
         // error nativo "media could not be set").
         source={url?.trim() ? url : null}
-        // network-caching = ms de buffer antes de empezar: es el factor que más
-        // pesa en "tarda en abrir". 1500 ms abre ~1,5 s más rápido que 3000 con
-        // un riesgo de micro-cortes asumible (que recupera :http-reconnect; un
-        // corte tras el primer fotograma NO tira la fuente). El User-Agent de
-        // navegador evita 403 de hosts que rechazan el UA por defecto de VLC.
-        // Tunable: subir a 2500-3000 si hay rebuffering en redes lentas.
+        // network-caching = colchón (ms) que VLC mantiene leído por delante: es a
+        // la vez el pre-buffer de ARRANQUE y la ventana que sostiene DURANTE todo
+        // el vídeo. Es un buffer de tamaño fijo, NO crece con el tiempo, y VLC no
+        // puede ampliarlo en caliente (cambiarlo obliga a reabrir el stream), por
+        // eso usamos un único valor y no dos fases. 3000 ms da ~3 s de colchón →
+        // menos micro-cortes a mitad que con 1500, a cambio de un arranque algo
+        // más lento (un corte tras el primer fotograma lo recupera :http-reconnect
+        // y NO tira la fuente). El User-Agent de navegador evita 403 de hosts que
+        // rechazan el UA por defecto de VLC.
+        // Tunable: bajar a 2000-2500 si el arranque molesta; subir a ~5000 si aún
+        // hay cortes en redes lentas.
         options={[
-          ':network-caching=1500',
-          ':file-caching=1500',
+          ':network-caching=3000',
+          ':file-caching=3000',
           ':http-reconnect',
           `:http-user-agent=${STREAM_UA}`,
         ]}
@@ -844,12 +922,20 @@ function Player({
           }
         }}
         onESAdded={(media) => {
-          setTracks(media);
-          setAudioId((prev) => prev ?? pickDefaultAudio(media.audio));
+          // libVLC añade una pista sintética "Disable" (id -1) al inicio de cada
+          // lista; la quitamos para no mostrarla en los menús ni auto-elegirla
+          // (elegir la de audio dejaba el vídeo sin sonido — ver pickDefaultAudio).
+          const clean: MediaTracks = {
+            audio: media.audio.filter((t) => t.id >= 0),
+            video: media.video.filter((t) => t.id >= 0),
+            subtitle: media.subtitle.filter((t) => t.id >= 0),
+          };
+          setTracks(clean);
+          setAudioId((prev) => prev ?? pickDefaultAudio(clean.audio));
           // Primera detección de pistas: la fuente es VÁLIDA (abrió el
           // contenedor), solo está buffering. Rearmamos el watchdog con mucho
           // más margen para el primer fotograma en vez de matarla a los 20 s.
-          if (!esAddedRef.current && media.video.length > 0) {
+          if (!esAddedRef.current && clean.video.length > 0) {
             esAddedRef.current = true;
             if (onUnplayable) {
               clearTimeout(startTimer.current);
@@ -871,6 +957,8 @@ function Player({
           }
           setErrorMsg(humanizePlaybackError(message));
           setRawError(message || 'EncounteredError (sin mensaje)');
+          // Funde la carátula única para que se vea esta tarjeta de error.
+          onReveal?.();
           // Sonda del enlace: revela la causa real (403/HTML/caducado/redirección).
           setProbe('Comprobando enlace…');
           probeStreamUrl(url).then(setProbe);
@@ -888,41 +976,17 @@ function Player({
         />
       ) : null}
 
-      {/* Spinner de buffering solo en re-buffering a mitad de reproducción.
-          Exigir `coverGone` evita que se cuele durante el fundido inicial de
-          la carátula (VLC vuelve a emitir onBuffering en esos 260 ms). */}
-      {hasPlayed && coverGone && buffering && !errorMsg ? (
+      {/* Spinner de buffering solo en re-buffering a mitad de reproducción
+          (tras el primer fotograma). La carátula única (en PlayerScreen) cubre
+          el buffering inicial, así que aquí solo nos importa el re-buffer. */}
+      {hasPlayed && firstFrame && buffering && !errorMsg ? (
         <View style={styles.bufferWrap} pointerEvents="none">
-          <BufferingPulse />
+          <Spinner size="lg" color="#fff" />
         </View>
       ) : null}
 
-      {/* Carátula que tapa el arranque y se funde al vídeo (sin loading visible) */}
-      {!coverGone && !errorMsg ? (
-        <Animated.View
-          style={[StyleSheet.absoluteFill, coverStyle]}
-          pointerEvents="none"
-        >
-          <LoadingArt background={background} logo={logo} title={title} />
-        </Animated.View>
-      ) : null}
-
-      {/* Fondo del póster detrás de los controles si falla antes de reproducir
-          (el vídeo aún está en negro). */}
-      {errorMsg && background ? (
-        <View style={StyleSheet.absoluteFill} pointerEvents="none">
-          <Image
-            source={background}
-            contentFit="cover"
-            cachePolicy="memory-disk"
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.artScrim} />
-        </View>
-      ) : null}
-
-      {/* Controles (se mantienen visibles mientras haya error) */}
-      {!showLoading && controlsShown ? (
+      {/* Controles (visibles con error y durante la carga in-player) */}
+      {(!showLoading || inPlayerLoading) && controlsShown ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
           {/* Arriba: título (izquierda) + acciones (derecha) */}
           <View
@@ -1051,6 +1115,13 @@ function Player({
                   {url}
                 </Text>
               </View>
+            </View>
+          ) : showLoading ? (
+            // Carga "dentro del player" (cambio de fuente / re-entrada): spinner de
+            // la UI en el centro (donde va el play) con el resto del chrome visible
+            // —título arriba, barra de progreso abajo—, en vez de un fondo negro.
+            <View style={styles.centerRow} pointerEvents="box-none">
+              <Spinner size="lg" color="#fff" />
             </View>
           ) : (
             <View style={styles.centerRow} pointerEvents="box-none">
@@ -1214,20 +1285,6 @@ function humanizePlaybackError(raw?: string): string {
   return 'No se pudo reproducir esta fuente. Intenta con otra.';
 }
 
-function BufferingPulse() {
-  const pulse = useSharedValue(0.4);
-  useEffect(() => {
-    pulse.value = withRepeat(
-      withTiming(1, { duration: 700, easing: Easing.inOut(Easing.ease) }),
-      -1,
-      true,
-    );
-    return () => cancelAnimation(pulse);
-  }, [pulse]);
-  const style = useAnimatedStyle(() => ({ opacity: pulse.value }));
-  return <Animated.View style={[styles.spinner, style]} />;
-}
-
 // Resumen de las pistas (códecs) detectadas por VLC antes del fallo. Sirve para
 // verificar si la fuente falla por un códec de vídeo/audio concreto o si ni
 // siquiera llegó a abrir pistas (apunta a red/enlace).
@@ -1245,6 +1302,56 @@ function describeTracks(tracks?: MediaTracks): string | undefined {
   return lines.join('\n');
 }
 
+// Logo de la peli pulsando mientras carga. Reutilizado por la carátula externa
+// (LoadingArt) y por la carga "dentro del player" al cambiar de fuente, para que
+// sea exactamente el mismo logo/pulso en ambos casos.
+function PulsingLogo({
+  logo,
+  title,
+  status,
+}: {
+  logo?: string;
+  title?: string;
+  status?: string;
+}) {
+  const pulse = useSharedValue(0.55);
+  useEffect(() => {
+    pulse.value = withRepeat(
+      withTiming(1, { duration: 900, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true,
+    );
+    return () => cancelAnimation(pulse);
+  }, [pulse]);
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
+
+  return (
+    <Animated.View style={[styles.artCenter, pulseStyle]} pointerEvents="none">
+      {logo ? (
+        <Image
+          source={logo}
+          contentFit="contain"
+          style={{ width: '60%', height: 120 }}
+        />
+      ) : (
+        <Typography type="h2" weight="bold" align="center">
+          {title ?? ''}
+        </Typography>
+      )}
+      {status ? (
+        <Typography
+          type="body-sm"
+          color="muted"
+          align="center"
+          style={{ marginTop: 16 }}
+        >
+          {status}
+        </Typography>
+      ) : null}
+    </Animated.View>
+  );
+}
+
 function LoadingArt({
   background,
   logo,
@@ -1260,20 +1367,6 @@ function LoadingArt({
   detail?: string;
   status?: string;
 }) {
-  const pulse = useSharedValue(0.55);
-
-  useEffect(() => {
-    if (error) return;
-    pulse.value = withRepeat(
-      withTiming(1, { duration: 900, easing: Easing.inOut(Easing.ease) }),
-      -1,
-      true,
-    );
-    return () => cancelAnimation(pulse);
-  }, [error, pulse]);
-
-  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
-
   return (
     <View style={styles.artRoot} pointerEvents={error ? 'auto' : 'none'}>
       {background ? (
@@ -1312,31 +1405,8 @@ function LoadingArt({
           </View>
         </View>
       ) : (
-        // Logo pulsando mientras carga (como antes). Esta carátula tapa el
-        // arranque del vídeo y se funde a él al primer fotograma.
-        <Animated.View style={[styles.artCenter, pulseStyle]}>
-          {logo ? (
-            <Image
-              source={logo}
-              contentFit="contain"
-              style={{ width: '60%', height: 120 }}
-            />
-          ) : (
-            <Typography type="h2" weight="bold" align="center">
-              {title ?? ''}
-            </Typography>
-          )}
-          {status ? (
-            <Typography
-              type="body-sm"
-              color="muted"
-              align="center"
-              style={{ marginTop: 16 }}
-            >
-              {status}
-            </Typography>
-          ) : null}
-        </Animated.View>
+        // Logo pulsando: esta carátula tapa el arranque y se funde al primer fotograma.
+        <PulsingLogo logo={logo} title={title} status={status} />
       )}
     </View>
   );
@@ -1404,14 +1474,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  spinner: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 3,
-    borderColor: '#fff',
-    borderTopColor: 'transparent',
   },
   topBar: {
     position: 'absolute',
@@ -1539,7 +1601,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   menuItemText: { color: '#fff', fontSize: 14, flex: 1 },
-  backWrap: { position: 'absolute', top: 0, left: 12, zIndex: 10 },
+  backWrap: { position: 'absolute', zIndex: 10 },
   backBtn: {
     width: 40,
     height: 40,
