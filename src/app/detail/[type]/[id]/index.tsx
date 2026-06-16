@@ -322,6 +322,16 @@ export default function DetailPage() {
           </Pressable>
         </SafeAreaView>
 
+        {loading ? (
+          <DetailSkeleton
+            heroHeight={heroHeight}
+            isTV={isTV}
+            sideBtnW={sideBtnW}
+            type={type}
+            posterWidth={posterWidth}
+          />
+        ) : (
+          <>
         {/* Title + buttons */}
         <View
           style={{
@@ -560,14 +570,135 @@ export default function DetailPage() {
           </>
         ) : null}
 
-        {loading ? (
-          <View style={{ paddingHorizontal: 20, gap: 8, marginTop: 16 }}>
-            <Skeleton style={{ height: 24, borderRadius: 8 }} />
-            <Skeleton style={{ height: 60, borderRadius: 8 }} />
-          </View>
-        ) : null}
+          </>
+        )}
       </ScrollView>
     </View>
+  );
+}
+
+// Skeleton de la pantalla de detalle. Imita la UI real y se adapta:
+//  • al TIPO → serie muestra "Temporadas" + "Episodios"; película no.
+//  • al DISPOSITIVO → tamaños vía `isTV` (botones) y `posterWidth` (mismo código
+//    para TV y móvil), así el skeleton coincide con lo que se va a renderizar.
+function DetailSkeleton({
+  heroHeight,
+  isTV,
+  sideBtnW,
+  type,
+  posterWidth,
+}: {
+  heroHeight: number;
+  isTV: boolean;
+  sideBtnW: number;
+  type: DetailType;
+  posterWidth: number;
+}) {
+  const btnH = isTV ? 56 : 44;
+  const sideW = isTV ? 120 : sideBtnW;
+  const posterH = Math.round(posterWidth * 1.5); // póster 2:3
+  const sectionTitle = {
+    height: 22,
+    borderRadius: 8,
+    marginHorizontal: 20,
+    marginTop: 28,
+    marginBottom: 12,
+  } as const;
+  return (
+    <>
+      {/* Logo + géneros + botones + descripción (solapando el hero) */}
+      <View
+        style={{ marginTop: -heroHeight * 0.35, paddingHorizontal: 20, gap: 16 }}
+      >
+        <Skeleton
+          style={{
+            width: '60%',
+            height: 72,
+            borderRadius: 12,
+            alignSelf: 'center',
+          }}
+        />
+        <Skeleton
+          style={{
+            width: 160,
+            height: 14,
+            borderRadius: 7,
+            alignSelf: 'center',
+          }}
+        />
+        <View style={{ flexDirection: 'row', gap: isTV ? 14 : 10 }}>
+          <Skeleton style={{ flex: 1, height: btnH, borderRadius: 14 }} />
+          <Skeleton style={{ width: sideW, height: btnH, borderRadius: 14 }} />
+          <Skeleton style={{ width: sideW, height: btnH, borderRadius: 14 }} />
+        </View>
+        <View style={{ gap: 8 }}>
+          <Skeleton style={{ width: '100%', height: 12, borderRadius: 6 }} />
+          <Skeleton style={{ width: '92%', height: 12, borderRadius: 6 }} />
+          <Skeleton style={{ width: '70%', height: 12, borderRadius: 6 }} />
+        </View>
+      </View>
+
+      {/* Solo SERIES: Temporadas (pills) + Episodios (tarjetas 16:9) */}
+      {type === 'series' ? (
+        <>
+          <Skeleton style={{ ...sectionTitle, width: 140 }} />
+          <ScrollView
+            horizontal
+            scrollEnabled={false}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}
+          >
+            {['s1', 's2', 's3'].map((k) => (
+              <Skeleton
+                key={k}
+                style={{ width: 120, height: 40, borderRadius: 999 }}
+              />
+            ))}
+          </ScrollView>
+          <Skeleton style={{ ...sectionTitle, width: 150 }} />
+          <ScrollView
+            horizontal
+            scrollEnabled={false}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
+          >
+            {['e1', 'e2', 'e3'].map((k) => (
+              <Skeleton
+                key={k}
+                style={{ width: 320, height: 180, borderRadius: 16 }}
+              />
+            ))}
+          </ScrollView>
+        </>
+      ) : null}
+
+      {/* Reparto (círculos) — películas y series */}
+      <Skeleton style={{ ...sectionTitle, width: 110 }} />
+      <View style={{ flexDirection: 'row', gap: 16, paddingHorizontal: 20 }}>
+        {['p1', 'p2', 'p3', 'p4'].map((k) => (
+          <View key={k} style={{ width: 80, alignItems: 'center', gap: 6 }}>
+            <Skeleton style={{ width: 80, height: 80, borderRadius: 40 }} />
+            <Skeleton style={{ width: 64, height: 10, borderRadius: 5 }} />
+          </View>
+        ))}
+      </View>
+
+      {/* Relacionados (pósters 2:3) — películas y series */}
+      <Skeleton style={{ ...sectionTitle, width: 150 }} />
+      <ScrollView
+        horizontal
+        scrollEnabled={false}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
+      >
+        {['r1', 'r2', 'r3', 'r4'].map((k) => (
+          <Skeleton
+            key={k}
+            style={{ width: posterWidth, height: posterH, borderRadius: 12 }}
+          />
+        ))}
+      </ScrollView>
+    </>
   );
 }
 

@@ -9,7 +9,7 @@ import { Image } from 'expo-image';
 import * as NavigationBar from 'expo-navigation-bar';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { Typography } from 'heroui-native';
+import { Slider, Typography } from 'heroui-native';
 import {
   ArrowLeft,
   Captions,
@@ -28,8 +28,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
-  type GestureResponderEvent,
-  type LayoutChangeEvent,
   type PressableStateCallbackType,
   StatusBar as RNStatusBar,
   type StyleProp,
@@ -110,6 +108,8 @@ async function fetchWithTimeout(
 }
 
 async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
+  let url: string;
+  let fileName: string | undefined;
   if (raw.startsWith('/api/')) {
     const sep = raw.includes('?') ? '&' : '?';
     const token = await getAccessToken();
@@ -134,19 +134,34 @@ async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
     if (!data.url) {
       throw new Error(data.error ?? 'El stream no devolvió una URL.');
     }
-    return { url: sanitizeUrlForVlc(data.url), fileName: data.fileName };
+    url = sanitizeUrlForVlc(data.url);
+    fileName = data.fileName;
+  } else {
+    url = sanitizeUrlForVlc(raw);
   }
-  return { url: sanitizeUrlForVlc(raw) };
+  // Pre-resolver la redirección: muchos hosts devuelven una URL que a su vez
+  // redirige (302), y libVLC no siempre la sigue limpio → fallaba antes del
+  // primer fotograma, disparaba el fallback y REMONTABA el player (se veía la
+  // carátula dos veces / "reinicio"). Seguimos la redirección aquí con `fetch` y
+  // le entregamos a VLC la URL FINAL, así abre a la primera y sin doble arranque.
+  const final = await resolveRedirect(url);
+  return { url: final ? sanitizeUrlForVlc(final) : url, fileName };
 }
 
 const SEEK_STEP_MS = 10_000;
 const CONTROLS_HIDE_MS = 4_000;
-// Si una fuente no produce el primer fotograma en este tiempo (host colgado que
-// ni reproduce ni emite error — el caso "Comprobando enlace…" eterno), la damos
-// por fallida y probamos la siguiente. Tunable: muy bajo descartaría fuentes
-// lentas-pero-buenas; con network-caching=1500, 10 s es un compromiso razonable
-// entre abrir rápido y no tumbar una fuente que solo va lenta.
-const PLAYBACK_START_TIMEOUT_MS = 10_000;
+// Watchdog en DOS fases (las fuentes debrid/torbox tardan en arrancar):
+//  • START: si en este tiempo NO hay ni una señal de vida (ninguna pista
+//    detectada), la fuente está muerta/colgada → fallback.
+//  • FIRST_FRAME: en cuanto VLC detecta pistas (onESAdded) la fuente es VÁLIDA y
+//    solo está buffering — le damos mucho más margen para el primer fotograma en
+//    vez de matarla. Antes un watchdog único de 10 s descartaba fuentes que SÍ
+//    abrían (detectaban pistas) pero tardaban 12-15 s en dar imagen.
+const PLAYBACK_START_TIMEOUT_MS = 20_000;
+const PLAYBACK_FIRST_FRAME_TIMEOUT_MS = 30_000;
+// Elección manual del usuario: le damos mucho más margen "sin pistas" antes de
+// saltar, porque pidió ESA fuente explícitamente (p. ej. torbox lento de arrancar).
+const PLAYBACK_MANUAL_TIMEOUT_MS = 35_000;
 
 // User-Agent de navegador: evita 403 de hosts que rechazan el UA por defecto de
 // VLC. Se usa tanto en las opciones de libVLC como en la sonda de diagnóstico,
@@ -276,6 +291,9 @@ export default function PlayerScreen() {
   // auto-fallback la reapunta a la siguiente fuente cuando una falla.
   const [rawUrl, setRawUrl] = useState(params.url ?? '');
   const [state, setState] = useState<ResolveState>({ kind: 'resolving' });
+  // ¿La fuente actual la eligió el usuario a mano? Le damos más paciencia antes
+  // de auto-saltar (respeta su elección). El auto-fallback lo pone en false.
+  const [manualSource, setManualSource] = useState(false);
 
   // Pedimos SIEMPRE la lista de fuentes (no solo en auto-play): la necesitamos
   // para el fallback automático también cuando se entra con una fuente concreta.
@@ -292,8 +310,6 @@ export default function PlayerScreen() {
   // Control del fallback. Refs porque los leen callbacks async (señal de fallo de
   // VLC, watchdog) y no deben capturar valores obsoletos ni provocar renders.
   const triedUrls = useRef<Set<string>>(new Set()); // fuentes ya fallidas
-  const redirectRetried = useRef<Set<string>>(new Set()); // ya reintentadas redirigidas
-  const currentResolvedUrl = useRef<string | null>(null); // última URL final dada a VLC
   // Refs "último valor" para leer en callbacks async (señal de fallo de VLC,
   // watchdog) sin capturar valores obsoletos. Se sincronizan tras cada render.
   const sourcesRef = useRef(sources);
@@ -308,7 +324,6 @@ export default function PlayerScreen() {
   // Al cambiar la lista de fuentes (p. ej. otro episodio) reiniciamos lo probado.
   useEffect(() => {
     triedUrls.current = new Set();
-    redirectRetried.current = new Set();
   }, [sourcesQuery.data]);
 
   // Marca la fuente actual como fallida y salta a la siguiente no probada; si no
@@ -320,6 +335,7 @@ export default function PlayerScreen() {
     const next = pickNextSource(list, triedUrls.current, raw);
     if (next) {
       const attempt = Math.min(triedUrls.current.size + 1, list.length || 1);
+      setManualSource(false); // el salto automático no es elección manual.
       setState({ kind: 'switching', attempt, total: list.length });
       setRawUrl(next.url);
     } else {
@@ -327,26 +343,15 @@ export default function PlayerScreen() {
     }
   }, []);
 
-  // Señal desde el reproductor: la fuente actual no es reproducible. Antes de
-  // descartarla, si el enlace está vivo pero VLC no lo abrió, la reintentamos una
-  // vez con la URL ya redirigida (caso HTTP 206 video/* que `fetch` sí abre).
-  const handleUnplayable = useCallback(async () => {
+  // Señal desde el reproductor: la fuente actual no es reproducible → siguiente.
+  // (La redirección ya se resolvió en `resolveStreamUrl`, así que aquí no hay
+  // reintento: o reprodujo, o saltamos de fuente. Sin remontajes extra.)
+  const handleUnplayable = useCallback(() => {
     if (
       stateKindRef.current === 'switching' ||
       stateKindRef.current === 'exhausted'
     ) {
       return; // ya avanzando: ignora señales tardías del player saliente.
-    }
-    const raw = rawUrlRef.current;
-    const resolved = currentResolvedUrl.current;
-    if (raw && resolved && !redirectRetried.current.has(raw)) {
-      redirectRetried.current.add(raw);
-      const final = await resolveRedirect(resolved);
-      if (final && final !== resolved) {
-        currentResolvedUrl.current = final;
-        setState({ kind: 'ready', url: final }); // remonta el player con la URL final.
-        return;
-      }
     }
     advanceToNextSource();
   }, [advanceToNextSource]);
@@ -427,7 +432,6 @@ export default function PlayerScreen() {
     resolveStreamUrl(rawUrl)
       .then(({ url, fileName }) => {
         if (cancelled) return;
-        currentResolvedUrl.current = url;
         setState({ kind: 'ready', url, fileName });
       })
       .catch(() => {
@@ -457,6 +461,11 @@ export default function PlayerScreen() {
           subtitle={subtitle}
           background={background}
           logo={logo}
+          startTimeoutMs={
+            manualSource
+              ? PLAYBACK_MANUAL_TIMEOUT_MS
+              : PLAYBACK_START_TIMEOUT_MS
+          }
           onUnplayable={canFallback ? handleUnplayable : undefined}
           onChangeSource={canChangeSource ? () => setPickerOpen(true) : undefined}
           onChangeEpisode={
@@ -504,12 +513,13 @@ export default function PlayerScreen() {
           id={mediaId}
           season={season}
           episode={episode}
+          selectedUrl={rawUrl}
           onSelect={(s: StreamSource) => {
             setPickerOpen(false);
             // Elección explícita: la hacemos reintentar (quita su marca de
-            // fallida) y el fallback continúa desde ahí.
+            // fallida), le damos más paciencia y el fallback continúa desde ahí.
             triedUrls.current.delete(s.url);
-            redirectRetried.current.delete(s.url);
+            setManualSource(true);
             setRawUrl(s.url);
           }}
           onClose={() => setPickerOpen(false)}
@@ -543,6 +553,7 @@ function SourcePicker({
   episode,
   onSelect,
   onClose,
+  selectedUrl,
 }: {
   type: 'movie' | 'series';
   id: string;
@@ -550,6 +561,7 @@ function SourcePicker({
   episode?: string;
   onSelect: (source: StreamSource) => void;
   onClose: () => void;
+  selectedUrl?: string;
 }) {
   // Ancho concreto en px (no '86%'): evita que la tarjeta colapse y el texto se
   // parta a un carácter por línea en el overlay sobre el reproductor horizontal.
@@ -573,6 +585,7 @@ function SourcePicker({
           season={season}
           episode={episode}
           onSelect={onSelect}
+          selectedUrl={selectedUrl}
         />
       </View>
     </View>
@@ -585,6 +598,7 @@ function Player({
   subtitle,
   background,
   logo,
+  startTimeoutMs = PLAYBACK_START_TIMEOUT_MS,
   onUnplayable,
   onChangeSource,
   onChangeEpisode,
@@ -594,6 +608,7 @@ function Player({
   subtitle?: string;
   background?: string;
   logo?: string;
+  startTimeoutMs?: number;
   onUnplayable?: () => void;
   onChangeSource?: () => void;
   onChangeEpisode?: () => void;
@@ -612,6 +627,7 @@ function Player({
   const startTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const firedUnplayable = useRef(false);
   const firstFrameRef = useRef(false);
+  const esAddedRef = useRef(false); // pistas detectadas → fuente válida
 
   const [playing, setPlaying] = useState(true);
   const [buffering, setBuffering] = useState(true);
@@ -628,7 +644,6 @@ function Player({
   const [duration, setDuration] = useState(0); // ms
   const [scrubbing, setScrubbing] = useState(false);
   const [scrubTime, setScrubTime] = useState(0);
-  const barWidth = useRef(1);
 
   const [tracks, setTracks] = useState<MediaTracks>({
     audio: [],
@@ -698,9 +713,9 @@ function Player({
   // la saltamos. Se reinicia por fuente gracias al remontaje (key={url}).
   useEffect(() => {
     if (!onUnplayable) return;
-    startTimer.current = setTimeout(reportUnplayable, PLAYBACK_START_TIMEOUT_MS);
+    startTimer.current = setTimeout(reportUnplayable, startTimeoutMs);
     return () => clearTimeout(startTimer.current);
-  }, [onUnplayable, reportUnplayable]);
+  }, [onUnplayable, reportUnplayable, startTimeoutMs]);
 
   const scheduleHide = useCallback(() => {
     clearTimeout(hideTimer.current);
@@ -744,33 +759,26 @@ function Player({
     [time, duration, showControls],
   );
 
-  // --- barra de progreso arrastrable ---
-  const onBarLayout = (e: LayoutChangeEvent) => {
-    barWidth.current = Math.max(1, e.nativeEvent.layout.width);
-  };
-  const fractionFromX = (x: number) =>
-    Math.max(0, Math.min(x / barWidth.current, 1));
-  const beginScrub = (e: GestureResponderEvent) => {
-    if (!duration) return;
+  // --- barra de progreso (Slider de heroui-native) ---
+  // Mientras se arrastra mostramos `scrubTime` y NO movemos el vídeo; al soltar
+  // (`onChangeEnd`) hacemos el seek. Así el tiempo en vivo no pelea con el dedo.
+  const toTime = (v: number | number[]) => (Array.isArray(v) ? v[0] : v);
+  const onSlide = (v: number | number[]) => {
     setScrubbing(true);
-    setScrubTime(fractionFromX(e.nativeEvent.locationX) * duration);
+    setScrubTime(toTime(v));
     showControls();
   };
-  const moveScrub = (e: GestureResponderEvent) => {
-    if (!duration) return;
-    setScrubTime(fractionFromX(e.nativeEvent.locationX) * duration);
-  };
-  const endScrub = () => {
+  const onSlideEnd = (v: number | number[]) => {
+    const t = toTime(v);
     if (duration) {
-      playerRef.current?.seek(scrubTime, 'time');
-      setTime(scrubTime);
+      playerRef.current?.seek(t, 'time');
+      setTime(t);
     }
     setScrubbing(false);
     scheduleHide();
   };
 
   const progress = scrubbing ? scrubTime : time;
-  const pct = duration > 0 ? Math.min(progress / duration, 1) : 0;
   // Mientras carga mostramos el arte (logo). En error NO ocultamos el player:
   // dejamos sus controles normales (incluido "cambiar fuente") y mostramos el
   // error en el centro, seleccionable para copiarlo.
@@ -826,11 +834,31 @@ function Player({
           // El tiempo avanza ⇒ hay fotogramas pintándose ⇒ ya podemos fundir
           // la carátula al vídeo (sin pasar por negro ni spinner).
           if (value > 0 && !firstFrame) setFirstFrame(true);
-          if (!scrubbing) setTime(value);
+          if (!scrubbing) {
+            setTime(value);
+            // Si el tiempo avanza, NO está buffering: limpiamos el spinner ya
+            // (aunque VLC siga emitiendo onBuffering, así no se queda pegado el
+            // "cargando" mientras se ve la peli). setState(false) es no-op si ya
+            // estaba false → barato.
+            setBuffering(false);
+          }
         }}
         onESAdded={(media) => {
           setTracks(media);
           setAudioId((prev) => prev ?? pickDefaultAudio(media.audio));
+          // Primera detección de pistas: la fuente es VÁLIDA (abrió el
+          // contenedor), solo está buffering. Rearmamos el watchdog con mucho
+          // más margen para el primer fotograma en vez de matarla a los 20 s.
+          if (!esAddedRef.current && media.video.length > 0) {
+            esAddedRef.current = true;
+            if (onUnplayable) {
+              clearTimeout(startTimer.current);
+              startTimer.current = setTimeout(
+                reportUnplayable,
+                PLAYBACK_FIRST_FRAME_TIMEOUT_MS,
+              );
+            }
+          }
         }}
         onEncounteredError={({ message }) => {
           // Con fallback y antes del primer fotograma, el padre prueba otra
@@ -1068,20 +1096,20 @@ function Player({
           >
             <Text style={styles.timeText}>{formatTime(progress)}</Text>
 
-            <View
-              style={styles.barTouch}
-              onLayout={onBarLayout}
-              onStartShouldSetResponder={() => true}
-              onMoveShouldSetResponder={() => true}
-              onResponderGrant={beginScrub}
-              onResponderMove={moveScrub}
-              onResponderRelease={endScrub}
-              onResponderTerminate={endScrub}
-            >
-              <View style={styles.barTrack}>
-                <View style={[styles.barFill, { width: `${pct * 100}%` }]} />
-                <View style={[styles.barThumb, { left: `${pct * 100}%` }]} />
-              </View>
+            <View style={{ flex: 1, marginHorizontal: 4 }}>
+              <Slider
+                value={Math.min(progress, duration || 1)}
+                minValue={0}
+                maxValue={duration || 1}
+                isDisabled={!duration}
+                onChange={onSlide}
+                onChangeEnd={onSlideEnd}
+              >
+                <Slider.Track>
+                  <Slider.Fill />
+                  <Slider.Thumb />
+                </Slider.Track>
+              </Slider>
             </View>
 
             <Text style={styles.timeText}>{formatTime(duration)}</Text>
@@ -1464,33 +1492,6 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     minWidth: 42,
     textAlign: 'center',
-  },
-  barTouch: {
-    flex: 1,
-    height: 28,
-    justifyContent: 'center',
-    marginHorizontal: 4,
-  },
-  barTrack: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    justifyContent: 'center',
-  },
-  barFill: {
-    position: 'absolute',
-    left: 0,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#fff',
-  },
-  barThumb: {
-    position: 'absolute',
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    marginLeft: -7,
-    backgroundColor: '#fff',
   },
   menuRoot: {
     position: 'absolute',
