@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Card, Chip, PressableFeedback, Skeleton, Typography } from 'heroui-native';
-import { Globe2, HardDrive } from 'lucide-react-native';
+import { Check, Globe2, HardDrive } from 'lucide-react-native';
 import { ScrollView, View } from 'react-native';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { apiFetch } from '@/lib/api';
@@ -58,12 +58,15 @@ export function SourcesList({
   season,
   episode,
   onSelect,
+  selectedUrl,
 }: {
   type: 'movie' | 'series';
   id: string;
   season?: string;
   episode?: string;
   onSelect: (source: StreamSource) => void;
+  /** URL de la fuente que se está reproduciendo ahora, para marcarla. */
+  selectedUrl?: string;
 }) {
   const query = useQuery({
     ...sourcesQueryOptions(type, id, season, episode),
@@ -138,6 +141,7 @@ export function SourcesList({
             <SourceCard
               key={`${s.addonId}:${s.sourceIndex}`}
               source={s}
+              selected={Boolean(selectedUrl) && s.url === selectedUrl}
               onPress={() => onSelect(s)}
             />
           ))
@@ -149,9 +153,11 @@ export function SourcesList({
 function SourceCard({
   source,
   onPress,
+  selected,
 }: {
   source: StreamSource;
   onPress: () => void;
+  selected?: boolean;
 }) {
   // `behaviors` trae las líneas de detalle del addon (códec, idiomas, tamaño,
   // uploader, etc.) que el backend reenvía desde `metadata`. Sin esto la tarjeta
@@ -170,9 +176,35 @@ function SourceCard({
 
   return (
     <PressableFeedback onPress={onPress} {...focusProps}>
-      <Card style={tvFocusRing(focused) ?? undefined}>
+      <Card
+        style={[
+          tvFocusRing(focused),
+          selected ? { borderWidth: 1.5, borderColor: '#7CFC9B' } : null,
+        ]}
+      >
         <Card.Body className="gap-2">
-          <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              gap: 8,
+              flexWrap: 'wrap',
+              alignItems: 'center',
+            }}
+          >
+            {selected ? (
+              <View
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+              >
+                <Check size={14} color="#7CFC9B" />
+                <Typography
+                  type="body-xs"
+                  weight="semibold"
+                  style={{ color: '#7CFC9B' }}
+                >
+                  Reproduciendo
+                </Typography>
+              </View>
+            ) : null}
             {quality ? (
               <Chip variant="primary" size="sm">
                 <Chip.Label>{quality}</Chip.Label>
