@@ -7,7 +7,10 @@ import { ScrollView, useWindowDimensions, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { HeroCarousel } from '@/components/home/hero-carousel';
 import { PosterRow } from '@/components/home/poster-row';
+import { LocalVideoPicker } from '@/components/local-video-picker';
 import { SetupPrompt, useSetupStatus } from '@/components/setup-prompt';
+import { StreamLoginScreen } from '@/components/stream-login-screen';
+import { useAppSurface } from '@/hooks/use-app-surface';
 import { apiFetch, type MediaMeta } from '@/lib/api';
 import { COLORS } from '@/lib/theme';
 
@@ -17,15 +20,23 @@ export default function HomeTab() {
   const { height: windowHeight } = useWindowDimensions();
   const heroSkeletonHeight = Math.round(windowHeight * 0.72);
 
-  // useQuery cachea cada catálogo: al volver a Inicio se muestra al instante
-  // (sin skeleton) y solo revalida en segundo plano si pasó el staleTime.
-  const { data: status } = useSetupStatus();
+  // El tab Inicio es "Reproducir video" en modo local (sin sesión, o si el
+  // usuario eligió modo local en Configuración) y el catálogo en modo stream.
+  // `surface` es null mientras se resuelve; se revalida en cada focus.
+  const surface = useAppSurface();
+  const streamMode = surface?.showLocal === false;
+
+  // El catálogo solo se pide en modo stream Y con setup completo: sin TMDB token
+  // el backend responde 4xx; en ese caso mostramos el SetupPrompt.
+  const { data: status } = useSetupStatus(streamMode);
+  const catalogEnabled = streamMode && status?.setupCompleted === true;
   const moviesQuery = useQuery({
     queryKey: ['catalog', 'movie', 'trending'],
     queryFn: () =>
       apiFetch<{ results: MediaMeta[] }>(
         '/api/onevid-catalog?type=movie&catalog=trending',
       ).then((r) => r.results ?? []),
+    enabled: catalogEnabled,
   });
   const seriesQuery = useQuery({
     queryKey: ['catalog', 'series', 'trending'],
@@ -33,6 +44,7 @@ export default function HomeTab() {
       apiFetch<{ results: MediaMeta[] }>(
         '/api/onevid-catalog?type=series&catalog=trending',
       ).then((r) => r.results ?? []),
+    enabled: catalogEnabled,
   });
 
   const movies = moviesQuery.data ?? [];
@@ -52,6 +64,16 @@ export default function HomeTab() {
       params: { type: item.type, id: item.id },
     });
   }, []);
+
+  // Mientras se resuelve sesión/modo no pintamos nada (evita parpadeo picker↔catálogo).
+  if (surface == null)
+    return <View style={{ flex: 1, backgroundColor: COLORS.background }} />;
+  // Modo local: el tab Inicio muestra "Reproducir video".
+  if (surface.showLocal) return <LocalVideoPicker />;
+
+  // Stream sin sesión (caso TV, sin picker): mostramos el QR de login centrado
+  // a pantalla completa, sin que el usuario tenga que ir a Perfil.
+  if (!surface.authed) return <StreamLoginScreen />;
 
   if (status && !status.setupCompleted) return <SetupPrompt />;
 

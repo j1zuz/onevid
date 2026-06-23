@@ -2,20 +2,29 @@ import { useQuery } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { ScrollShadow, Typography } from 'heroui-native';
+import { Bookmark } from 'lucide-react-native';
 import { useCallback } from 'react';
 import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { EmptyState } from '@/components/empty-state';
 import { PosterRow } from '@/components/home/poster-row';
 import { SetupPrompt, useSetupStatus } from '@/components/setup-prompt';
+import { useAppSurface } from '@/hooks/use-app-surface';
 import type { MediaMeta } from '@/lib/api';
 import { getFavorites, getWatchlistItems } from '@/lib/saved';
 import { COLORS } from '@/lib/theme';
 
 export default function LibraryTab() {
+  // La biblioteca es parte del modo Stream: en modo local mostramos un empty
+  // state y no pedimos nada. `surface` se revalida en cada focus.
+  const surface = useAppSurface();
+  const streamMode = surface?.showLocal === false;
+
   // Cacheado bajo ['library']: ya no recarga skeleton cada vez que entras a la
   // pestaña. La pantalla de detalle invalida esta key al guardar/quitar, así
   // que la lista se actualiza en segundo plano sin parpadeo.
   const libraryQuery = useQuery({
+    enabled: streamMode,
     queryKey: ['library'],
     queryFn: async () => {
       const [favM, favS, watM, watS] = await Promise.all([
@@ -42,7 +51,28 @@ export default function LibraryTab() {
     });
   }, []);
 
-  const { data: status } = useSetupStatus();
+  const { data: status } = useSetupStatus(streamMode);
+
+  if (surface == null)
+    return <View style={{ flex: 1, backgroundColor: COLORS.background }} />;
+  // Modo local, o stream sin sesión (TV): empty state pidiendo iniciar sesión.
+  if (surface.showLocal || !surface.authed)
+    return (
+      <SafeAreaView
+        style={{ flex: 1, backgroundColor: COLORS.background }}
+        edges={['top']}
+      >
+        <EmptyState
+          icon={<Bookmark size={32} color="#9ca3af" />}
+          title="Biblioteca"
+          description={
+            surface.authed
+              ? 'Disponible en modo Stream.'
+              : 'Inicia sesión para guardar tu contenido.'
+          }
+        />
+      </SafeAreaView>
+    );
   if (status && !status.setupCompleted) return <SetupPrompt />;
 
   return (

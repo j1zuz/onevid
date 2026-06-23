@@ -54,7 +54,7 @@ import {
   type StreamSource,
 } from '@/components/sources-list';
 import { tvFocusRing } from '@/hooks/use-tv-focus';
-import { API_URL, getAccessToken } from '@/lib/auth';
+import { API_URL, appClientHeaders, getAccessToken } from '@/lib/auth';
 
 // Aplica el anillo de foco de TV a un Pressable sin estado de foco propio: usa
 // el render-prop de Pressable (`state.focused`, disponible en TV). Fuera de TV
@@ -106,6 +106,13 @@ async function fetchWithTimeout(
 async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
   let url: string;
   let fileName: string | undefined;
+  // Videos locales del dispositivo (galería / document picker): no hay proxy del
+  // backend ni redirección que seguir. Los entregamos directos a VLC, solo
+  // saneados. Sin esto, resolveRedirect haría un fetch GET (que falla con
+  // file://) y se desperdiciaría un timeout.
+  if (raw.startsWith('file://') || raw.startsWith('content://')) {
+    return { url: sanitizeUrlForVlc(raw) };
+  }
   if (raw.startsWith('/api/')) {
     const sep = raw.includes('?') ? '&' : '?';
     const token = await getAccessToken();
@@ -114,6 +121,7 @@ async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
       {
         headers: {
           Accept: 'application/json',
+          ...appClientHeaders(),
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       },

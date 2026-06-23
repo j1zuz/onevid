@@ -1,5 +1,10 @@
 import { getActiveProfileId } from './active-profile';
-import { API_URL, clearAccessToken, getAccessToken } from './auth';
+import {
+  API_URL,
+  appClientHeaders,
+  clearAccessToken,
+  getAccessToken,
+} from './auth';
 
 // Rewrite TMDB image URLs to higher resolution. Backend defaults to smaller
 // sizes (w300 for stills, w780 for backdrops) which are blurry on HiDPI mobile
@@ -57,6 +62,9 @@ export async function apiFetch<T = unknown>(
 ): Promise<T> {
   const token = await getAccessToken();
   const headers = new Headers(init?.headers);
+  // Identificador de la app (User-Agent de navegador + header propio) para que
+  // Cloudflare pueda dejar pasar estas solicitudes con una regla WAF Skip.
+  for (const [k, v] of Object.entries(appClientHeaders())) headers.set(k, v);
   headers.set('Accept', 'application/json');
   if (init?.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
@@ -69,9 +77,12 @@ export async function apiFetch<T = unknown>(
     headers.set('X-Profile-Id', profileId);
   }
   const res = await fetch(`${API_URL}${path}`, { ...init, headers });
-  // Sesión inválida/expirada (Better Auth): limpiamos el token para que el
-  // próximo arranque caiga al login en vez de reintentar con un token muerto.
-  if (res.status === 401) {
+  // Solo un 401 de un endpoint de AUTH (p. ej. /api/auth/get-session) significa
+  // que la sesión expiró → limpiamos el token. Un 401 de un endpoint de
+  // CONTENIDO (p. ej. el catálogo cuando el token de TMDB es inválido) NO es un
+  // problema de sesión; si lo tratáramos igual, configurar mal TMDB
+  // deslogueaba la app (Inicio mostraba "configurar" pero Perfil pedía login).
+  if (res.status === 401 && path.startsWith('/api/auth/')) {
     await clearAccessToken();
   }
   if (res.status === 204) {
