@@ -71,6 +71,14 @@
           }
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "onevid accede a tus videos para reproducirlos en la app.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
       "expo-font"
     ],
     "experiments": {

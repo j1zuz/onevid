@@ -3,12 +3,15 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { ScrollShadow, SearchField, Skeleton, Typography } from 'heroui-native';
+import { Search } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
 import { FlatList, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { EmptyState } from '@/components/empty-state';
 import { PosterCard } from '@/components/poster-card';
 import { PosterRow } from '@/components/home/poster-row';
 import { SetupPrompt, useSetupStatus } from '@/components/setup-prompt';
+import { useAppSurface } from '@/hooks/use-app-surface';
 import { useResponsive } from '@/hooks/use-responsive';
 import { useTvFocus } from '@/hooks/use-tv-focus';
 import { apiFetch, type MediaMeta } from '@/lib/api';
@@ -41,6 +44,15 @@ export default function DiscoverTab() {
   const [network, setNetwork] = useState<Network>(NETWORKS[0]);
   const { posterColumns, isTV } = useResponsive();
 
+  // Buscar es parte del modo Stream: en modo local mostramos un empty state y no
+  // pedimos catálogo. `surface` se revalida en cada focus.
+  const surface = useAppSurface();
+  const streamMode = surface?.showLocal === false;
+  // El catálogo/búsqueda solo se piden en modo stream Y con setup completo (sin
+  // TMDB token el backend responde 4xx; mostramos el SetupPrompt en su lugar).
+  const { data: status } = useSetupStatus(streamMode);
+  const catalogEnabled = streamMode && status?.setupCompleted === true;
+
   const isSearching = query.trim().length > 0;
 
   // Tarjetas de cadenas en el slider horizontal: más grandes en TV.
@@ -60,7 +72,7 @@ export default function DiscoverTab() {
       apiFetch<{ results: MediaMeta[] }>(
         `/api/onevid-catalog?type=movie&catalog=top&network=${network.value}`,
       ).then((r) => r.results ?? []),
-    enabled: !isSearching,
+    enabled: catalogEnabled && !isSearching,
   });
   const seriesQuery = useQuery({
     queryKey: ['catalog', 'series', 'top', network.value],
@@ -68,7 +80,7 @@ export default function DiscoverTab() {
       apiFetch<{ results: MediaMeta[] }>(
         `/api/onevid-catalog?type=series&catalog=top&network=${network.value}`,
       ).then((r) => r.results ?? []),
-    enabled: !isSearching,
+    enabled: catalogEnabled && !isSearching,
   });
 
   // Búsqueda: cubre películas y series, intercaladas.
@@ -78,7 +90,7 @@ export default function DiscoverTab() {
       apiFetch<{ results: MediaMeta[] }>(
         `/api/search?q=${encodeURIComponent(debouncedQuery)}&type=movie`,
       ).then((r) => r.results ?? []),
-    enabled: isSearching && debouncedQuery.length > 0,
+    enabled: catalogEnabled && isSearching && debouncedQuery.length > 0,
   });
   const searchSeriesQuery = useQuery({
     queryKey: ['search', debouncedQuery, 'series'],
@@ -86,7 +98,7 @@ export default function DiscoverTab() {
       apiFetch<{ results: MediaMeta[] }>(
         `/api/search?q=${encodeURIComponent(debouncedQuery)}&type=series`,
       ).then((r) => r.results ?? []),
-    enabled: isSearching && debouncedQuery.length > 0,
+    enabled: catalogEnabled && isSearching && debouncedQuery.length > 0,
   });
 
   const searchResults = interleave(
@@ -111,7 +123,26 @@ export default function DiscoverTab() {
     });
   }, []);
 
-  const { data: status } = useSetupStatus();
+  if (surface == null)
+    return <View style={{ flex: 1, backgroundColor: COLORS.background }} />;
+  // Modo local, o stream sin sesión (TV): empty state pidiendo iniciar sesión.
+  if (surface.showLocal || !surface.authed)
+    return (
+      <SafeAreaView
+        style={{ flex: 1, backgroundColor: COLORS.background }}
+        edges={['top']}
+      >
+        <EmptyState
+          icon={<Search size={32} color="#9ca3af" />}
+          title="Buscar"
+          description={
+            surface.authed
+              ? 'Disponible en modo Stream.'
+              : 'Inicia sesión para buscar tu contenido.'
+          }
+        />
+      </SafeAreaView>
+    );
   if (status && !status.setupCompleted) return <SetupPrompt />;
 
   return (

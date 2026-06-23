@@ -1,5 +1,6 @@
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
+import { LogIn } from 'lucide-react-native';
 import { GlassIcon } from '@/components/glass-icon';
 import {
   Button,
@@ -10,8 +11,11 @@ import {
   Typography,
 } from 'heroui-native';
 import { type ComponentProps, useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { StreamLoginSheet } from '@/components/stream-login-sheet';
+import { useAppSurface } from '@/hooks/use-app-surface';
+import { type AppMode, setAppMode } from '@/lib/app-mode';
 import { apiFetch } from '@/lib/api';
 import { clearAccessToken } from '@/lib/auth';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
@@ -40,12 +44,26 @@ export default function SettingsTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  // Sesión + modo (local/stream), revalidados en cada focus. Mientras carga es
+  // null; sin sesión mostramos el CTA de iniciar sesión; con sesión, la cuenta.
+  const surface = useAppSurface();
+  const authed = surface ? surface.authed : null;
+  const mode = surface?.mode;
+  // Drawer de login por QR (modo Stream).
+  const [loginOpen, setLoginOpen] = useState(false);
 
+  // El perfil activo se carga aparte (es local, de SecureStore).
   useFocusEffect(
     useCallback(() => {
+      let cancelled = false;
       loadActiveProfile()
-        .then(setProfile)
+        .then((p) => {
+          if (!cancelled) setProfile(p);
+        })
         .catch(() => undefined);
+      return () => {
+        cancelled = true;
+      };
     }, []),
   );
 
@@ -54,7 +72,19 @@ export default function SettingsTab() {
     router.replace('/profiles');
   }, []);
 
+  // Cambia entre modo stream (catálogo) y local (Reproducir video) SIN cerrar
+  // sesión. Al volver a Inicio se ve el modo elegido.
+  const handleSwitchMode = useCallback(async (next: AppMode) => {
+    await setAppMode(next);
+    router.replace('/home');
+  }, []);
+
+  // Solo pedimos la sesión al backend cuando hay token; sin él no hay nada que
+  // pedir (evita un 401 y un mensaje de error espurio en modo local). Todo lo que
+  // depende de `loading` está gateado por `authed === true`, así que no hace falta
+  // tocar `loading` cuando no hay sesión.
   useEffect(() => {
+    if (authed !== true) return;
     let cancelled = false;
     apiFetch<SessionResponse | null>('/api/auth/get-session')
       .then((data) => {
@@ -71,13 +101,17 @@ export default function SettingsTab() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authed]);
 
   const handleLogout = async () => {
     await clearActiveProfile();
     await clearAccessToken();
-    router.replace('/');
+    router.replace('/home');
   };
+
+  const handleLogin = useCallback(() => {
+    setLoginOpen(true);
+  }, []);
 
   return (
     <SafeAreaView
@@ -92,7 +126,35 @@ export default function SettingsTab() {
           </Typography>
         </View>
 
-        {loading ? (
+        {authed === false ? (
+          <Card>
+            <Card.Body className="gap-3">
+              <View className="flex-row items-center gap-3">
+                <View
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 12,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: '#27272a',
+                  }}
+                >
+                  <LogIn size={24} color="#e5e7eb" />
+                </View>
+                <View className="flex-1">
+                  <Typography type="h5">Modo Stream</Typography>
+                  <Typography type="body-sm" color="muted">
+                    Inicia sesión para el modo stream.
+                  </Typography>
+                </View>
+              </View>
+              <FocusButton onPress={handleLogin}>Iniciar sesión</FocusButton>
+            </Card.Body>
+          </Card>
+        ) : null}
+
+        {authed === true && loading ? (
           <>
             {/* Tarjeta de perfil (avatar + Perfil/nombre + Cambiar) */}
             <Card>
@@ -143,7 +205,7 @@ export default function SettingsTab() {
           </>
         ) : null}
 
-        {error ? (
+        {authed === true && error ? (
           <Card>
             <Card.Body>
               <Typography type="body-sm" color="muted">
@@ -153,7 +215,7 @@ export default function SettingsTab() {
           </Card>
         ) : null}
 
-        {profile && !loading ? (
+        {authed === true && profile && !loading ? (
           <Card>
             <Card.Body className="flex-row items-center gap-4">
               <Image
@@ -216,10 +278,30 @@ export default function SettingsTab() {
           </>
         ) : null}
 
-        <FocusButton onPress={handleLogout} variant="secondary">
-          Cerrar sesión
-        </FocusButton>
+        {authed === true && !Platform.isTV ? (
+          <FocusButton
+            onPress={() =>
+              handleSwitchMode(mode === 'local' ? 'stream' : 'local')
+            }
+            variant="secondary"
+          >
+            {mode === 'local'
+              ? 'Cambiar a modo Stream'
+              : 'Cambiar a modo Local'}
+          </FocusButton>
+        ) : null}
+
+        {authed === true ? (
+          <FocusButton onPress={handleLogout} variant="secondary">
+            Cerrar sesión
+          </FocusButton>
+        ) : null}
       </ScrollView>
+
+      <StreamLoginSheet
+        visible={loginOpen}
+        onClose={() => setLoginOpen(false)}
+      />
     </SafeAreaView>
   );
 }

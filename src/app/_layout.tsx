@@ -95,11 +95,10 @@ export default function RootLayout() {
 
   if (!authReady) return null;
 
-  const initialRoute = !hasToken
-    ? 'index'
-    : hasProfile
-      ? '(tabs)'
-      : 'profiles';
+  // La app abre SIEMPRE en los tabs (sin muro de QR). El tab Inicio muestra
+  // "Reproducir video" cuando no hay sesión, o el catálogo cuando la hay. Único
+  // caso aparte: con sesión pero sin perfil activo, vamos a elegir perfil.
+  const initialRoute = hasToken && !hasProfile ? 'profiles' : '(tabs)';
 
   return (
     <GestureHandlerRootView
