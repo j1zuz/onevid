@@ -6,20 +6,34 @@ const { withAndroidManifest } = require('expo/config-plugins');
 
 const LEANBACK = 'android.software.leanback';
 
+// Funciones de hardware táctil que las TVs NO tienen. Deben declararse como NO
+// requeridas o Google Play rechaza el AAB de Android TV ("Usos de hardware no
+// admitidos": android.hardware.faketouch / touchscreen). El AAB las marca como
+// requeridas implícitamente, así que las forzamos a required="false".
+const NOT_REQUIRED_ON_TV = [
+  'android.hardware.touchscreen',
+  'android.hardware.faketouch',
+];
+
+function upsertFeature(features, name, required) {
+  const existing = features.find((f) => f.$ && f.$['android:name'] === name);
+  if (existing) {
+    existing.$['android:required'] = required;
+  } else {
+    features.push({ $: { 'android:name': name, 'android:required': required } });
+  }
+}
+
 /**
- * La pista exclusiva de Android TV ("Únicamente para Android TV") exige que el
- * App Bundle REQUIERA leanback: `android.software.leanback` con
- * `android:required="true"`.
+ * Ajusta el manifiesto del AAB de Android TV ("Únicamente para Android TV"):
  *
- * `@react-native-tvos/config-tv` lo añade como `required="false"` (pensado para
- * un AAB adaptable phone+TV). Aquí lo forzamos a `"true"`.
+ * - REQUIERE leanback (`android.software.leanback` con `android:required="true"`).
+ *   `@react-native-tvos/config-tv` lo añade como `required="false"` (pensado para
+ *   un AAB adaptable phone+TV); aquí lo forzamos a `"true"`.
+ * - Declara `android.hardware.touchscreen` y `android.hardware.faketouch` como
+ *   `required="false"` (las TVs no tienen táctil); sin esto, Play rechaza el AAB.
  *
- * - Solo actúa en builds de TV (`EXPO_TV`), así el AAB de teléfono NO acaba
- *   exigiendo leanback.
- * - Añade la feature si no existe, o la corrige si ya existe → es independiente
- *   del orden de ejecución de los mods (los mods de manifest corren en orden
- *   inverso al del array de plugins; config-tv solo añade leanback "si falta",
- *   así que si lo dejamos en `true` primero, no lo pisa).
+ * Solo actúa en builds de TV (`EXPO_TV`), así el AAB de teléfono NO se toca.
  */
 module.exports = function withTVLeanbackRequired(config) {
   const isTV =
@@ -32,15 +46,10 @@ module.exports = function withTVLeanbackRequired(config) {
       manifest['uses-feature'] = [];
     }
     const features = manifest['uses-feature'];
-    const leanback = features.find(
-      (f) => f.$ && f.$['android:name'] === LEANBACK,
-    );
-    if (leanback) {
-      leanback.$['android:required'] = 'true';
-    } else {
-      features.push({
-        $: { 'android:name': LEANBACK, 'android:required': 'true' },
-      });
+
+    upsertFeature(features, LEANBACK, 'true');
+    for (const name of NOT_REQUIRED_ON_TV) {
+      upsertFeature(features, name, 'false');
     }
     return cfg;
   });
