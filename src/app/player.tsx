@@ -54,6 +54,7 @@ import {
   type StreamSource,
 } from '@/components/sources-list';
 import { tvFocusRing } from '@/hooks/use-tv-focus';
+import { track } from '@/lib/analytics';
 import { API_URL, appClientHeaders, getAccessToken } from '@/lib/auth';
 
 // Aplica el anillo de foco de TV a un Pressable sin estado de foco propio: usa
@@ -404,13 +405,26 @@ export default function PlayerScreen() {
     const next = pickNextSource(list, triedUrls.current, raw);
     if (next) {
       const attempt = Math.min(triedUrls.current.size + 1, list.length || 1);
+      // Cada auto-salto = una fuente que falló antes de reproducir. Buen
+      // indicador de calidad de fuentes por título.
+      track('player_source_fallback', {
+        mediaType,
+        mediaId,
+        attempt,
+        total: list.length,
+      });
       setManualSource(false); // el salto automático no es elección manual.
       setState({ kind: 'switching', attempt, total: list.length });
       setRawUrl(next.url);
     } else {
+      track('player_sources_exhausted', {
+        mediaType,
+        mediaId,
+        total: list.length,
+      });
       setState({ kind: 'exhausted', total: list.length });
     }
-  }, []);
+  }, [mediaType, mediaId]);
 
   // Señal desde el reproductor: la fuente actual no es reproducible → siguiente.
   // (La redirección ya se resolvió en `resolveStreamUrl`, así que aquí no hay
@@ -511,7 +525,10 @@ export default function PlayerScreen() {
       })
       .catch(() => {
         // Fallo al resolver (DNS/403 del backend): también dispara el fallback.
-        if (!cancelled) advanceToNextSource();
+        if (!cancelled) {
+          track('player_resolve_error', { mediaType, mediaId });
+          advanceToNextSource();
+        }
       });
     return () => {
       cancelled = true;
@@ -520,6 +537,7 @@ export default function PlayerScreen() {
     rawUrl,
     autoPlay,
     mediaId,
+    mediaType,
     sourcesQuery.isError,
     sourcesQuery.error,
     sourcesQuery.data,
@@ -534,6 +552,8 @@ export default function PlayerScreen() {
           url={state.url}
           title={title}
           subtitle={subtitle}
+          mediaId={mediaId}
+          mediaType={mediaType}
           // Cuando ya se vio vídeo, la carga de la nueva fuente se pinta dentro
           // del player (chrome + spinner) en vez de la carátula externa.
           loadingInline={playedBefore}
@@ -685,6 +705,8 @@ function Player({
   url,
   title,
   subtitle,
+  mediaId,
+  mediaType,
   loadingInline,
   startTimeoutMs = PLAYBACK_START_TIMEOUT_MS,
   onReveal,
@@ -695,6 +717,9 @@ function Player({
   url: string;
   title?: string;
   subtitle?: string;
+  /** Contexto de contenido para telemetría de rendimiento del reproductor. */
+  mediaId?: string;
+  mediaType?: string;
   /** Carga "dentro del player" (chrome + spinner) en vez de la carátula externa:
    *  true al cambiar de fuente o re-entrar a algo ya visto. */
   loadingInline?: boolean;
@@ -720,6 +745,15 @@ function Player({
   const firedUnplayable = useRef(false);
   const firstFrameRef = useRef(false);
   const esAddedRef = useRef(false); // pistas detectadas → fuente válida
+  // Marca de arranque de ESTA fuente (el Player se remonta por fuente con
+  // key={url}) para medir el tiempo hasta el primer fotograma. Se fija en un
+  // effect de montaje (no en render: Date.now() es impuro). `rebufferingRef`
+  // evita capturar cada onBuffering repetido de VLC como un evento distinto.
+  const startedAtRef = useRef(0);
+  const rebufferingRef = useRef(false);
+  useEffect(() => {
+    startedAtRef.current = Date.now();
+  }, []);
 
   const [playing, setPlaying] = useState(true);
   const [buffering, setBuffering] = useState(true);
@@ -771,9 +805,18 @@ function Player({
     if (firstFrame) {
       firstFrameRef.current = true;
       clearTimeout(startTimer.current);
+      // Tiempo hasta el primer fotograma de esta fuente: métrica clave de
+      // rendimiento percibido del reproductor.
+      track('player_first_frame', {
+        mediaType,
+        mediaId,
+        timeToFirstFrameMs: startedAtRef.current
+          ? Date.now() - startedAtRef.current
+          : undefined,
+      });
       onReveal?.();
     }
-  }, [firstFrame, onReveal]);
+  }, [firstFrame, onReveal, mediaType, mediaId]);
 
   // Reporta la fuente como no reproducible al padre (auto-fallback). Una sola vez
   // por fuente y solo si aún no se había visto imagen: un corte tras el primer
@@ -901,9 +944,18 @@ function Player({
         }}
         onBuffering={() => {
           setBuffering(true);
+          // Rebuffer = corte DESPUÉS del primer fotograma. Capturamos una vez
+          // por episodio (VLC repite onBuffering) para medir micro-cortes.
+          if (firstFrameRef.current && !rebufferingRef.current) {
+            rebufferingRef.current = true;
+            track('player_rebuffer', { mediaType, mediaId });
+          }
           clearTimeout(bufferTimer.current);
           // VLC dispara Buffering repetidamente; lo limpiamos con un tope.
-          bufferTimer.current = setTimeout(() => setBuffering(false), 1_200);
+          bufferTimer.current = setTimeout(() => {
+            setBuffering(false);
+            rebufferingRef.current = false; // fin del episodio de buffering.
+          }, 1_200);
         }}
         onPlaying={() => {
           setBuffering(false);
@@ -955,6 +1007,13 @@ function Player({
           }
         }}
         onEncounteredError={({ message }) => {
+          track('player_error', {
+            mediaType,
+            mediaId,
+            message,
+            hadFirstFrame: firstFrame,
+            willFallback: Boolean(onUnplayable) && !firstFrame,
+          });
           // Con fallback y antes del primer fotograma, el padre prueba otra
           // fuente automáticamente. Tras el primer fotograma (error fatal a
           // mitad) o sin fallback, mostramos la tarjeta de error in-place con el
