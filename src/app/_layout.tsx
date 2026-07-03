@@ -1,6 +1,7 @@
 import '../global.css';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { HeroUINativeProvider } from 'heroui-native';
+import { PostHogProvider } from 'posthog-react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Constants from 'expo-constants';
 import { Stack } from 'expo-router';
@@ -101,27 +102,39 @@ export default function RootLayout() {
   const initialRoute = hasToken && !hasProfile ? 'profiles' : '(tabs)';
 
   return (
-    <GestureHandlerRootView
-      style={{ flex: 1, backgroundColor: COLORS.background }}
+    <PostHogProvider
+      apiKey={process.env.EXPO_PUBLIC_POSTHOG_API_KEY}
+      options={{
+        host: process.env.EXPO_PUBLIC_POSTHOG_HOST,
+        // Replay nativo desactivado en Android TV (el módulo no aplica ahí).
+        enableSessionReplay: !Platform.isTV,
+        errorTracking: {
+          autocapture: { uncaughtExceptions: true, unhandledRejections: true },
+        },
+      }}
     >
-      <QueryClientProvider client={queryClient}>
-        <HeroUINativeProvider>
-          <Stack
-            initialRouteName={initialRoute}
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: COLORS.background },
-              animation: 'none',
-            }}
-          />
-          {!splashDone ? (
-            <AnimatedSplash
-              onLayoutReady={handleSplashLayoutReady}
-              onFinish={() => setSplashDone(true)}
+      <GestureHandlerRootView
+        style={{ flex: 1, backgroundColor: COLORS.background }}
+      >
+        <QueryClientProvider client={queryClient}>
+          <HeroUINativeProvider>
+            <Stack
+              initialRouteName={initialRoute}
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: COLORS.background },
+                animation: 'none',
+              }}
             />
-          ) : null}
-        </HeroUINativeProvider>
-      </QueryClientProvider>
-    </GestureHandlerRootView>
+            {!splashDone ? (
+              <AnimatedSplash
+                onLayoutReady={handleSplashLayoutReady}
+                onFinish={() => setSplashDone(true)}
+              />
+            ) : null}
+          </HeroUINativeProvider>
+        </QueryClientProvider>
+      </GestureHandlerRootView>
+    </PostHogProvider>
   );
 }
