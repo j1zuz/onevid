@@ -3,36 +3,36 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
-    "@expo/metro-runtime": "~56.0.15",
-    "@expo/ui": "~56.0.18",
+    "@expo/metro-runtime": "~56.0.16",
+    "@expo/ui": "~56.0.19",
     "@gorhom/bottom-sheet": "^5.2.14",
     "@tanstack/react-query": "^5.101.0",
-    "expo": "~56.0.12",
+    "expo": "~56.0.13",
     "expo-application": "~56.0.3",
     "expo-blur": "~56.0.3",
-    "expo-build-properties": "~56.0.19",
+    "expo-build-properties": "~56.0.20",
     "expo-clipboard": "~56.0.4",
-    "expo-constants": "~56.0.18",
-    "expo-dev-client": "~56.0.20",
+    "expo-constants": "~56.0.19",
+    "expo-dev-client": "~56.0.21",
     "expo-device": "~56.0.4",
     "expo-file-system": "~56.0.8",
     "expo-font": "~56.0.7",
     "expo-glass-effect": "~56.0.4",
     "expo-image": "~56.0.11",
-    "expo-image-picker": "~56.0.18",
+    "expo-image-picker": "~56.0.19",
     "expo-libvlc-player": "^7.0.40",
     "expo-linear-gradient": "~56.0.4",
     "expo-linking": "~56.0.14",
     "expo-localization": "~56.0.6",
     "expo-navigation-bar": "^56.0.3",
-    "expo-router": "~56.2.11",
+    "expo-router": "~56.2.12",
     "expo-screen-orientation": "~56.0.5",
     "expo-secure-store": "^56.0.4",
-    "expo-splash-screen": "~56.0.10",
+    "expo-splash-screen": "~56.0.11",
     "expo-status-bar": "~56.0.4",
     "expo-symbols": "~56.0.6",
     "expo-system-ui": "~56.0.5",
-    "expo-updates": "~56.0.19",
+    "expo-updates": "~56.0.20",
     "expo-video": "~56.1.4",
     "expo-web-browser": "~56.0.5",
     "heroui-native": "^1.0.4",
@@ -77,5 +77,12 @@
     "update": "eas update --channel preview",
     "update:tv": "EXPO_TV=1 eas update --channel preview"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": ["posthog-react-native-session-replay"]
+      }
+    }
+  }
 }
