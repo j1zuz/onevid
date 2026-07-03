@@ -1,4 +1,5 @@
 import { getActiveProfileId } from './active-profile';
+import { track } from './analytics';
 import {
   API_URL,
   appClientHeaders,
@@ -76,7 +77,23 @@ export async function apiFetch<T = unknown>(
   if (profileId && !headers.has('X-Profile-Id')) {
     headers.set('X-Profile-Id', profileId);
   }
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  // Telemetría de rendimiento de red: medimos la latencia de respuesta y
+  // registramos éxito/error de CADA llamada en un único punto. Usamos solo la
+  // ruta (sin query) como propiedad para no inflar la cardinalidad en PostHog.
+  const route = path.split('?')[0];
+  const startedAt = Date.now();
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  } catch (e) {
+    track('api_error', {
+      path: route,
+      reason: 'network',
+      message: e instanceof Error ? e.message : String(e),
+    });
+    throw e;
+  }
+  const latencyMs = Date.now() - startedAt;
   // Solo un 401 de un endpoint de AUTH (p. ej. /api/auth/get-session) significa
   // que la sesión expiró → limpiamos el token. Un 401 de un endpoint de
   // CONTENIDO (p. ej. el catálogo cuando el token de TMDB es inválido) NO es un
@@ -86,6 +103,7 @@ export async function apiFetch<T = unknown>(
     await clearAccessToken();
   }
   if (res.status === 204) {
+    track('api_call', { path: route, status: 204, latencyMs });
     return undefined as T;
   }
   const text = await res.text();
@@ -97,8 +115,15 @@ export async function apiFetch<T = unknown>(
     } catch {
       /* keep default */
     }
+    track('api_error', {
+      path: route,
+      status: res.status,
+      latencyMs,
+      message,
+    });
     throw new Error(message);
   }
+  track('api_call', { path: route, status: res.status, latencyMs });
   try {
     return JSON.parse(text) as T;
   } catch {

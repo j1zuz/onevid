@@ -2,6 +2,7 @@ import '../global.css';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { HeroUINativeProvider } from 'heroui-native';
 import { PostHogProvider } from 'posthog-react-native';
+import { posthog } from '@/lib/analytics';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Constants from 'expo-constants';
 import { Stack } from 'expo-router';
@@ -102,17 +103,7 @@ export default function RootLayout() {
   const initialRoute = hasToken && !hasProfile ? 'profiles' : '(tabs)';
 
   return (
-    <PostHogProvider
-      apiKey={process.env.EXPO_PUBLIC_POSTHOG_API_KEY}
-      options={{
-        host: process.env.EXPO_PUBLIC_POSTHOG_HOST,
-        // Replay nativo desactivado en Android TV (el módulo no aplica ahí).
-        enableSessionReplay: !Platform.isTV,
-        errorTracking: {
-          autocapture: { uncaughtExceptions: true, unhandledRejections: true },
-        },
-      }}
-    >
+    <PostHogProvider client={posthog}>
       <GestureHandlerRootView
         style={{ flex: 1, backgroundColor: COLORS.background }}
       >
