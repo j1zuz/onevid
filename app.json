@@ -81,7 +81,12 @@
       ],
       "expo-font",
       "expo-localization",
-      "posthog-react-native/expo"
+      [
+        "posthog-react-native/expo",
+        {
+          "skipOnConflict": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
