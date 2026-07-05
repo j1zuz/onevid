@@ -7,12 +7,27 @@ import { type MediaMeta, tmdbImage } from '@/lib/api';
 interface PosterCardProps {
   item: MediaMeta;
   width?: number;
+  /**
+   * Tarjeta horizontal (16/9) con el backdrop en vez del póster vertical (2/3).
+   * Opt-in: solo las filas del Inicio en TV lo activan; las grids (discover) y
+   * detalle siguen verticales.
+   */
+  landscape?: boolean;
   onPress?: () => void;
 }
 
-export function PosterCard({ item, width, onPress }: PosterCardProps) {
+export function PosterCard({
+  item,
+  width,
+  landscape = false,
+  onPress,
+}: PosterCardProps) {
   const containerStyle = width != null ? { width } : undefined;
   const { focused, focusProps } = useTvFocus();
+  // En modo horizontal usamos el backdrop; si falta, caemos al póster (recortado
+  // a 16/9 con cover).
+  const imgPath = landscape ? (item.background ?? item.poster) : item.poster;
+  const imgSize = landscape ? 'w780' : 'w500';
   return (
     <PressableFeedback
       onPress={onPress}
@@ -22,11 +37,11 @@ export function PosterCard({ item, width, onPress }: PosterCardProps) {
     >
       <View
         className="w-full overflow-hidden rounded-xl bg-muted"
-        style={[{ aspectRatio: 2 / 3 }, tvFocusRing(focused)]}
+        style={[{ aspectRatio: landscape ? 16 / 9 : 2 / 3 }, tvFocusRing(focused)]}
       >
-        {item.poster ? (
+        {imgPath ? (
           <Image
-            source={tmdbImage(item.poster, 'w500') ?? item.poster}
+            source={tmdbImage(imgPath, imgSize) ?? imgPath}
             contentFit="cover"
             transition={150}
             cachePolicy="memory-disk"

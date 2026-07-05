@@ -14,8 +14,12 @@ interface PosterRowProps {
 }
 
 export function PosterRow({ title, items, loading, onPressItem }: PosterRowProps) {
-  // Pósters más grandes en TV (la pantalla es mucho más amplia que en móvil).
-  const { posterWidth: CARD_WIDTH } = useResponsive();
+  // En TV las tarjetas del Inicio son horizontales (16/9) y más anchas; en móvil
+  // verticales (2/3). El ancho landscape se calcula aquí para no afectar el
+  // póster global (usado por grids/detalle).
+  const { posterWidth, isTV } = useResponsive();
+  const CARD_WIDTH = isTV ? 300 : posterWidth;
+  const cardAspectRatio = isTV ? 16 / 9 : 2 / 3;
   return (
     <View className="gap-3">
       <Typography type="h4" weight="bold" style={{ paddingHorizontal: 16 }}>
@@ -31,7 +35,7 @@ export function PosterRow({ title, items, loading, onPressItem }: PosterRowProps
               key={i}
               style={{
                 width: CARD_WIDTH,
-                aspectRatio: 2 / 3,
+                aspectRatio: cardAspectRatio,
                 borderRadius: 12,
               }}
             />
@@ -53,6 +57,7 @@ export function PosterRow({ title, items, loading, onPressItem }: PosterRowProps
               <PosterCard
                 item={item}
                 width={CARD_WIDTH}
+                landscape={isTV}
                 onPress={() => onPressItem?.(item)}
               />
             )}

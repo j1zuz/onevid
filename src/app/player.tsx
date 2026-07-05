@@ -371,18 +371,28 @@ export default function PlayerScreen() {
     enabled: Boolean(mediaId),
   });
   const sources = sourcesQuery.data?.sources ?? [];
-  const canFallback = sources.length > 0;
+  // Habilitamos el fallback en cuanto hay un `mediaId`: SIEMPRE pedimos la lista
+  // de fuentes para ese id, así que el fallback es posible aunque la lista aún no
+  // haya llegado. (Antes dependía de `sources.length > 0`: si se entraba con una
+  // URL directa y la fuente fallaba ANTES de que cargara la lista, el watchdog no
+  // estaba armado y la app marcaba "sin medios" saltándose fuentes válidas.)
+  const canFallback = Boolean(mediaId);
 
   // Control del fallback. Refs porque los leen callbacks async (señal de fallo de
   // VLC, watchdog) y no deben capturar valores obsoletos ni provocar renders.
   const triedUrls = useRef<Set<string>>(new Set()); // fuentes ya fallidas
+  const pendingAdvanceRef = useRef(false); // salto en espera de que carguen las fuentes
   // Refs "último valor" para leer en callbacks async (señal de fallo de VLC,
   // watchdog) sin capturar valores obsoletos. Se sincronizan tras cada render.
   const sourcesRef = useRef(sources);
+  const sourcesDataRef = useRef(sourcesQuery.data);
+  const sourcesLoadingRef = useRef(sourcesQuery.isFetching || !sourcesQuery.isFetched);
   const rawUrlRef = useRef(rawUrl);
   const stateKindRef = useRef(state.kind);
   useEffect(() => {
     sourcesRef.current = sources;
+    sourcesDataRef.current = sourcesQuery.data;
+    sourcesLoadingRef.current = sourcesQuery.isFetching || !sourcesQuery.isFetched;
     rawUrlRef.current = rawUrl;
     stateKindRef.current = state.kind;
   });
@@ -416,15 +426,43 @@ export default function PlayerScreen() {
       setManualSource(false); // el salto automático no es elección manual.
       setState({ kind: 'switching', attempt, total: list.length });
       setRawUrl(next.url);
-    } else {
-      track('player_sources_exhausted', {
-        mediaType,
-        mediaId,
-        total: list.length,
-      });
-      setState({ kind: 'exhausted', total: list.length });
+      return;
     }
+    // No queda ninguna fuente NO probada. Pero si la lista todavía no ha
+    // terminado de cargar, NO agotamos: dejamos el salto pendiente y lo
+    // reintentamos cuando lleguen las fuentes. Esto evita el falso "sin medios"
+    // cuando una fuente directa falla antes de que llegue la lista de fallback.
+    if (sourcesLoadingRef.current) {
+      pendingAdvanceRef.current = true;
+      if (stateKindRef.current !== 'switching') {
+        setState({ kind: 'resolving' });
+      }
+      return;
+    }
+    // Fuentes cargadas y todas probadas → agotadas de verdad. Adjuntamos contexto
+    // para diagnosticar en PostHog (cuántas se probaron, cuántos addons se
+    // consultaron y sus errores). `is_tv` va como super property global.
+    const data = sourcesDataRef.current;
+    track('player_sources_exhausted', {
+      mediaType,
+      mediaId,
+      total: list.length,
+      triedCount: triedUrls.current.size,
+      totalAddonsTried: data?.totalAddonsTried ?? 0,
+      addonErrorCount: data?.addonErrors?.length ?? 0,
+    });
+    setState({ kind: 'exhausted', total: list.length });
   }, [mediaType, mediaId]);
+
+  // Reanuda un salto que quedó pendiente porque las fuentes aún no habían
+  // cargado (fuente directa que falló antes que la lista). Al llegar la data,
+  // reintentamos el fallback con la lista ya completa.
+  useEffect(() => {
+    if (pendingAdvanceRef.current && sourcesQuery.data) {
+      pendingAdvanceRef.current = false;
+      advanceToNextSource();
+    }
+  }, [sourcesQuery.data, advanceToNextSource]);
 
   // Señal desde el reproductor: la fuente actual no es reproducible → siguiente.
   // (La redirección ya se resolvió en `resolveStreamUrl`, así que aquí no hay
@@ -595,7 +633,9 @@ export default function PlayerScreen() {
             state.kind === 'error'
               ? state.message
               : state.kind === 'exhausted'
-                ? `Ninguna de las ${state.total} fuentes disponibles se pudo reproducir. Vuelve atrás e inténtalo más tarde.`
+                ? state.total === 0
+                  ? 'No encontramos fuentes para este título. Vuelve atrás e inténtalo más tarde.'
+                  : `Ninguna de las ${state.total} fuentes disponibles se pudo reproducir. Vuelve atrás e inténtalo más tarde.`
                 : undefined
           }
         />

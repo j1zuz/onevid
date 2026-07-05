@@ -22,6 +22,15 @@ export const posthog = new PostHog(
   },
 );
 
+// Propiedades globales (super properties) adjuntas a TODOS los eventos. Sin esto
+// no se podía separar la telemetría de Android TV de la de móvil en PostHog
+// (todo llegaba como device_type "Mobile"). Con `is_tv` ya se filtra por
+// superficie para diagnosticar problemas específicos de TV (p. ej. "sin medios").
+posthog.register({
+  is_tv: Platform.isTV,
+  app_surface: Platform.isTV ? 'tv' : 'mobile',
+});
+
 // Helper seguro para capturar eventos desde cualquier módulo. Nunca lanza: la
 // telemetría jamás debe romper un flujo de la app.
 export function track(

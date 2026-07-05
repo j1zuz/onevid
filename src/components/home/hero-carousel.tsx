@@ -7,6 +7,7 @@ import {
   FlatList,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  Platform,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -149,6 +150,15 @@ function HeroSlide({
   // grande (re)carga. Evita que la diapositiva quede en negro cuando el
   // reproductor desaloja las imágenes grandes en gama baja.
   const lowRes = tmdbImage(item.background ?? item.poster, 'w185');
+  // En TV alineamos el contenido a la izquierda (estilo Netflix/Apple TV) y
+  // mostramos la sinopsis. En móvil se mantiene centrado y sin descripción.
+  const isTV = Platform.isTV;
+  // Recorte defensivo de la sinopsis: acota el largo aunque Typography no
+  // aplique el clamp de líneas, para que el hero nunca se desborde.
+  const description =
+    item.description && item.description.length > 220
+      ? `${item.description.slice(0, 220).trimEnd()}…`
+      : item.description;
   return (
     <View style={{ width, height }}>
       {bg ? (
@@ -187,18 +197,38 @@ function HeroSlide({
           left: 0,
           right: 0,
           bottom: 48,
-          alignItems: 'center',
-          paddingHorizontal: 24,
+          alignItems: isTV ? 'flex-start' : 'center',
+          paddingHorizontal: isTV ? 48 : 24,
+          maxWidth: isTV ? '55%' : undefined,
           gap: 16,
         }}
       >
-        <Typography type="h2" align="center" color="default" weight="bold">
+        <Typography
+          type="h2"
+          align={isTV ? 'start' : 'center'}
+          color="default"
+          weight="bold"
+        >
           {item.name}
         </Typography>
-        <Typography type="body-sm" color="muted" align="center">
+        <Typography
+          type="body-sm"
+          color="muted"
+          align={isTV ? 'start' : 'center'}
+        >
           {item.type === 'movie' ? 'Película' : 'Serie'}
           {item.year ? `  ·  ${item.year}` : ''}
         </Typography>
+        {isTV && description ? (
+          <Typography
+            type="body-sm"
+            color="muted"
+            align="start"
+            numberOfLines={3}
+          >
+            {description}
+          </Typography>
+        ) : null}
         <Button
           variant="primary"
           onPress={onPressPlay}
