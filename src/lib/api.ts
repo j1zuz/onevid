@@ -86,10 +86,19 @@ export async function apiFetch<T = unknown>(
   try {
     res = await fetch(`${API_URL}${path}`, { ...init, headers });
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
     track('api_error', {
       path: route,
       reason: 'network',
-      message: e instanceof Error ? e.message : String(e),
+      message,
+      // Clasificación del TIPO de fallo de red para poder filtrarlo en PostHog
+      // sin asumir la causa: 'dns' (no resuelve el host), 'timeout' (abortado),
+      // u 'other'. Nos deja ver QUÉ errores pasan y con qué frecuencia real.
+      errorKind: /UnknownHost|Unable to resolve|ENOTFOUND/i.test(message)
+        ? 'dns'
+        : /abort|timeout|timed out/i.test(message)
+          ? 'timeout'
+          : 'other',
     });
     throw e;
   }

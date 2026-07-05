@@ -221,6 +221,38 @@ async function probeStreamUrl(url: string): Promise<string> {
   }
 }
 
+// Sonda ESTRUCTURADA para telemetría (PostHog). Cuando una fuente falla en el
+// auto-fallback, consultamos la MISMA URL que VLC intentó para saber qué ve el
+// dispositivo: ¿alcanza el host del stream (DNS/red al CDN)? ¿200 con vídeo, o
+// 403/HTML/enlace muerto? ¿o error de red? Esto distingue si el fallo es de red
+// del dispositivo (p. ej. la TV no llega al CDN) o de VLC/códec, sin adivinar.
+async function probeStreamForTelemetry(url: string): Promise<{
+  probeOk: boolean;
+  probeStatus?: number;
+  probeContentType?: string;
+  probeRedirected?: boolean;
+  probeError?: string;
+}> {
+  try {
+    const res = await fetchWithTimeout(
+      url,
+      { method: 'GET', headers: { Range: 'bytes=0-1', 'User-Agent': STREAM_UA } },
+      6_000,
+    );
+    return {
+      probeOk: res.ok,
+      probeStatus: res.status,
+      probeContentType: res.headers.get('content-type') ?? undefined,
+      probeRedirected: Boolean(res.url && res.url !== url),
+    };
+  } catch (e) {
+    return {
+      probeOk: false,
+      probeError: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
 // Algunos hosts entregan la URL final por redirección (302) y libVLC no siempre
 // la sigue, aunque `fetch` sí lo hace. Seguimos la redirección con el mismo UA y,
 // si el host responde OK con una URL distinta, devolvemos esa URL final para
@@ -463,6 +495,17 @@ export default function PlayerScreen() {
       advanceToNextSource();
     }
   }, [sourcesQuery.data, advanceToNextSource]);
+
+  // Telemetría: cada apertura del reproductor = un intento de reproducción.
+  // Junto con `player_first_frame` permite medir la TASA DE ÉXITO de arranque
+  // (intentos vs éxitos), filtrable por `is_tv` — clave para ver objetivamente
+  // por qué en TV no reproduce y con qué frecuencia, sin adivinar.
+  const playerOpenTracked = useRef(false);
+  useEffect(() => {
+    if (!mediaId || playerOpenTracked.current) return;
+    playerOpenTracked.current = true;
+    track('player_open', { mediaType, mediaId, autoPlay });
+  }, [mediaId, mediaType, autoPlay]);
 
   // Señal desde el reproductor: la fuente actual no es reproducible → siguiente.
   // (La redirección ya se resolvió en `resolveStreamUrl`, así que aquí no hay
@@ -866,8 +909,23 @@ function Player({
     if (firedUnplayable.current || firstFrameRef.current) return;
     firedUnplayable.current = true;
     clearTimeout(startTimer.current);
+    // Diagnóstico (fire-and-forget, no bloquea el fallback): sondeamos la MISMA
+    // URL que VLC intentó para registrar en PostHog qué ve el dispositivo —
+    // ¿alcanza el CDN (200/vídeo), lo bloquean (403/HTML) o es error de red
+    // (DNS/timeout al host del stream)? `esAdded` = si VLC llegó a detectar
+    // pistas antes de fallar. Esto revela por qué falla en TV sin adivinar.
+    if (url?.trim()) {
+      probeStreamForTelemetry(url).then((probe) => {
+        track('player_source_probe', {
+          mediaType,
+          mediaId,
+          esAdded: esAddedRef.current,
+          ...probe,
+        });
+      });
+    }
     onUnplayable?.();
-  }, [onUnplayable]);
+  }, [onUnplayable, url, mediaType, mediaId]);
 
   // Watchdog de arranque: si la fuente no produce imagen a tiempo (host colgado),
   // la saltamos. Se reinicia por fuente gracias al remontaje (key={url}).

@@ -14,12 +14,17 @@ interface PosterRowProps {
 }
 
 export function PosterRow({ title, items, loading, onPressItem }: PosterRowProps) {
-  // En TV las tarjetas del Inicio son horizontales (16/9) y más anchas; en móvil
-  // verticales (2/3). El ancho landscape se calcula aquí para no afectar el
-  // póster global (usado por grids/detalle).
-  const { posterWidth, isTV } = useResponsive();
-  const CARD_WIDTH = isTV ? 300 : posterWidth;
+  // En TV las tarjetas del Inicio son horizontales (16/9); en móvil verticales
+  // (2/3). En TV el ancho se calcula desde el ancho real de la pantalla para que
+  // entren ~5 tarjetas por fila (con un pequeño asomo de la 6ª que invita a
+  // desplazar), en vez de un ancho fijo que solo mostraba 3. Se acota para que no
+  // queden ni gigantes ni diminutas en TVs de distinta densidad.
+  const { posterWidth, isTV, width } = useResponsive();
   const cardAspectRatio = isTV ? 16 / 9 : 2 / 3;
+  // (ancho útil − paddings 16×2) entre 5.3 ≈ 5 tarjetas + asomo de la siguiente.
+  const CARD_WIDTH = isTV
+    ? Math.min(320, Math.max(180, Math.round((width - 32) / 5.3)))
+    : posterWidth;
   return (
     <View className="gap-3">
       <Typography type="h4" weight="bold" style={{ paddingHorizontal: 16 }}>
