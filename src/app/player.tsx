@@ -834,6 +834,13 @@ function Player({
   // evita capturar cada onBuffering repetido de VLC como un evento distinto.
   const startedAtRef = useRef(0);
   const rebufferingRef = useRef(false);
+  // Diagnóstico por fuente: registramos qué eventos nativos de VLC ocurrieron
+  // antes de que la fuente se declarara no reproducible. Así sabemos EXACTAMENTE
+  // dónde muere en TV: ¿buffereó?, ¿se detuvo?, ¿VLC mostró un diálogo oculto
+  // (SSL/login/error) que bloqueó todo? — causa clásica en Android TV.
+  const sawBufferingRef = useRef(false);
+  const sawStoppedRef = useRef(false);
+  const dialogTypeRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     startedAtRef.current = Date.now();
   }, []);
@@ -919,7 +926,11 @@ function Player({
         track('player_source_probe', {
           mediaType,
           mediaId,
-          esAdded: esAddedRef.current,
+          // Ciclo de vida nativo de VLC hasta el fallo — dice DÓNDE murió:
+          esAdded: esAddedRef.current, // ¿detectó pistas? (abrió el contenedor)
+          sawBuffering: sawBufferingRef.current, // ¿llegó a bufferear? (leyó datos)
+          sawStopped: sawStoppedRef.current, // ¿VLC se detuvo solo?
+          dialogType: dialogTypeRef.current, // ¿diálogo oculto? (ssl/login/error)
           ...probe,
         });
       });
@@ -1042,6 +1053,7 @@ function Player({
         }}
         onBuffering={() => {
           setBuffering(true);
+          sawBufferingRef.current = true; // diagnóstico: VLC llegó a leer datos
           // Rebuffer = corte DESPUÉS del primer fotograma. Capturamos una vez
           // por episodio (VLC repite onBuffering) para medir micro-cortes.
           if (firstFrameRef.current && !rebufferingRef.current) {
@@ -1064,7 +1076,27 @@ function Player({
           setProbe(null);
         }}
         onPaused={() => setPlaying(false)}
-        onStopped={() => setPlaying(false)}
+        onStopped={() => {
+          setPlaying(false);
+          sawStoppedRef.current = true; // diagnóstico: VLC se detuvo solo
+        }}
+        // Diagnóstico clave en TV: VLC muestra diálogos OCULTOS (certificado SSL
+        // no confiable, login del host, error) que sin manejar BLOQUEAN la
+        // reproducción en silencio → parece "no reproduce". Los registramos para
+        // saber la causa real y los descartamos para que no cuelguen el arranque.
+        onDialogDisplay={(d) => {
+          dialogTypeRef.current = d.type;
+          track('player_dialog', {
+            mediaType,
+            mediaId,
+            dialogType: d.type,
+            title: d.title,
+            text: d.text,
+          });
+          playerRef.current?.dismiss().catch(() => {
+            /* ignore */
+          });
+        }}
         onFirstPlay={({ length }) => setDuration(length)}
         onTimeChanged={({ value }) => {
           // El tiempo avanza ⇒ hay fotogramas pintándose ⇒ ya podemos fundir
