@@ -34,7 +34,7 @@ export default async function RootPage() {
         </div>
         {session ? (
           <Link className={buttonVariants({ variant: "outline" })} href="/home">
-            Volver a onevid
+            Volver al modo stream
           </Link>
         ) : (
           <LoginDialog />
