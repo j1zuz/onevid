@@ -237,7 +237,7 @@ export function LocalVideoPlayer() {
       {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: idem — solo drag&drop en el contenedor. */}
       <div
         className={cn(
-          "flex flex-col items-center gap-5 rounded-xl border border-dashed px-8 py-12 text-center transition-colors",
+          "flex flex-col items-center gap-4 rounded-xl border border-dashed px-6 py-8 text-center transition-colors",
           dragging ? "border-primary bg-primary/5" : "border-border"
         )}
         onDragLeave={() => setDragging(false)}
@@ -252,40 +252,40 @@ export function LocalVideoPlayer() {
         }}
       >
         <button
-          className="flex w-full max-w-lg cursor-pointer flex-col items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted/40"
+          className="flex w-full max-w-md cursor-pointer flex-col items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted/40"
           onClick={() => inputRef.current?.click()}
           type="button"
         >
-          <span className="flex size-14 items-center justify-center rounded-xl bg-muted text-foreground">
-            <UploadIcon className="size-6" />
+          <span className="flex size-12 items-center justify-center rounded-xl bg-muted text-foreground">
+            <UploadIcon className="size-5" />
           </span>
-          <span className="flex flex-col gap-1.5">
-            <span className="font-medium text-base">
+          <span className="flex flex-col gap-1">
+            <span className="font-medium text-sm">
               Sube un video para reproducir
             </span>
-            <span className="text-muted-foreground text-sm">
+            <span className="text-muted-foreground text-xs">
               Arrastra un archivo aquí o haz clic para seleccionarlo.
             </span>
           </span>
         </button>
 
-        <div className="flex w-full max-w-lg items-center gap-3">
+        <div className="flex w-full max-w-md items-center gap-3">
           <span className="h-px flex-1 bg-border" />
           <span className="text-muted-foreground text-xs">o</span>
           <span className="h-px flex-1 bg-border" />
         </div>
 
         <form
-          className="flex w-full max-w-lg items-center gap-2"
+          className="flex w-full max-w-md items-center gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             loadUrl(urlInput);
           }}
         >
           <div className="relative flex-1">
-            <GlobeIcon className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <GlobeIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              className="h-9 pl-9"
+              className="h-8 pl-8"
               onChange={(e) => setUrlInput(e.target.value)}
               placeholder="Pega o escribe la URL del video…"
               type="url"
@@ -293,8 +293,9 @@ export function LocalVideoPlayer() {
             />
           </div>
           <Button
-            className="btn-primary h-9 shrink-0"
+            className="btn-primary h-8 shrink-0"
             disabled={!urlInput.trim()}
+            size="sm"
             type="submit"
           >
             Reproducir
