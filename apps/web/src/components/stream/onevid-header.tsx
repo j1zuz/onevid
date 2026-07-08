@@ -8,13 +8,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerHeader,
-  DrawerTitle,
-} from "@workspace/ui/components/drawer";
 import { Input } from "@workspace/ui/components/input";
 import {
   Select,
@@ -23,6 +16,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@workspace/ui/components/sheet";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
 import { BoltIcon, LogOutIcon, SearchIcon, UploadIcon, XIcon } from "lucide-react";
@@ -446,40 +446,29 @@ export function OneVidHeader({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* modal={false}: vaul por defecto pone pointer-events:none en todo
-            document.body mientras está abierto, y el DropdownMenu de los 3
-            puntos (otra librería, portal propio) queda fuera de la excepción
-            y no recibe clics. Con modal={false} vaul no bloquea el fondo, así
-            que los menús anidados vuelven a funcionar; se pierde el focus
-            trap/scroll-lock automático, pero el overlay visual se mantiene. */}
-        <Drawer
-          direction="right"
-          modal={false}
-          onOpenChange={setConfigOpen}
-          open={configOpen}
-        >
-          <DrawerContent>
-            <div
-              className="mx-auto flex w-full max-w-md flex-col overflow-hidden"
-              style={{ height: "min(88vh, 100dvh - 2rem)" }}
-            >
-              <DrawerHeader className="shrink-0">
-                <DrawerTitle>{t("Configuración de onevid")}</DrawerTitle>
-                <DrawerDescription>
-                  {t("Gestiona tu token de TMDB y los complementos OneVLP.")}
-                </DrawerDescription>
-              </DrawerHeader>
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-                <SetupStepper
-                  hasTorboxKey={hasTorboxKey}
-                  initialAddons={addons}
-                  linked={linked}
-                  setupCompleted={setupCompleted}
-                />
-              </div>
+        {/* Sheet (@base-ui/react/dialog): MISMA librería que DropdownMenu.
+            El Drawer (vaul) está sobre @radix-ui/react-dialog, una librería
+            distinta cuyo focus-trap/dismissable-layer entra en conflicto con
+            los menús anidados de base-ui (los 3 puntos no respondían, y
+            forzar modal={false} rompía además el cierre del propio Drawer). */}
+        <Sheet onOpenChange={setConfigOpen} open={configOpen}>
+          <SheetContent className="w-full sm:max-w-md">
+            <SheetHeader>
+              <SheetTitle>{t("Configuración de onevid")}</SheetTitle>
+              <SheetDescription>
+                {t("Gestiona tu token de TMDB y los complementos OneVLP.")}
+              </SheetDescription>
+            </SheetHeader>
+            <div className="px-4 pb-6">
+              <SetupStepper
+                hasTorboxKey={hasTorboxKey}
+                initialAddons={addons}
+                linked={linked}
+                setupCompleted={setupCompleted}
+              />
             </div>
-          </DrawerContent>
-        </Drawer>
+          </SheetContent>
+        </Sheet>
       </div>
     </section>
   );
