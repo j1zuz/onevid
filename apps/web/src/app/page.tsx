@@ -37,11 +37,7 @@ export default async function RootPage() {
       </main>
 
       <footer className="pb-6">
-        <div className="flex flex-col items-center justify-between gap-4 rounded-xl border border-dashed border-border px-6 py-5 text-center sm:flex-row sm:text-left">
-          <p className="text-muted-foreground text-xs">
-            onevid es un reproductor de video: modo local sin cuenta o
-            streaming con tu catálogo TMDB.
-          </p>
+        <div className="flex items-center justify-center rounded-xl border border-dashed border-border px-6 py-5">
           <a
             aria-label="Disponible en Google Play"
             href="https://play.google.com/store/apps/details?id=tech.hackw.onevid"
