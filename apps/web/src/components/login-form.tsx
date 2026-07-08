@@ -70,9 +70,10 @@ export function LoginForm() {
         {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
         <img alt="onevid" className="size-10" height={40} src="/onevid.svg" width={40} />
         <div className="flex flex-col gap-1">
-          <h1 className="font-semibold text-base">Iniciar sesión en onevid</h1>
+          <h1 className="font-semibold text-base">Inicia sesión para ver Stream</h1>
           <p className="text-muted-foreground text-sm">
-            Ingresa tu correo para iniciar sesión o crear una cuenta.
+            El modo local funciona sin cuenta. Inicia sesión para acceder al
+            catálogo y el streaming.
           </p>
         </div>
       </div>

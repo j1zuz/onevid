@@ -1,11 +1,13 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/login-form";
+import { OneVidModeShell } from "@/components/stream/onevid-mode-shell";
 import { auth } from "@/lib/auth";
 
-// onevid tiene login propio (magic link + Google) contra la MISMA base de datos
-// que hackw. La sesión resultante también es válida en hackw.tech (cookie
-// compartida en producción vía COOKIE_DOMAIN). Con sesión, entra al catálogo.
+// Sin sesión, onevid arranca en MODO LOCAL (reproductor de video del
+// dispositivo, sin configuración) — igual que la app móvil con useAppSurface.
+// El tab "Stream" pide iniciar sesión (magic link + Google) para desbloquear el
+// catálogo. Con sesión, se entra directo a la experiencia onevid completa.
 export default async function RootPage() {
   const session = await auth.api.getSession({ headers: await headers() });
 
@@ -14,8 +16,12 @@ export default async function RootPage() {
   }
 
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-background px-4 py-10">
-      <LoginForm />
+    <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col bg-background px-4 pt-6 pb-8 md:px-6">
+      <OneVidModeShell defaultMode="local">
+        <div className="flex justify-center py-6">
+          <LoginForm />
+        </div>
+      </OneVidModeShell>
     </main>
   );
 }
