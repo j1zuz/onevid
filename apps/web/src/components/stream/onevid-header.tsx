@@ -280,7 +280,7 @@ export function OneVidHeader({
   }
 
   return (
-    <section className="sticky top-0 z-20 -mx-4 mb-6 grid grid-cols-1 gap-3 border-border border-b border-dashed bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:-mx-6 md:grid-cols-4 md:px-6">
+    <section className="sticky top-0 z-20 -mx-4 mb-6 grid grid-cols-1 gap-3 border-border/50 border-b bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:-mx-6 md:grid-cols-4 md:px-6">
       {/* Type selector */}
       <Select
         items={typeOptions.map((type) => ({
