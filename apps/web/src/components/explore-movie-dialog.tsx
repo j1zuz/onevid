@@ -383,7 +383,7 @@ export function ExploreMovieDialog({
         </div>
       )}
 
-      <Drawer direction="right" onOpenChange={setIsOpen} open={isOpen}>
+      <Drawer onOpenChange={setIsOpen} open={isOpen} swipeDirection="right">
         <DrawerContent>
           <div
             className="mx-auto flex w-full max-w-sm flex-col overflow-hidden"

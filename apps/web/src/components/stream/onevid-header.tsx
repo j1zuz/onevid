@@ -8,6 +8,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "@workspace/ui/components/drawer";
 import { Input } from "@workspace/ui/components/input";
 import {
   Select,
@@ -16,13 +23,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@workspace/ui/components/sheet";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
 import { BoltIcon, LogOutIcon, SearchIcon, UploadIcon, XIcon } from "lucide-react";
@@ -446,20 +446,22 @@ export function OneVidHeader({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Sheet (@base-ui/react/dialog): MISMA librería que DropdownMenu.
-            El Drawer (vaul) está sobre @radix-ui/react-dialog, una librería
-            distinta cuyo focus-trap/dismissable-layer entra en conflicto con
-            los menús anidados de base-ui (los 3 puntos no respondían, y
-            forzar modal={false} rompía además el cierre del propio Drawer). */}
-        <Sheet onOpenChange={setConfigOpen} open={configOpen}>
-          <SheetContent className="w-full sm:max-w-md">
-            <SheetHeader>
-              <SheetTitle>{t("Configuración de onevid")}</SheetTitle>
-              <SheetDescription>
+        {/* Drawer sobre @base-ui/react/drawer (NO vaul): misma librería que
+            DropdownMenu/Dialog en este proyecto, así que el menú de los 3
+            puntos anidado dentro funciona sin conflictos de foco/portal. */}
+        <Drawer
+          onOpenChange={setConfigOpen}
+          open={configOpen}
+          swipeDirection="right"
+        >
+          <DrawerContent>
+            <DrawerHeader>
+              <DrawerTitle>{t("Configuración de onevid")}</DrawerTitle>
+              <DrawerDescription>
                 {t("Gestiona tu token de TMDB y los complementos OneVLP.")}
-              </SheetDescription>
-            </SheetHeader>
-            <div className="px-4 pb-6">
+              </DrawerDescription>
+            </DrawerHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
               <SetupStepper
                 hasTorboxKey={hasTorboxKey}
                 initialAddons={addons}
@@ -467,8 +469,8 @@ export function OneVidHeader({
                 setupCompleted={setupCompleted}
               />
             </div>
-          </SheetContent>
-        </Sheet>
+          </DrawerContent>
+        </Drawer>
       </div>
     </section>
   );
