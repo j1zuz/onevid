@@ -14,7 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@workspace/ui/components/dialog";
-import { LoaderIcon } from "lucide-react";
+import { LoaderIcon, SplinePointer } from "lucide-react";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
@@ -57,6 +57,7 @@ export function LoginDialog() {
             translate="no"
             type="button"
           >
+            <SplinePointer data-icon="inline-start" />
             <span>Iniciar sesión</span>
           </Button>
         }
