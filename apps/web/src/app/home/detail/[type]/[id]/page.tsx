@@ -24,7 +24,7 @@ type CatalogType = "movie" | "series";
 export async function generateMetadata(_props: {
   params: Params;
 }): Promise<Metadata> {
-  return { title: "onevid | Hackw" };
+  return { title: "Detalle" };
 }
 
 export default async function StreamDetailPage({ params }: { params: Params }) {

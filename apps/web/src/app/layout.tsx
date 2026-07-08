@@ -24,21 +24,27 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE_DESCRIPTION =
+  "Reproductor de video: modo local sin cuenta o streaming con tu catálogo TMDB.";
+
 export const metadata: Metadata = {
-  title: "Hackw",
-  description: "Tutoriales sobre programación y ciberseguridad",
-  metadataBase: new URL("https://www.hackw.tech"),
+  title: {
+    default: "onevid",
+    template: "%s | onevid",
+  },
+  description: SITE_DESCRIPTION,
+  metadataBase: new URL("https://onevid.hackw.tech"),
   openGraph: {
-    title: "Hackw",
-    description: "Tutoriales sobre programación y ciberseguridad",
-    url: "https://www.hackw.tech",
-    siteName: "Hackw",
+    title: "onevid",
+    description: SITE_DESCRIPTION,
+    url: "https://onevid.hackw.tech",
+    siteName: "onevid",
     images: ["/opengraph.png"],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Hackw",
-    description: "Tutoriales sobre programación y ciberseguridad",
+    title: "onevid",
+    description: SITE_DESCRIPTION,
     images: ["/opengraph.png"],
   },
 };

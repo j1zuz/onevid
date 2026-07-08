@@ -36,7 +36,7 @@ import {
 } from "@/lib/tmdb";
 
 export const metadata: Metadata = {
-  title: "onevid | Hackw",
+  title: "Catálogo",
 };
 
 type CatalogType = "movie" | "series";
