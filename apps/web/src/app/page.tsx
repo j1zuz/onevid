@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LoginDialog } from "@/components/login-dialog";
 import { LocalVideoPlayer } from "@/components/stream/local-video-player";
@@ -37,7 +38,13 @@ export default async function RootPage() {
       </main>
 
       <footer className="pb-6">
-        <div className="flex items-center justify-center rounded-xl border border-dashed border-border px-6 py-5">
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-dashed border-border px-6 py-5">
+          <Link
+            className="text-muted-foreground text-xs hover:text-foreground"
+            href="/docs"
+          >
+            Documentación
+          </Link>
           <a
             aria-label="Disponible en Google Play"
             href="https://play.google.com/store/apps/details?id=tech.hackw.onevid"
