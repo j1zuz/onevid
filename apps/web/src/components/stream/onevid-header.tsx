@@ -8,6 +8,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "@workspace/ui/components/drawer";
 import { Input } from "@workspace/ui/components/input";
 import {
   Select,
@@ -16,17 +23,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@workspace/ui/components/sheet";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
 import {
   BoltIcon,
+  LogOutIcon,
   MonitorPlayIcon,
   SearchIcon,
   UploadIcon,
@@ -38,6 +39,7 @@ import {
   type OneVidAddonSummary,
   SetupStepper,
 } from "@/components/stepper-onevid";
+import { authClient } from "@/lib/auth-client";
 import { OneVidProfileSwitcher } from "@/components/stream/onevid-profile-switcher";
 import { useHackwTranslation } from "@/lib/hackw-i18n-context";
 import type { NetworkOption } from "@/lib/tmdb";
@@ -130,10 +132,26 @@ export function OneVidHeader({
   onLocalModeChange,
   setupCompleted,
 }: OneVidHeaderProps) {
-  const { push } = useRouter();
+  const { push, refresh } = useRouter();
   const { t: rawT } = useHackwTranslation();
   const t = (key: string) => rawT(key as never);
   const [configOpen, setConfigOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
+  const handleSignOut = useCallback(async () => {
+    setSigningOut(true);
+    await authClient.signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          push("/");
+          refresh();
+        },
+        onError: () => {
+          setSigningOut(false);
+        },
+      },
+    });
+  }, [push, refresh]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchMeta[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -429,27 +447,44 @@ export function OneVidHeader({
                 {t("Modo local")}
               </DropdownMenuItem>
             )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={signingOut}
+              onClick={handleSignOut}
+              variant="destructive"
+            >
+              <LogOutIcon className="size-3.5" />
+              {t("Cerrar sesión")}
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Sheet onOpenChange={setConfigOpen} open={configOpen}>
-          <SheetContent className="w-full sm:max-w-md">
-            <SheetHeader>
-              <SheetTitle>{t("Configuración de onevid")}</SheetTitle>
-              <SheetDescription>
-                {t("Gestiona tu token de TMDB y los complementos OneVLP.")}
-              </SheetDescription>
-            </SheetHeader>
-            <div className="px-4 pb-6">
-              <SetupStepper
-                hasTorboxKey={hasTorboxKey}
-                initialAddons={addons}
-                linked={linked}
-                setupCompleted={setupCompleted}
-              />
+        {/* Mismo Drawer (vaul, direction="right") que usa hackw para el
+            historial de chat de IA: panel flotante con antes: antes/bordes
+            redondeados, en vez del Sheet de borde recto. */}
+        <Drawer direction="right" onOpenChange={setConfigOpen} open={configOpen}>
+          <DrawerContent>
+            <div
+              className="mx-auto flex w-full max-w-md flex-col overflow-hidden"
+              style={{ height: "min(88vh, 100dvh - 2rem)" }}
+            >
+              <DrawerHeader className="shrink-0">
+                <DrawerTitle>{t("Configuración de onevid")}</DrawerTitle>
+                <DrawerDescription>
+                  {t("Gestiona tu token de TMDB y los complementos OneVLP.")}
+                </DrawerDescription>
+              </DrawerHeader>
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+                <SetupStepper
+                  hasTorboxKey={hasTorboxKey}
+                  initialAddons={addons}
+                  linked={linked}
+                  setupCompleted={setupCompleted}
+                />
+              </div>
             </div>
-          </SheetContent>
-        </Sheet>
+          </DrawerContent>
+        </Drawer>
       </div>
     </section>
   );
