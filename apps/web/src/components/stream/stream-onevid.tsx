@@ -57,7 +57,7 @@ export function StreamOnevid({
   rawId,
 }: StreamOnevidProps) {
   const router = useRouter();
-  const backHref = `/home/projects/onevid?movie=${encodeURIComponent(contentId)}&movieType=${contentType}`;
+  const backHref = `/home?movie=${encodeURIComponent(contentId)}&movieType=${contentType}`;
   const handleBack = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement>) => {
       e.preventDefault();

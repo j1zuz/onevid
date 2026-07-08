@@ -130,7 +130,7 @@ export default async function OneVidPage({
   // (tmdbToken is checked too so it narrows to non-null below.)
   if (!(tmdbLinked && tmdbToken && setupCompleted)) {
     return (
-      <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col bg-background px-4 pt-0 pb-6 md:px-6">
+      <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
         <section className="mt-8 rounded-xl border bg-card p-8">
           <OneVidModeShell defaultMode={defaultMode}>
             <Empty className="min-h-0 border-0 p-0">
@@ -240,7 +240,7 @@ export default async function OneVidPage({
   } catch (error) {
     if (error instanceof TmdbAuthError) {
       return (
-        <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col bg-background px-4 pt-0 pb-6 md:px-6">
+        <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
           <section className="mt-8 rounded-xl border bg-card p-8">
             <OneVidModeShell defaultMode={defaultMode}>
               <Empty className="min-h-0 border-0 p-0">
@@ -266,7 +266,7 @@ export default async function OneVidPage({
     }
     if (error instanceof TmdbNetworkError) {
       return (
-        <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col bg-background px-4 pt-0 pb-6 md:px-6">
+        <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
           <section className="mt-8 rounded-xl border bg-card p-8">
             <Empty className="min-h-0 border-0 p-0">
               <EmptyHeader>
@@ -285,7 +285,7 @@ export default async function OneVidPage({
   }
 
   return (
-    <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col bg-background px-4 pt-0 pb-6 md:px-6">
+    <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
       <OneVidPageClient
         addons={addonRows}
         allNetworks={allNetworks}

@@ -106,7 +106,7 @@ export function OneVidPageClient({
     next.delete("movieType");
     const qs = next.toString();
     router.replace(
-      qs ? `/home/projects/onevid?${qs}` : "/home/projects/onevid",
+      qs ? `/home?${qs}` : "/home",
       {
         scroll: false,
       }

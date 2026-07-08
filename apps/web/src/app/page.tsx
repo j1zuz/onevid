@@ -12,7 +12,7 @@ export default async function RootPage() {
   const session = await auth.api.getSession({ headers: await headers() });
 
   if (session) {
-    redirect("/home/projects/onevid");
+    redirect("/home");
   }
 
   return (

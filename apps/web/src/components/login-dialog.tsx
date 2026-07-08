@@ -24,7 +24,7 @@ import { authClient } from "@/lib/auth-client";
 
 // Al autenticarse, entrar directo a la experiencia onevid. La sesión vive en la
 // misma base de datos que hackw, así que también queda válida en hackw.tech.
-const CALLBACK_URL = "/home/projects/onevid";
+const CALLBACK_URL = "/home";
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function LoginDialog() {

@@ -338,7 +338,7 @@ export function ExploreMovieDialog({
         // ignore
       }
     }
-    push(`/home/projects/onevid/detail/${movie.type}/${playId}`);
+    push(`/home/detail/${movie.type}/${playId}`);
     onPlay?.();
   };
 

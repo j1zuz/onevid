@@ -57,7 +57,7 @@ export default async function StreamDetailPage({ params }: { params: Params }) {
     oneVidRow[0]?.tmdbUserAccessToken ?? oneVidRow[0]?.tmdbReadAccessToken;
 
   if (!tmdbToken) {
-    redirect("/home/projects/onevid");
+    redirect("/home");
   }
   const baseId = contentType === "series" ? id.split(":")[0] : id;
 

@@ -110,7 +110,7 @@ function buildUrl({
   if (network) {
     params.set("network", String(network));
   }
-  return `/home/projects/onevid?${params.toString()}`;
+  return `/home?${params.toString()}`;
 }
 
 export function OneVidHeader({
