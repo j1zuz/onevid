@@ -177,10 +177,10 @@ export default async function OneVidPage({
   // (tmdbToken is checked too so it narrows to non-null below.)
   if (!(tmdbLinked && tmdbToken && setupCompleted)) {
     return (
-      <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
+      <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
         <OneVidProfileProvider initialProfiles={profiles}>
           <OneVidHeader {...headerProps} />
-          <section className="mt-8 flex-1 rounded-xl border border-dashed bg-background p-8">
+          <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
             <Empty className="min-h-0 border-0 p-0">
               <EmptyHeader>
                 <EmptyMedia
@@ -254,10 +254,10 @@ export default async function OneVidPage({
   } catch (error) {
     if (error instanceof TmdbAuthError) {
       return (
-        <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
+        <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
           <OneVidProfileProvider initialProfiles={profiles}>
             <OneVidHeader {...headerProps} linked={false} />
-            <section className="mt-8 flex-1 rounded-xl border border-dashed bg-background p-8">
+            <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
               <Empty className="min-h-0 border-0 p-0">
                 <EmptyHeader>
                   <EmptyTitle>Token TMDB inválido</EmptyTitle>
@@ -282,10 +282,10 @@ export default async function OneVidPage({
     }
     if (error instanceof TmdbNetworkError) {
       return (
-        <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
+        <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
           <OneVidProfileProvider initialProfiles={profiles}>
             <OneVidHeader {...headerProps} />
-            <section className="mt-8 flex-1 rounded-xl border border-dashed bg-background p-8">
+            <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
               <Empty className="min-h-0 border-0 p-0">
                 <EmptyHeader>
                   <EmptyTitle>No pudimos cargar el catálogo</EmptyTitle>
@@ -305,7 +305,7 @@ export default async function OneVidPage({
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
+    <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
       <OneVidPageClient
         addons={addonRows}
         allNetworks={allNetworks}

@@ -142,7 +142,7 @@ export function OneVidPageClient({
         typeOptions={typeOptions}
       />
 
-      <div className="flex-1">{mainContent}</div>
+      {mainContent}
 
       {searchMovie && (
         <ExploreMovieDialog
