@@ -52,7 +52,11 @@ export function LoginDialog() {
     >
       <DialogTrigger
         render={
-          <Button translate="no" type="button">
+          <Button
+            className="btn-primary [--primary-foreground:var(--color-amber-950)] [--primary:var(--color-amber-500)]"
+            translate="no"
+            type="button"
+          >
             <span>Iniciar sesión</span>
           </Button>
         }
