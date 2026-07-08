@@ -426,9 +426,11 @@ export function OneVidHeader({
               {t("Configuración de onevid")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            {/* Navega a / con ?local=1: la MISMA pantalla de modo local que ve
-                alguien sin sesión (sin duplicar una versión propia acá). */}
-            <DropdownMenuItem render={<Link href="/?local=1" />}>
+            {/* Navega a /: la MISMA pantalla de modo local que ve alguien sin
+                sesión (sin duplicar una versión propia acá). El proxy
+                (src/proxy.ts) detecta que venimos de /home vía Referer y no
+                redirige de vuelta. */}
+            <DropdownMenuItem render={<Link href="/" />}>
               <UploadIcon className="size-3.5" />
               {t("Modo local")}
             </DropdownMenuItem>
