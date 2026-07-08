@@ -11,7 +11,6 @@ import {
 import { ExploreMovieDialog } from "@/components/explore-movie-dialog";
 import { ExploreMovieGrid } from "@/components/explore-movie-grid";
 import type { OneVidAddonSummary } from "@/components/stepper-onevid";
-import { LocalVideoPlayer } from "@/components/stream/local-video-player";
 import { OneVidHeader } from "@/components/stream/onevid-header";
 import {
   type OneVidProfile,
@@ -64,7 +63,6 @@ export function OneVidPageClient({
   const searchParams = useSearchParams();
   const [searchMovie, setSearchMovie] = useState<MediaMeta | null>(null);
   const [drawerKey, setDrawerKey] = useState(0);
-  const [localMode, setLocalMode] = useState(false);
   const consumedReopenRef = useRef(false);
 
   const handleMovieSelect = useCallback(
@@ -114,11 +112,7 @@ export function OneVidPageClient({
   }, [searchParams, handleMovieSelect, router]);
 
   let mainContent: ReactNode;
-  if (localMode) {
-    // Mismo LocalVideoPlayer que en / (sin sesión), sin envoltura extra: el
-    // propio componente ya trae su caja con borde dashed.
-    mainContent = <LocalVideoPlayer />;
-  } else if (posters.length === 0) {
+  if (posters.length === 0) {
     mainContent = (
       <section className="rounded-xl border bg-card p-8 text-center">
         <p className="text-muted-foreground text-sm">
@@ -139,8 +133,6 @@ export function OneVidPageClient({
         catalogsByType={catalogsByType}
         hasTorboxKey={hasTorboxKey}
         linked={linked}
-        localMode={localMode}
-        onLocalModeChange={setLocalMode}
         onMovieSelect={handleMovieSelect}
         selectedCatalog={selectedCatalog}
         selectedCatalogOption={selectedCatalogOption}
@@ -152,7 +144,7 @@ export function OneVidPageClient({
 
       {mainContent}
 
-      {!localMode && searchMovie && (
+      {searchMovie && (
         <ExploreMovieDialog
           defaultOpen
           key={`search-${drawerKey}-${searchMovie.id}`}

@@ -1,18 +1,31 @@
 import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { buttonVariants } from "@workspace/ui/components/button";
 import { LoginDialog } from "@/components/login-dialog";
 import { LocalVideoPlayer } from "@/components/stream/local-video-player";
 import { auth } from "@/lib/auth";
 
+type SearchParams = Promise<{ local?: string }>;
+
 // Sin sesión, onevid arranca en MODO LOCAL (reproductor de video del
 // dispositivo, sin configuración) — igual que la app móvil con useAppSurface.
 // El header solo lleva un botón "Iniciar sesión" (abre un diálogo) para
-// desbloquear el catálogo. Con sesión, se entra directo a la experiencia onevid.
-export default async function RootPage() {
-  const session = await auth.api.getSession({ headers: await headers() });
+// desbloquear el catálogo. Con sesión, se entra directo a la experiencia onevid,
+// salvo que venga con ?local=1 (el link "Modo local" del catálogo): en ese caso
+// se muestra esta misma pantalla tal cual la ve alguien sin sesión, y el botón
+// de login se reemplaza por un link de vuelta al catálogo.
+export default async function RootPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const [session, params] = await Promise.all([
+    auth.api.getSession({ headers: await headers() }),
+    searchParams,
+  ]);
 
-  if (session) {
+  if (session && !params.local) {
     redirect("/home");
   }
 
@@ -30,7 +43,13 @@ export default async function RootPage() {
           />
           <span className="font-semibold text-sm">onevid</span>
         </div>
-        <LoginDialog />
+        {session ? (
+          <Link className={buttonVariants({ variant: "outline" })} href="/home">
+            Volver a onevid
+          </Link>
+        ) : (
+          <LoginDialog />
+        )}
       </header>
 
       <main className="flex flex-1 flex-col pt-6 pb-8">

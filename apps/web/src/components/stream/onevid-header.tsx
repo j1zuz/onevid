@@ -25,14 +25,8 @@ import {
 } from "@workspace/ui/components/select";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
-import {
-  BoltIcon,
-  LogOutIcon,
-  MonitorPlayIcon,
-  SearchIcon,
-  UploadIcon,
-  XIcon,
-} from "lucide-react";
+import { BoltIcon, LogOutIcon, SearchIcon, UploadIcon, XIcon } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -69,8 +63,6 @@ interface OneVidHeaderProps {
   catalogsByType: CatalogOption[];
   hasTorboxKey: boolean;
   linked: boolean;
-  localMode: boolean;
-  onLocalModeChange: (localMode: boolean) => void;
   onMovieSelect?: (id: string, type: CatalogType) => void;
   selectedCatalog: string;
   selectedCatalogOption: CatalogOption | undefined;
@@ -128,8 +120,6 @@ export function OneVidHeader({
   addons,
   hasTorboxKey,
   linked,
-  localMode,
-  onLocalModeChange,
   setupCompleted,
 }: OneVidHeaderProps) {
   const { push, refresh } = useRouter();
@@ -436,17 +426,12 @@ export function OneVidHeader({
               {t("Configuración de onevid")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            {localMode ? (
-              <DropdownMenuItem onClick={() => onLocalModeChange(false)}>
-                <MonitorPlayIcon className="size-3.5" />
-                {t("Volver a modo stream")}
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem onClick={() => onLocalModeChange(true)}>
-                <UploadIcon className="size-3.5" />
-                {t("Modo local")}
-              </DropdownMenuItem>
-            )}
+            {/* Navega a / con ?local=1: la MISMA pantalla de modo local que ve
+                alguien sin sesión (sin duplicar una versión propia acá). */}
+            <DropdownMenuItem render={<Link href="/?local=1" />}>
+              <UploadIcon className="size-3.5" />
+              {t("Modo local")}
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={signingOut}
