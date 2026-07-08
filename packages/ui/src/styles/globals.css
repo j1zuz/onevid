@@ -144,7 +144,7 @@
 
 @layer components {
   .btn-primary {
-    @apply cursor-pointer bg-radial-[at_52%_-52%] **:[text-shadow:0_1px_0_var(--primary)] border border-primary from-primary/70 to-primary/95 text-primary-foreground inset-shadow-2xs inset-shadow-white/25 dark:inset-shadow-white dark:from-primary dark:to-primary/70 dark:hover:to-primary text-sm shadow-md shadow-zinc-950/30 ring-0 transition-[filter] duration-200 hover:bg-primary! hover:brightness-125 active:brightness-95 dark:border-0;
+    @apply cursor-pointer bg-radial-[at_52%_-52%] **:[text-shadow:0_1px_0_var(--primary)] border border-primary from-primary/70 to-primary/95 text-primary-foreground inset-shadow-2xs inset-shadow-white/25 dark:inset-shadow-white/25 dark:from-primary dark:to-primary/70 dark:hover:to-primary text-sm shadow-md shadow-zinc-950/30 ring-0 transition-[filter] duration-200 hover:bg-primary! hover:brightness-125 active:brightness-95 dark:border-0;
   }
 }
 
