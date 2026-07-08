@@ -68,10 +68,27 @@ export const auth = betterAuth({
     },
   }),
   baseURL: process.env.BASE_URL ?? "",
+  trustedOrigins: [
+    "https://hackw.tech",
+    "https://www.hackw.tech",
+    "https://onevid.hackw.tech",
+  ],
   advanced: {
     ipAddress: {
       ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for"],
     },
+    // SSO cross-subdominio: comparte la cookie de sesión entre hackw.tech y
+    // onevid.hackw.tech. Solo se activa cuando COOKIE_DOMAIN está definido
+    // (producción, p.ej. ".hackw.tech"); en local (localhost) se omite para no
+    // romper el login, ya que un domain fijo no matchea localhost.
+    ...(process.env.COOKIE_DOMAIN
+      ? {
+          crossSubDomainCookies: {
+            enabled: true,
+            domain: process.env.COOKIE_DOMAIN,
+          },
+        }
+      : {}),
   },
   experimental: {
     joins: true,

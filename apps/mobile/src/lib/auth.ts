@@ -1,7 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 
 export const API_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? 'https://www.hackw.tech';
+  process.env.EXPO_PUBLIC_API_URL ?? 'https://onevid.hackw.tech';
 export const CLIENT_ID =
   process.env.EXPO_PUBLIC_HACKW_CLIENT_ID ?? 'hackw-tv';
 export const SCOPE = 'openid profile email';
