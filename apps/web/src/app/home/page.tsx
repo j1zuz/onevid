@@ -13,7 +13,6 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { SetupStepper } from "@/components/stepper-onevid";
-import { OneVidModeShell } from "@/components/stream/onevid-mode-shell";
 import { OneVidPageClient } from "@/components/stream/onevid-page-client";
 import { auth } from "@/lib/auth";
 import { oneVid, oneVidAddon, oneVidProfile } from "@/lib/auth-schema";
@@ -118,13 +117,6 @@ export default async function OneVidPage({
   );
   const oneVidSvg = await fs.readFile(oneVidSvgPath, "utf8");
 
-  // If the user already started configuring (connected TMDB, added an addon, or
-  // saved a TorBox key) land them back on the Stream tab to finish the steps;
-  // otherwise default to the zero-config local player.
-  const hasStreamProgress =
-    tmdbLinked || addonRows.length > 0 || Boolean(torboxKey);
-  const defaultMode = hasStreamProgress ? "stream" : "local";
-
   // TMDB is "configured" only when the account is connected via OAuth v4.
   // A leftover legacy read token must not unlock the catalog on its own.
   // (tmdbToken is checked too so it narrows to non-null below.)
@@ -132,37 +124,35 @@ export default async function OneVidPage({
     return (
       <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
         <section className="mt-8 rounded-xl border bg-card p-8">
-          <OneVidModeShell defaultMode={defaultMode}>
-            <Empty className="min-h-0 border-0 p-0">
-              <EmptyHeader>
-                <EmptyMedia
-                  className="size-16 rounded-xl bg-transparent"
-                  variant="icon"
-                >
-                  {/* biome-ignore lint/performance/noImgElement: SVG data URI */}
-                  <img
-                    alt="onevid"
-                    className="size-8 rounded-(--radius) border border-border/70 object-contain"
-                    height={32}
-                    src={`data:image/svg+xml;utf8,${encodeURIComponent(oneVidSvg)}`}
-                    width={32}
-                  />
-                </EmptyMedia>
-                <EmptyTitle>Configura onevid para empezar</EmptyTitle>
-                <EmptyDescription>
-                  Completa los pasos para empezar a ver contenido.
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <SetupStepper
-                  hasTorboxKey={Boolean(torboxKey)}
-                  initialAddons={addonRows}
-                  linked={tmdbLinked}
-                  setupCompleted={setupCompleted}
+          <Empty className="min-h-0 border-0 p-0">
+            <EmptyHeader>
+              <EmptyMedia
+                className="size-16 rounded-xl bg-transparent"
+                variant="icon"
+              >
+                {/* biome-ignore lint/performance/noImgElement: SVG data URI */}
+                <img
+                  alt="onevid"
+                  className="size-8 rounded-(--radius) border border-border/70 object-contain"
+                  height={32}
+                  src={`data:image/svg+xml;utf8,${encodeURIComponent(oneVidSvg)}`}
+                  width={32}
                 />
-              </EmptyContent>
-            </Empty>
-          </OneVidModeShell>
+              </EmptyMedia>
+              <EmptyTitle>Configura onevid para empezar</EmptyTitle>
+              <EmptyDescription>
+                Completa los pasos para empezar a ver contenido.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <SetupStepper
+                hasTorboxKey={Boolean(torboxKey)}
+                initialAddons={addonRows}
+                linked={tmdbLinked}
+                setupCompleted={setupCompleted}
+              />
+            </EmptyContent>
+          </Empty>
         </section>
       </main>
     );
@@ -242,24 +232,22 @@ export default async function OneVidPage({
       return (
         <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
           <section className="mt-8 rounded-xl border bg-card p-8">
-            <OneVidModeShell defaultMode={defaultMode}>
-              <Empty className="min-h-0 border-0 p-0">
-                <EmptyHeader>
-                  <EmptyTitle>Token TMDB inválido</EmptyTitle>
-                  <EmptyDescription>
-                    Tu token ha expirado o no es válido. Configúralo de nuevo.
-                  </EmptyDescription>
-                </EmptyHeader>
-                <EmptyContent>
-                  <SetupStepper
-                    hasTorboxKey={Boolean(torboxKey)}
-                    initialAddons={addonRows}
-                    linked={false}
-                    setupCompleted={false}
-                  />
-                </EmptyContent>
-              </Empty>
-            </OneVidModeShell>
+            <Empty className="min-h-0 border-0 p-0">
+              <EmptyHeader>
+                <EmptyTitle>Token TMDB inválido</EmptyTitle>
+                <EmptyDescription>
+                  Tu token ha expirado o no es válido. Configúralo de nuevo.
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <SetupStepper
+                  hasTorboxKey={Boolean(torboxKey)}
+                  initialAddons={addonRows}
+                  linked={false}
+                  setupCompleted={false}
+                />
+              </EmptyContent>
+            </Empty>
           </section>
         </main>
       );
