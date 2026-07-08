@@ -52,7 +52,7 @@ export function LoginDialog() {
       <DialogTrigger
         render={
           <Button
-            className="btn-primary [--primary-foreground:var(--color-amber-950)] [--primary:var(--color-amber-500)]"
+            className="btn-primary [--primary-foreground:var(--color-lime-950)] [--primary:var(--color-lime-500)]"
             translate="no"
             type="button"
           >
