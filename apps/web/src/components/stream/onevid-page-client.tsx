@@ -115,11 +115,9 @@ export function OneVidPageClient({
 
   let mainContent: ReactNode;
   if (localMode) {
-    mainContent = (
-      <section className="rounded-xl border bg-card p-4 md:p-6">
-        <LocalVideoPlayer />
-      </section>
-    );
+    // Mismo LocalVideoPlayer que en / (sin sesión), sin envoltura extra: el
+    // propio componente ya trae su caja con borde dashed.
+    mainContent = <LocalVideoPlayer />;
   } else if (posters.length === 0) {
     mainContent = (
       <section className="rounded-xl border bg-card p-8 text-center">
