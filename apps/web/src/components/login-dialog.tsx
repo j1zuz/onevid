@@ -83,7 +83,7 @@ export function LoginDialog() {
     >
       <DialogTrigger
         render={
-          <Button size="sm" translate="no" type="button">
+          <Button translate="no" type="button">
             <Sparkles data-icon="inline-start" />
             <span>Iniciar sesión</span>
           </Button>

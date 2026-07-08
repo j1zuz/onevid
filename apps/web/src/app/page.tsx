@@ -16,11 +16,17 @@ export default async function RootPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col bg-background px-4 md:px-6">
+    <div className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 md:px-6">
       <header className="-mx-4 md:-mx-6 sticky top-0 z-20 flex items-center justify-between border-border/50 border-b bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:px-6">
         <div className="flex items-center gap-2">
           {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
-          <img alt="onevid" className="size-7" height={28} src="/onevid.svg" width={28} />
+          <img
+            alt="onevid"
+            className="size-8 rounded-md border border-border/70 bg-card p-1"
+            height={32}
+            src="/onevid.svg"
+            width={32}
+          />
           <span className="font-semibold text-sm">onevid</span>
         </div>
         <LoginDialog />
