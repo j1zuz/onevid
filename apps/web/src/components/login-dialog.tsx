@@ -9,7 +9,6 @@ import { Button } from "@workspace/ui/components/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -71,9 +70,6 @@ export function LoginDialog() {
             <DialogTitle className="font-semibold text-base">
               Iniciar sesión
             </DialogTitle>
-            <DialogDescription>
-              Continúa con Google para iniciar sesión o crear una cuenta.
-            </DialogDescription>
           </div>
         </DialogHeader>
 
