@@ -13,7 +13,9 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { SetupStepper } from "@/components/stepper-onevid";
+import { OneVidHeader } from "@/components/stream/onevid-header";
 import { OneVidPageClient } from "@/components/stream/onevid-page-client";
+import { OneVidProfileProvider } from "@/components/stream/onevid-profile-context";
 import { auth } from "@/lib/auth";
 import { oneVid, oneVidAddon, oneVidProfile } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
@@ -117,50 +119,8 @@ export default async function OneVidPage({
   );
   const oneVidSvg = await fs.readFile(oneVidSvgPath, "utf8");
 
-  // TMDB is "configured" only when the account is connected via OAuth v4.
-  // A leftover legacy read token must not unlock the catalog on its own.
-  // (tmdbToken is checked too so it narrows to non-null below.)
-  if (!(tmdbLinked && tmdbToken && setupCompleted)) {
-    return (
-      <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
-        <section className="mt-8 rounded-xl border bg-card p-8">
-          <Empty className="min-h-0 border-0 p-0">
-            <EmptyHeader>
-              <EmptyMedia
-                className="size-16 rounded-xl bg-transparent"
-                variant="icon"
-              >
-                {/* biome-ignore lint/performance/noImgElement: SVG data URI */}
-                <img
-                  alt="onevid"
-                  className="size-8 rounded-(--radius) border border-border/70 object-contain"
-                  height={32}
-                  src={`data:image/svg+xml;utf8,${encodeURIComponent(oneVidSvg)}`}
-                  width={32}
-                />
-              </EmptyMedia>
-              <EmptyTitle>Configura onevid para empezar</EmptyTitle>
-              <EmptyDescription>
-                Completa los pasos para empezar a ver contenido.
-              </EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-              <SetupStepper
-                hasTorboxKey={Boolean(torboxKey)}
-                initialAddons={addonRows}
-                linked={tmdbLinked}
-                setupCompleted={setupCompleted}
-              />
-            </EmptyContent>
-          </Empty>
-        </section>
-      </main>
-    );
-  }
-
-  const token: string = tmdbToken;
-  const tmdbLocale = getTmdbLocale(appLocale);
-  const tmdbRegion = getTmdbRegion(appLocale);
+  // Listas de catálogos/redes son estáticas (no dependen del token TMDB), así
+  // que se calculan siempre: el header se muestra incluso sin setup completo.
   const allCatalogs = getCatalogOptions();
   const allNetworks = getNetworkOptions();
 
@@ -196,6 +156,68 @@ export default async function OneVidPage({
     }
   }
 
+  const headerProps = {
+    addons: addonRows,
+    allNetworks,
+    catalogs: allCatalogs,
+    catalogsByType,
+    hasTorboxKey: Boolean(torboxKey),
+    linked: tmdbLinked,
+    selectedCatalog,
+    selectedCatalogOption,
+    selectedNetwork,
+    selectedType,
+    setupCompleted,
+    typeOptions,
+  };
+
+  // TMDB is "configured" only when the account is connected via OAuth v4.
+  // A leftover legacy read token must not unlock the catalog on its own.
+  // (tmdbToken is checked too so it narrows to non-null below.)
+  if (!(tmdbLinked && tmdbToken && setupCompleted)) {
+    return (
+      <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
+        <OneVidProfileProvider initialProfiles={profiles}>
+          <OneVidHeader {...headerProps} />
+          <section className="mt-8 rounded-xl border bg-card p-8">
+            <Empty className="min-h-0 border-0 p-0">
+              <EmptyHeader>
+                <EmptyMedia
+                  className="size-16 rounded-xl bg-transparent"
+                  variant="icon"
+                >
+                  {/* biome-ignore lint/performance/noImgElement: SVG data URI */}
+                  <img
+                    alt="onevid"
+                    className="size-8 rounded-(--radius) border border-border/70 object-contain"
+                    height={32}
+                    src={`data:image/svg+xml;utf8,${encodeURIComponent(oneVidSvg)}`}
+                    width={32}
+                  />
+                </EmptyMedia>
+                <EmptyTitle>Configura onevid para empezar</EmptyTitle>
+                <EmptyDescription>
+                  Completa los pasos para empezar a ver contenido.
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <SetupStepper
+                  hasTorboxKey={Boolean(torboxKey)}
+                  initialAddons={addonRows}
+                  linked={tmdbLinked}
+                  setupCompleted={setupCompleted}
+                />
+              </EmptyContent>
+            </Empty>
+          </section>
+        </OneVidProfileProvider>
+      </main>
+    );
+  }
+
+  const token: string = tmdbToken;
+  const tmdbLocale = getTmdbLocale(appLocale);
+  const tmdbRegion = getTmdbRegion(appLocale);
   const sortBy = catalogToSortBy(selectedCatalog);
 
   // Fetch catalog items
@@ -231,41 +253,47 @@ export default async function OneVidPage({
     if (error instanceof TmdbAuthError) {
       return (
         <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
-          <section className="mt-8 rounded-xl border bg-card p-8">
-            <Empty className="min-h-0 border-0 p-0">
-              <EmptyHeader>
-                <EmptyTitle>Token TMDB inválido</EmptyTitle>
-                <EmptyDescription>
-                  Tu token ha expirado o no es válido. Configúralo de nuevo.
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <SetupStepper
-                  hasTorboxKey={Boolean(torboxKey)}
-                  initialAddons={addonRows}
-                  linked={false}
-                  setupCompleted={false}
-                />
-              </EmptyContent>
-            </Empty>
-          </section>
+          <OneVidProfileProvider initialProfiles={profiles}>
+            <OneVidHeader {...headerProps} linked={false} />
+            <section className="mt-8 rounded-xl border bg-card p-8">
+              <Empty className="min-h-0 border-0 p-0">
+                <EmptyHeader>
+                  <EmptyTitle>Token TMDB inválido</EmptyTitle>
+                  <EmptyDescription>
+                    Tu token ha expirado o no es válido. Configúralo de nuevo.
+                  </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  <SetupStepper
+                    hasTorboxKey={Boolean(torboxKey)}
+                    initialAddons={addonRows}
+                    linked={false}
+                    setupCompleted={false}
+                  />
+                </EmptyContent>
+              </Empty>
+            </section>
+          </OneVidProfileProvider>
         </main>
       );
     }
     if (error instanceof TmdbNetworkError) {
       return (
         <main className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
-          <section className="mt-8 rounded-xl border bg-card p-8">
-            <Empty className="min-h-0 border-0 p-0">
-              <EmptyHeader>
-                <EmptyTitle>No pudimos cargar el catálogo</EmptyTitle>
-                <EmptyDescription>
-                  Hubo un problema al conectar con TMDB. Vuelve a intentarlo en
-                  unos momentos.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          </section>
+          <OneVidProfileProvider initialProfiles={profiles}>
+            <OneVidHeader {...headerProps} />
+            <section className="mt-8 rounded-xl border bg-card p-8">
+              <Empty className="min-h-0 border-0 p-0">
+                <EmptyHeader>
+                  <EmptyTitle>No pudimos cargar el catálogo</EmptyTitle>
+                  <EmptyDescription>
+                    Hubo un problema al conectar con TMDB. Vuelve a intentarlo
+                    en unos momentos.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            </section>
+          </OneVidProfileProvider>
         </main>
       );
     }
