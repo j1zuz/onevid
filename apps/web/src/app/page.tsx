@@ -1,3 +1,4 @@
+import { MonitorPlayIcon } from "lucide-react";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { buttonVariants } from "@workspace/ui/components/button";
@@ -33,7 +34,11 @@ export default async function RootPage() {
           <span className="font-semibold text-sm">onevid</span>
         </div>
         {session ? (
-          <Link className={buttonVariants({ variant: "outline" })} href="/home">
+          <Link
+            className={buttonVariants({ variant: "outline" })}
+            href="/home"
+          >
+            <MonitorPlayIcon data-icon="inline-start" />
             Volver al modo stream
           </Link>
         ) : (
