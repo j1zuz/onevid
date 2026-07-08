@@ -13,6 +13,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { SetupStepper } from "@/components/stepper-onevid";
+import { SiteFooter } from "@/components/site-footer";
 import { OneVidHeader } from "@/components/stream/onevid-header";
 import { OneVidPageClient } from "@/components/stream/onevid-page-client";
 import { OneVidProfileProvider } from "@/components/stream/onevid-profile-context";
@@ -211,6 +212,7 @@ export default async function OneVidPage({
             </Empty>
           </section>
         </OneVidProfileProvider>
+        <SiteFooter />
       </main>
     );
   }
@@ -274,6 +276,7 @@ export default async function OneVidPage({
               </Empty>
             </section>
           </OneVidProfileProvider>
+          <SiteFooter />
         </main>
       );
     }
@@ -294,6 +297,7 @@ export default async function OneVidPage({
               </Empty>
             </section>
           </OneVidProfileProvider>
+          <SiteFooter />
         </main>
       );
     }
@@ -318,6 +322,7 @@ export default async function OneVidPage({
         setupCompleted={setupCompleted}
         typeOptions={typeOptions}
       />
+      <SiteFooter />
     </main>
   );
 }

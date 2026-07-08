@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { buttonVariants } from "@workspace/ui/components/button";
 import { LoginDialog } from "@/components/login-dialog";
+import { SiteFooter } from "@/components/site-footer";
 import { LocalVideoPlayer } from "@/components/stream/local-video-player";
 import { auth } from "@/lib/auth";
 
@@ -50,31 +51,7 @@ export default async function RootPage() {
         <LocalVideoPlayer />
       </main>
 
-      <footer className="pb-6">
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-dashed border-border px-6 py-5">
-          <Link
-            className="text-muted-foreground text-xs hover:text-foreground"
-            href="/docs"
-          >
-            Documentación
-          </Link>
-          <a
-            aria-label="Disponible en Google Play"
-            href="https://play.google.com/store/apps/details?id=tech.hackw.onevid"
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            {/* biome-ignore lint/performance/noImgElement: badge SVG estático local */}
-            <img
-              alt="Disponible en Google Play"
-              className="h-10 w-auto"
-              height={40}
-              src="/google-play.svg"
-              width={135}
-            />
-          </a>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
