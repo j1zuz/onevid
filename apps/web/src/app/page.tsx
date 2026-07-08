@@ -35,6 +35,30 @@ export default async function RootPage() {
       <main className="flex flex-1 flex-col pt-6 pb-8">
         <LocalVideoPlayer />
       </main>
+
+      <footer className="pb-6">
+        <div className="flex flex-col items-center justify-between gap-4 rounded-xl border border-dashed border-border px-6 py-5 text-center sm:flex-row sm:text-left">
+          <p className="text-muted-foreground text-xs">
+            onevid es un reproductor de video: modo local sin cuenta o
+            streaming con tu catálogo TMDB.
+          </p>
+          <a
+            aria-label="Disponible en Google Play"
+            href="https://play.google.com/store/apps/details?id=tech.hackw.onevid"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            {/* biome-ignore lint/performance/noImgElement: badge SVG estático local */}
+            <img
+              alt="Disponible en Google Play"
+              className="h-10 w-auto"
+              height={40}
+              src="/google-play.svg"
+              width={135}
+            />
+          </a>
+        </div>
+      </footer>
     </div>
   );
 }
