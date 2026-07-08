@@ -1,6 +1,7 @@
 import { router, usePathname } from 'expo-router';
 import { Typography } from 'heroui-native';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Pressable, View } from 'react-native';
 import { TabIcon, type TabIconName } from '@/components/tab-icon';
 import { tvFocusRing } from '@/hooks/use-tv-focus';
@@ -13,13 +14,6 @@ const OPEN_WIDTH = 210;
 
 type TabHref = '/home' | '/discover' | '/library' | '/settings';
 
-const ITEMS: { href: TabHref; name: TabIconName; label: string }[] = [
-  { href: '/home', name: 'home', label: 'Inicio' },
-  { href: '/discover', name: 'discover', label: 'Descubrir' },
-  { href: '/library', name: 'library', label: 'Biblioteca' },
-  { href: '/settings', name: 'settings', label: 'Configuración' },
-];
-
 /**
  * Rail de navegación para Android TV como **overlay** sobre el contenido (no
  * usa el slot del tab bar, por eso no deja borde visible cuando está cerrado).
@@ -31,9 +25,20 @@ const ITEMS: { href: TabHref; name: TabIconName; label: string }[] = [
  * Navega con expo-router (router.navigate) y resalta el activo con usePathname.
  */
 export function TvSidebar() {
+  const { t } = useTranslation();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const focusCount = useRef(0);
+
+  const items: { href: TabHref; name: TabIconName; label: string }[] = useMemo(
+    () => [
+      { href: '/home', name: 'home', label: t('Inicio') },
+      { href: '/discover', name: 'discover', label: t('Descubrir') },
+      { href: '/library', name: 'library', label: t('Biblioteca') },
+      { href: '/settings', name: 'settings', label: t('Configuración') },
+    ],
+    [t],
+  );
 
   const handleFocus = () => {
     focusCount.current += 1;
@@ -66,7 +71,7 @@ export function TvSidebar() {
         elevation: 50,
       }}
     >
-      {ITEMS.map((item) => {
+      {items.map((item) => {
         const active = pathname === item.href || pathname.startsWith(item.href);
         return (
           <Pressable

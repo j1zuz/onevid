@@ -6,8 +6,7 @@ import { NuqsAdapter } from "nuqs/adapters/next/app";
 import "@workspace/ui/globals.css";
 import { Toaster } from "@workspace/ui/components/sonner";
 import { CookieConsent } from "@/components/cookie-consent";
-import { ThemeProvider } from "@/components/theme-provider";
-import { HackwProvider } from "@/lib/hackw-i18n-context";
+import { OnevidI18nProvider } from "@/lib/onevid-i18n-context";
 import {
   DEFAULT_LANGUAGE,
   SUPPORTED_CODES,
@@ -57,13 +56,13 @@ export default async function RootLayout({
   const store = await cookies();
   const saved = store.get("NEXT_LOCALE")?.value;
   const initialLocale: SupportedLanguage = SUPPORTED_CODES.includes(
-    saved as never
+    saved as never,
   )
     ? (saved as SupportedLanguage)
     : DEFAULT_LANGUAGE;
 
   return (
-    <html lang={initialLocale} suppressHydrationWarning>
+    <html lang={initialLocale} className="dark" suppressHydrationWarning>
       <head>
         {process.env.NODE_ENV === "development" && (
           <Script
@@ -76,20 +75,13 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          disableTransitionOnChange
-          enableSystem
-        >
-          <HackwProvider initialLocale={initialLocale}>
-            <NuqsAdapter>
-              {children}
-              <CookieConsent />
-            </NuqsAdapter>
-          </HackwProvider>
-          <Toaster />
-        </ThemeProvider>
+        <OnevidI18nProvider initialLocale={initialLocale}>
+          <NuqsAdapter>
+            {children}
+            <CookieConsent />
+          </NuqsAdapter>
+        </OnevidI18nProvider>
+        <Toaster />
       </body>
     </html>
   );

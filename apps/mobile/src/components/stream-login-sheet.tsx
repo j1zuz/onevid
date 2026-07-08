@@ -2,6 +2,7 @@ import { X } from 'lucide-react-native';
 import { Typography } from 'heroui-native';
 import { router } from 'expo-router';
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StreamLoginContent } from '@/components/stream-login-content';
@@ -19,6 +20,7 @@ export function StreamLoginSheet({
   visible: boolean;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const onApproved = useCallback(() => {
     onClose();
     router.replace('/profiles');
@@ -39,10 +41,10 @@ export function StreamLoginSheet({
           <View style={styles.handle} />
           <View style={styles.header}>
             <Typography type="h4" weight="bold" align="center">
-              Iniciar sesión
+              {t('Iniciar sesión')}
             </Typography>
             <Pressable
-              accessibilityLabel="Cerrar"
+              accessibilityLabel={t('Cerrar')}
               onPress={onClose}
               style={styles.close}
             >

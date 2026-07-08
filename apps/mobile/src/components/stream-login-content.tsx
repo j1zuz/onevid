@@ -1,4 +1,5 @@
 import { Button, Chip, Skeleton, Typography } from 'heroui-native';
+import { useTranslation } from 'react-i18next';
 import { Image, Pressable, View } from 'react-native';
 import type { DeviceLogin } from '@/hooks/use-device-login';
 import { API_URL } from '@/lib/auth';
@@ -28,11 +29,12 @@ export function StreamLoginContent({
   requestCode,
   handleCopyCode,
 }: DeviceLogin) {
+  const { t } = useTranslation();
   return (
     <View style={{ alignItems: 'center', gap: 20, alignSelf: 'stretch' }}>
       <View style={{ alignItems: 'center', gap: 4 }}>
         <Typography type="body" color="muted" align="center">
-          Escanea este QR, o ve a
+          {t('Escanea este QR, o ve a')}
         </Typography>
         <Typography type="body" color="default" weight="medium" align="center">
           {API_URL}/device
@@ -56,7 +58,7 @@ export function StreamLoginContent({
           />
           <View style={{ alignItems: 'center', gap: 10 }}>
             <Typography type="body-xs" color="muted" weight="medium">
-              INGRESA Y APRUEBA ESTE CÓDIGO
+              {t('INGRESA Y APRUEBA ESTE CÓDIGO')}
             </Typography>
             <Pressable onPress={handleCopyCode}>
               <Typography type="h2" weight="bold" color="default">
@@ -65,7 +67,9 @@ export function StreamLoginContent({
             </Pressable>
             <View style={{ alignSelf: 'center' }}>
               <Chip variant="soft" color="accent" size="sm">
-                <Chip.Label>Se renueva en {formatCountdown(secondsLeft)}</Chip.Label>
+                <Chip.Label>
+                  {t('Se renueva en {{time}}', { time: formatCountdown(secondsLeft) })}
+                </Chip.Label>
               </Chip>
             </View>
           </View>
@@ -74,13 +78,13 @@ export function StreamLoginContent({
 
       {phase === 'denied' ? (
         <Typography type="body" align="center" color="default">
-          Rechazaste el acceso desde tu navegador.
+          {t('Rechazaste el acceso desde tu navegador.')}
         </Typography>
       ) : null}
 
       {phase === 'expired' ? (
         <Typography type="body" color="muted" align="center">
-          El código expiró. Genera uno nuevo para continuar.
+          {t('El código expiró. Genera uno nuevo para continuar.')}
         </Typography>
       ) : null}
 
@@ -91,7 +95,7 @@ export function StreamLoginContent({
       ) : null}
 
       {phase === 'denied' || phase === 'expired' || phase === 'error' ? (
-        <Button onPress={requestCode}>Generar nuevo código</Button>
+        <Button onPress={requestCode}>{t('Generar nuevo código')}</Button>
       ) : null}
     </View>
   );

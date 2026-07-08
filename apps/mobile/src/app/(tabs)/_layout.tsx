@@ -1,6 +1,7 @@
 import { Image } from 'expo-image';
 import { Tabs } from 'expo-router';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Platform, View } from 'react-native';
 import { TabIcon, type TabIconName } from '@/components/tab-icon';
 import { TvSidebar } from '@/components/tv-sidebar';
@@ -35,6 +36,7 @@ function profileIcon(avatar: string | undefined) {
 }
 
 export default function TabsLayout() {
+  const { t } = useTranslation();
   const [avatar, setAvatar] = useState<string | undefined>(undefined);
   useEffect(() => {
     loadActiveProfile().then((p) => setAvatar(p?.avatar)).catch(() => {});
@@ -59,19 +61,19 @@ export default function TabsLayout() {
       >
         <Tabs.Screen
           name="home"
-          options={{ title: 'Inicio', tabBarIcon: icon('home') }}
+          options={{ title: t('Inicio'), tabBarIcon: icon('home') }}
         />
         <Tabs.Screen
           name="discover"
-          options={{ title: 'Descubrir', tabBarIcon: icon('discover') }}
+          options={{ title: t('Descubrir'), tabBarIcon: icon('discover') }}
         />
         <Tabs.Screen
           name="library"
-          options={{ title: 'Biblioteca', tabBarIcon: icon('library') }}
+          options={{ title: t('Biblioteca'), tabBarIcon: icon('library') }}
         />
         <Tabs.Screen
           name="settings"
-          options={{ title: 'Perfil', tabBarIcon: profileIcon(avatar) }}
+          options={{ title: t('Perfil'), tabBarIcon: profileIcon(avatar) }}
         />
       </Tabs>
 

@@ -14,6 +14,8 @@ import { useEffect, useState } from 'react';
 import { Platform, StatusBar as RNStatusBar } from 'react-native';
 import { Uniwind } from 'uniwind';
 import { AnimatedSplash } from '@/components/animated-splash';
+import i18next from '@/lib/i18n';
+import { useDeviceLocale } from '@/lib/i18n/use-device-locale';
 import { validateSession } from '@/lib/auth';
 import { loadActiveProfile } from '@/lib/profiles';
 import { queryClient } from '@/lib/query';
@@ -54,6 +56,11 @@ export default function RootLayout() {
   const [hasToken, setHasToken] = useState(false);
   const [hasProfile, setHasProfile] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
+
+  const deviceLocale = useDeviceLocale();
+  useEffect(() => {
+    i18next.changeLanguage(deviceLocale);
+  }, [deviceLocale]);
 
   // App stays portrait by default; the video player overrides to landscape.
   // En Android TV no aplica (siempre landscape), así que lo saltamos.

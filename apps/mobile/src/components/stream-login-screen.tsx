@@ -1,6 +1,7 @@
 import { Typography } from 'heroui-native';
 import { router } from 'expo-router';
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GodRaysBand } from '@/components/god-rays-band';
@@ -14,6 +15,7 @@ import { COLORS } from '@/lib/theme';
  * aparece de una vez sin que el usuario tenga que buscar el tab Perfil.
  */
 export function StreamLoginScreen() {
+  const { t } = useTranslation();
   const { height } = useWindowDimensions();
   const onApproved = useCallback(() => {
     router.replace('/profiles');
@@ -29,7 +31,7 @@ export function StreamLoginScreen() {
       <View style={{ flex: 1 }} className="items-center justify-center px-6">
         <View style={{ width: '100%', maxWidth: 480, gap: 28 }}>
           <Typography type="h2" align="center" color="default">
-            Inicia sesión
+            {t('Inicia sesión')}
           </Typography>
           <StreamLoginContent {...login} />
         </View>

@@ -11,6 +11,7 @@ import {
   Typography,
 } from 'heroui-native';
 import { type ComponentProps, useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StreamLoginSheet } from '@/components/stream-login-sheet';
@@ -40,6 +41,7 @@ interface SessionResponse {
 }
 
 export default function SettingsTab() {
+  const { t } = useTranslation();
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +94,7 @@ export default function SettingsTab() {
       })
       .catch((e: unknown) => {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'Error de sesión');
+          setError(e instanceof Error ? e.message : t('Error de sesión'));
         }
       })
       .finally(() => {
@@ -101,7 +103,7 @@ export default function SettingsTab() {
     return () => {
       cancelled = true;
     };
-  }, [authed]);
+  }, [authed, t]);
 
   const handleLogout = async () => {
     await clearActiveProfile();
@@ -120,9 +122,9 @@ export default function SettingsTab() {
     >
       <ScrollView contentContainerClassName="gap-6 px-4 py-6">
         <View className="gap-1">
-          <Typography type="h2">Configuración</Typography>
+          <Typography type="h2">{t('Configuración')}</Typography>
           <Typography type="body" color="muted">
-            Tu cuenta y preferencias
+            {t('Tu cuenta y preferencias')}
           </Typography>
         </View>
 
@@ -143,13 +145,13 @@ export default function SettingsTab() {
                   <LogIn size={24} color="#e5e7eb" />
                 </View>
                 <View className="flex-1">
-                  <Typography type="h5">Modo Stream</Typography>
+                  <Typography type="h5">{t('Modo Stream')}</Typography>
                   <Typography type="body-sm" color="muted">
-                    Inicia sesión para el modo stream.
+                    {t('Inicia sesión para el modo stream.')}
                   </Typography>
                 </View>
               </View>
-              <FocusButton onPress={handleLogin}>Iniciar sesión</FocusButton>
+              <FocusButton onPress={handleLogin}>{t('Iniciar sesión')}</FocusButton>
             </Card.Body>
           </Card>
         ) : null}
@@ -225,7 +227,7 @@ export default function SettingsTab() {
               />
               <View className="flex-1 gap-0.5">
                 <Typography type="body-xs" color="muted">
-                  Perfil
+                  {t('Perfil')}
                 </Typography>
                 <Typography type="h5">{profile.name}</Typography>
               </View>
@@ -241,7 +243,7 @@ export default function SettingsTab() {
                   weight="medium"
                   style={{ color: '#3b82f6' }}
                 >
-                  Cambiar
+                  {t('Cambiar')}
                 </Typography>
               </Pressable>
             </Card.Body>
@@ -256,7 +258,7 @@ export default function SettingsTab() {
                   <GlassIcon name="inbox" size={24} />
                 </ListGroup.ItemPrefix>
                 <ListGroup.ItemContent>
-                  <ListGroup.ItemTitle>Email</ListGroup.ItemTitle>
+                  <ListGroup.ItemTitle>{t('Email')}</ListGroup.ItemTitle>
                   <ListGroup.ItemDescription>
                     {user.email}
                   </ListGroup.ItemDescription>
@@ -268,7 +270,7 @@ export default function SettingsTab() {
                   <GlassIcon name="badge-sparkle" size={24} />
                 </ListGroup.ItemPrefix>
                 <ListGroup.ItemContent>
-                  <ListGroup.ItemTitle>Usuario</ListGroup.ItemTitle>
+                  <ListGroup.ItemTitle>{t('Usuario')}</ListGroup.ItemTitle>
                   <ListGroup.ItemDescription>
                     {user.username ?? '—'}
                   </ListGroup.ItemDescription>
@@ -286,14 +288,14 @@ export default function SettingsTab() {
             variant="secondary"
           >
             {mode === 'local'
-              ? 'Cambiar a modo Stream'
-              : 'Cambiar a modo Local'}
+              ? t('Cambiar a modo Stream')
+              : t('Cambiar a modo Local')}
           </FocusButton>
         ) : null}
 
         {authed === true ? (
           <FocusButton onPress={handleLogout} variant="secondary">
-            Cerrar sesión
+            {t('Cerrar sesión')}
           </FocusButton>
         ) : null}
       </ScrollView>

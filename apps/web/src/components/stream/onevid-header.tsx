@@ -35,7 +35,7 @@ import {
 } from "@/components/stepper-onevid";
 import { authClient } from "@/lib/auth-client";
 import { OneVidProfileSwitcher } from "@/components/stream/onevid-profile-switcher";
-import { useHackwTranslation } from "@/lib/hackw-i18n-context";
+import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { NetworkOption } from "@/lib/tmdb";
 
 type CatalogType = "movie" | "series";
@@ -123,7 +123,7 @@ export function OneVidHeader({
   setupCompleted,
 }: OneVidHeaderProps) {
   const { push, refresh } = useRouter();
-  const { t: rawT } = useHackwTranslation();
+  const { t: rawT } = useTranslation();
   const t = (key: string) => rawT(key as never);
   const [configOpen, setConfigOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);

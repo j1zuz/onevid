@@ -6,7 +6,7 @@ import { CookieIcon, X } from "lucide-react";
 import Link from "next/link";
 import posthog from "posthog-js";
 import { useEffect, useState } from "react";
-import { useHackwTranslation } from "@/lib/hackw-i18n-context";
+import { useTranslation } from "@/lib/onevid-i18n-context";
 
 const CONSENT_COOKIE = "cookie_consent";
 const CONSENT_ACCEPTED = "accepted";
@@ -29,7 +29,7 @@ function setConsentCookie(value: string) {
 }
 
 export function CookieConsent() {
-  const { t } = useHackwTranslation();
+  const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {

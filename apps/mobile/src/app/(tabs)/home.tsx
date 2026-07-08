@@ -3,6 +3,7 @@ import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { ScrollShadow, Skeleton, Typography } from 'heroui-native';
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ScrollView, useWindowDimensions, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { HeroCarousel } from '@/components/home/hero-carousel';
@@ -17,6 +18,7 @@ import { COLORS } from '@/lib/theme';
 const HERO_TAKE = 8;
 
 export default function HomeTab() {
+  const { t } = useTranslation();
   const { height: windowHeight } = useWindowDimensions();
   const heroSkeletonHeight = Math.round(windowHeight * 0.72);
 
@@ -53,7 +55,7 @@ export default function HomeTab() {
   const loading = moviesQuery.isLoading || seriesQuery.isLoading;
   const error =
     moviesQuery.isError && seriesQuery.isError
-      ? 'No pudimos cargar el catálogo. Reintenta en un momento.'
+      ? t('No pudimos cargar el catálogo. Reintenta en un momento.')
       : null;
 
   const heroItems = interleave(movies, series).slice(0, HERO_TAKE);
@@ -111,13 +113,13 @@ export default function HomeTab() {
         )}
 
         <PosterRow
-          title="Películas en tendencia"
+          title={t('Películas en tendencia')}
           items={movies}
           loading={loading}
           onPressItem={handlePressItem}
         />
         <PosterRow
-          title="Series en tendencia"
+          title={t('Series en tendencia')}
           items={series}
           loading={loading}
           onPressItem={handlePressItem}

@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Typography } from 'heroui-native';
 import { CloudOff } from 'lucide-react-native';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { View } from 'react-native';
 import { apiFetch } from '@/lib/api';
 import { API_URL } from '@/lib/auth';
@@ -35,6 +36,7 @@ export function useSetupStatus(enabled = true) {
 
 /** Pantalla completa que pide completar la configuración en la web. */
 export function SetupPrompt() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [checking, setChecking] = useState(false);
 
@@ -64,19 +66,19 @@ export function SetupPrompt() {
     >
       <CloudOff size={48} color="#888" />
       <Typography type="h5" align="center">
-        Configura onevid para empezar
+        {t('Configura onevid para empezar')}
       </Typography>
       <Typography type="body-sm" color="muted" align="center">
-        Aún no completaste la configuración.
+        {t('Aún no completaste la configuración.')}
       </Typography>
       <Typography type="body-sm" color="muted" align="center">
-        Sigue los pasos en:
+        {t('Sigue los pasos en:')}
       </Typography>
       <Typography type="body-sm" align="center">
         {SETUP_URL}
       </Typography>
       <Button onPress={handleRecheck} isDisabled={checking}>
-        {checking ? 'Comprobando…' : 'Ya lo configuré'}
+        {checking ? t('Comprobando…') : t('Ya lo configuré')}
       </Button>
     </View>
   );

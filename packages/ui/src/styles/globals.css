@@ -3,7 +3,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "../components/agent-elements/agent-ui.css";
 
 /* Monorepo: escanear el código de la app y de los componentes ui (Tailwind v4) */
 @source "../components";

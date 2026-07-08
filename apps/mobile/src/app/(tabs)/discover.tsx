@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import { ScrollShadow, SearchField, Skeleton, Typography } from 'heroui-native';
 import { Search } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FlatList, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
@@ -39,6 +40,7 @@ const NETWORKS: Network[] = [
 const networkLogoUrl = (logo: string) => `https://image.tmdb.org/t/p/w300${logo}`;
 
 export default function DiscoverTab() {
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [network, setNetwork] = useState<Network>(NETWORKS[0]);
@@ -113,7 +115,7 @@ export default function DiscoverTab() {
     !searchLoading &&
     searchMoviesQuery.isError &&
     searchSeriesQuery.isError
-      ? 'Error de búsqueda'
+      ? t('Error de búsqueda')
       : null;
 
   const handlePressItem = useCallback((item: MediaMeta) => {
@@ -134,11 +136,11 @@ export default function DiscoverTab() {
       >
         <EmptyState
           icon={<Search size={32} color="#9ca3af" />}
-          title="Buscar"
+          title={t('Buscar')}
           description={
             surface.authed
-              ? 'Disponible en modo Stream.'
-              : 'Inicia sesión para buscar tu contenido.'
+              ? t('Disponible en modo Stream.')
+              : t('Inicia sesión para buscar tu contenido.')
           }
         />
       </SafeAreaView>
@@ -160,11 +162,11 @@ export default function DiscoverTab() {
           contentContainerStyle={{ gap: 16, paddingVertical: 16, paddingBottom: 32 }}
         >
           <View style={{ paddingHorizontal: 16, gap: 16 }}>
-            <Typography type="h2">Buscar</Typography>
+            <Typography type="h2">{t('Buscar')}</Typography>
             <SearchField value={query} onChange={setQuery}>
               <SearchField.Group>
                 <SearchField.SearchIcon />
-                <SearchField.Input placeholder="Buscar películas, series…" />
+                <SearchField.Input placeholder={t('Buscar películas, series…')} />
                 <SearchField.ClearButton />
               </SearchField.Group>
             </SearchField>
@@ -182,7 +184,7 @@ export default function DiscoverTab() {
 
               {!searchLoading && !searchError && searchResults.length === 0 ? (
                 <Typography type="body" color="muted" align="center">
-                  No encontramos nada para «{query.trim()}».
+                  {t('No encontramos nada para «{{query}}».', { query: query.trim() })}
                 </Typography>
               ) : null}
 
@@ -211,7 +213,7 @@ export default function DiscoverTab() {
             <>
               <View style={{ gap: 12 }}>
                 <Typography type="h2" style={{ paddingHorizontal: 16 }}>
-                  Descubrir
+                  {t('Descubrir')}
                 </Typography>
                 <ScrollShadow
                   size={32}
@@ -240,7 +242,7 @@ export default function DiscoverTab() {
                   películas asociadas. Ocultamos cada fila si no hay resultados. */}
               {moviesQuery.isLoading || (moviesQuery.data?.length ?? 0) > 0 ? (
                 <PosterRow
-                  title="Películas populares"
+                  title={t('Películas populares')}
                   items={moviesQuery.data ?? []}
                   loading={moviesQuery.isLoading}
                   onPressItem={handlePressItem}
@@ -248,7 +250,7 @@ export default function DiscoverTab() {
               ) : null}
               {seriesQuery.isLoading || (seriesQuery.data?.length ?? 0) > 0 ? (
                 <PosterRow
-                  title="Series populares"
+                  title={t('Series populares')}
                   items={seriesQuery.data ?? []}
                   loading={seriesQuery.isLoading}
                   onPressItem={handlePressItem}
@@ -265,7 +267,7 @@ export default function DiscoverTab() {
                   align="center"
                   style={{ paddingHorizontal: 16 }}
                 >
-                  No hay títulos para esta cadena.
+                  {t('No hay títulos para esta cadena.')}
                 </Typography>
               ) : null}
             </>
