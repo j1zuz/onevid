@@ -1,5 +1,6 @@
 "use client";
 
+import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
 import {
   DropdownMenu,
@@ -364,7 +365,9 @@ export function SetupStepper({
     }
   }
 
-  const canFinish = tokenSaved && addons.length > 0 && torboxSaved;
+  // Los pasos 2 (complementos) y 3 (TorBox) son opcionales: solo se requiere
+  // haber conectado TMDB (paso 1) para poder finalizar la configuración.
+  const canFinish = tokenSaved;
 
   return (
     <Stepper
@@ -402,7 +405,7 @@ export function SetupStepper({
 
         <StepperItem
           completed={torboxSaved}
-          disabled={!(torboxSaved || (tokenSaved && addons.length > 0))}
+          disabled={!tokenSaved}
           loading={torboxSaving}
           step={3}
         >
@@ -529,10 +532,11 @@ export function SetupStepper({
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-1.5">
                   <Label className="text-xs" htmlFor="onevid-addon-url">
-                    URL del servidor OneVLP
+                    URL del servidor
                   </Label>
+                  <Badge variant="outline">Opcional</Badge>
                   <span className="text-[0.65rem] text-muted-foreground">
-                    protocolo OneVLP (/manifest)
+                    protocolo (/manifest)
                   </span>
                 </div>
                 <div className="flex gap-2">
@@ -644,6 +648,7 @@ export function SetupStepper({
                   <Label className="text-xs" htmlFor="torbox-key">
                     TorBox API Key
                   </Label>
+                  <Badge variant="outline">Opcional</Badge>
                   <a
                     className="text-[0.65rem] text-muted-foreground underline underline-offset-2 hover:text-foreground"
                     href="https://torbox.app/settings"

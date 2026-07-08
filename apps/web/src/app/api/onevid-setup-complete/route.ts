@@ -44,34 +44,17 @@ export async function POST() {
     .select({
       id: oneVid.id,
       tmdbUserAccessToken: oneVid.tmdbUserAccessToken,
-      torboxApiKey: oneVid.torboxApiKey,
     })
     .from(oneVid)
     .where(eq(oneVid.userId, session.user.id))
     .limit(1);
 
   // Mirror the page gating: only the OAuth v4 user token counts as "connected".
+  // Los complementos (addons) y la API key de TorBox son opcionales; no se
+  // exigen para completar el setup.
   if (!existing?.tmdbUserAccessToken) {
     return Response.json(
       { error: "Conecta primero tu cuenta de TMDB" },
-      { status: 400 }
-    );
-  }
-  if (!existing.torboxApiKey) {
-    return Response.json(
-      { error: "Configura la API key de TorBox en el paso 3" },
-      { status: 400 }
-    );
-  }
-
-  const [{ value: addonCount }] = await db
-    .select({ value: count() })
-    .from(oneVidAddon)
-    .where(eq(oneVidAddon.userId, session.user.id));
-
-  if (addonCount === 0) {
-    return Response.json(
-      { error: "Añade al menos un complemento OneVLP antes de finalizar" },
       { status: 400 }
     );
   }
