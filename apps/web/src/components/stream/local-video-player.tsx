@@ -252,7 +252,7 @@ export function LocalVideoPlayer() {
         }}
       >
         <button
-          className="flex cursor-pointer flex-col items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted/40"
+          className="flex w-full max-w-lg cursor-pointer flex-col items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted/40"
           onClick={() => inputRef.current?.click()}
           type="button"
         >
