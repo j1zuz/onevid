@@ -4,10 +4,13 @@
   "private": true,
   "packageManager": "bun@1.3.14",
   "scripts": {
-    "mobile": "bun --filter onevid start",
+    "dev": "bun --filter web dev",
+    "build": "bun --filter web build",
+    "start": "bun --filter web start",
     "web:dev": "bun --filter web dev",
     "web:build": "bun --filter web build",
-    "web:start": "bun --filter web start"
+    "web:start": "bun --filter web start",
+    "mobile": "bun --filter onevid start"
   },
   "overrides": {
     "@types/react": "19.2.14",
