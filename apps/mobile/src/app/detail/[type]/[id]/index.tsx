@@ -12,6 +12,7 @@ import {
 } from 'heroui-native';
 import { ArrowLeft } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   FlatList,
   Pressable,
@@ -62,6 +63,10 @@ export default function DetailPage() {
   const params = useLocalSearchParams<{ type: string; id: string }>();
   const type = params.type as DetailType;
   const id = params.id;
+  // Idioma activo en la query key: al cambiarlo, la metadata (título, sinopsis,
+  // carátula) se refetchea en el nuevo idioma en vez de servir la cache anterior.
+  const { i18n } = useTranslation();
+  const lang = i18n.language;
   const { height } = useWindowDimensions();
   const queryClient = useQueryClient();
   const { isTV, isLarge, posterWidth } = useResponsive();
@@ -83,7 +88,7 @@ export default function DetailPage() {
   // Metadata del título, cacheada por (type, id): volver a abrir el mismo
   // título lo muestra al instante sin skeleton.
   const detailQuery = useQuery({
-    queryKey: ['detail', type, id],
+    queryKey: ['detail', type, id, lang],
     queryFn: () => {
       const path =
         type === 'series'
@@ -184,8 +189,11 @@ export default function DetailPage() {
         tmdbImage(meta?.background, isLarge ? 'original' : 'w1280') ?? '',
       logo: meta?.logo ?? '',
       title: meta?.name ?? '',
+      // Póster (2:3) que el player guarda en el progreso para que "Continuar
+      // viendo" pueda mostrar la carátula del título.
+      poster: meta?.poster ?? '',
     }),
-    [meta?.background, meta?.logo, meta?.name, isLarge],
+    [meta?.background, meta?.logo, meta?.name, meta?.poster, isLarge],
   );
 
   // Al reproducir vamos directo al player SIN `url`: esa ausencia es la señal de
@@ -200,6 +208,7 @@ export default function DetailPage() {
       params: {
         title: meta?.name ?? '',
         background: artParams.background,
+        poster: artParams.poster,
         logo: artParams.logo,
         type,
         id,
@@ -222,6 +231,7 @@ export default function DetailPage() {
         params: {
           title: meta?.name ?? '',
           background: artParams.background,
+          poster: artParams.poster,
           logo: artParams.logo,
           type,
           id,

@@ -1,3 +1,4 @@
+import i18next from 'i18next';
 import { getActiveProfileId } from './active-profile';
 import { track } from './analytics';
 import {
@@ -76,6 +77,13 @@ export async function apiFetch<T = unknown>(
   const profileId = getActiveProfileId();
   if (profileId && !headers.has('X-Profile-Id')) {
     headers.set('X-Profile-Id', profileId);
+  }
+  // Idioma actual de la app: el backend lo usa para pedir a TMDB los títulos,
+  // descripciones y carátulas en ese idioma (la web usa la cookie NEXT_LOCALE;
+  // como el móvil no manda cookies, lo enviamos por header). Cambia con el
+  // selector de idioma de Perfil.
+  if (i18next.language) {
+    headers.set('X-App-Language', i18next.language);
   }
   // Telemetría de rendimiento de red: medimos la latencia de respuesta y
   // registramos éxito/error de CADA llamada en un único punto. Usamos solo la

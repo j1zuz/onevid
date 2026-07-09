@@ -4,6 +4,7 @@ import { Play } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ExploreMovieDialog } from "@/components/explore-movie-dialog";
 import { useOneVidProfiles } from "@/components/stream/onevid-profile-context";
+import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { MediaMeta } from "@/lib/tmdb";
 
 interface ContinueWatchingItem extends MediaMeta {
@@ -16,6 +17,7 @@ interface ContinueWatchingItem extends MediaMeta {
  * progress bar over each poster. Hidden entirely when there's nothing to resume.
  */
 export function ContinueWatchingRow() {
+  const { t } = useTranslation();
   const { activeProfileId } = useOneVidProfiles();
   const [items, setItems] = useState<ContinueWatchingItem[]>([]);
 
@@ -47,8 +49,10 @@ export function ContinueWatchingRow() {
 
   return (
     <section className="container mx-auto flex flex-col gap-3 px-2">
-      <h2 className="px-1 font-semibold text-lg md:text-xl">Continuar viendo</h2>
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+      <h2 className="px-1 font-semibold text-lg md:text-xl">
+        {t("Continuar viendo")}
+      </h2>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((item) => {
           const pct =
             item.durationSec > 0
@@ -57,6 +61,9 @@ export function ContinueWatchingRow() {
                   Math.round((item.positionSec / item.durationSec) * 100)
                 )
               : 0;
+          // Preferimos el backdrop horizontal (16:9); si no hay, caemos al
+          // póster para no dejar la tarjeta vacía.
+          const art = item.background ?? item.poster;
           return (
             <ExploreMovieDialog
               key={`${item.type}-${item.id}`}
@@ -66,21 +73,21 @@ export function ContinueWatchingRow() {
               }}
             >
               <article className="group block h-full">
-                <div className="relative aspect-2/3 w-full rounded-(--radius) border border-border/70 bg-muted/40 p-1 transition-all duration-200 hover:border-primary/50 hover:shadow-sm">
+                <div className="relative aspect-video w-full rounded-(--radius) border border-border/70 bg-muted/40 p-1 transition-all duration-200 hover:border-primary/50 hover:shadow-sm">
                   <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-[calc(var(--radius)-4px)] border border-border/60 bg-card">
-                    {item.poster ? (
-                      // biome-ignore lint/performance/noImgElement: external CDN poster
+                    {art ? (
+                      // biome-ignore lint/performance/noImgElement: external CDN art
                       <img
                         alt={item.name}
                         className="h-full w-full object-cover"
                         height={0}
                         loading="lazy"
-                        src={item.poster}
+                        src={art}
                         width={0}
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center px-3 text-center text-muted-foreground text-xs">
-                        Sin poster
+                        {t("Sin poster")}
                       </div>
                     )}
                   </div>

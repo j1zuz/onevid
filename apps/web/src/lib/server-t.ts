@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import {
   DEFAULT_LANGUAGE,
   SUPPORTED_CODES,
@@ -21,8 +21,14 @@ function getInterpolationRegex(key: string): RegExp {
  * Returns a t() function and the active locale, both resolved from the NEXT_LOCALE cookie.
  */
 export async function getServerT() {
+  // El cliente móvil no envía cookies (no es un navegador): manda su idioma en
+  // el header `x-app-language`. Le damos prioridad sobre la cookie NEXT_LOCALE
+  // (que usa la web) para que el catálogo/carátulas de TMDB salgan en el idioma
+  // elegido en la app. Si ninguno es válido, caemos al idioma por defecto.
+  const headerStore = await headers();
+  const headerLang = headerStore.get("x-app-language")?.trim();
   const store = await cookies();
-  const saved = store.get("NEXT_LOCALE")?.value;
+  const saved = headerLang || store.get("NEXT_LOCALE")?.value;
   const locale: SupportedLanguage = SUPPORTED_CODES.includes(saved as never)
     ? (saved as SupportedLanguage)
     : DEFAULT_LANGUAGE;

@@ -2,6 +2,8 @@ import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { LogIn } from 'lucide-react-native';
 import { GlassIcon } from '@/components/glass-icon';
+import { LanguageSheet } from '@/components/language-sheet';
+import { SUPPORTED_LANGUAGES } from '@/lib/i18n/languages';
 import {
   Button,
   Card,
@@ -41,7 +43,13 @@ interface SessionResponse {
 }
 
 export default function SettingsTab() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // Sheet de selección de idioma (se abre desde la lista de Perfil).
+  const [langOpen, setLangOpen] = useState(false);
+  // Etiqueta legible del idioma activo para mostrar en la lista.
+  const currentLanguageLabel =
+    SUPPORTED_LANGUAGES.find((l) => l.code === i18n.language)?.label ??
+    i18n.language;
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -253,33 +261,24 @@ export default function SettingsTab() {
         ) : null}
 
         {user && !loading ? (
-          <>
-            <ListGroup>
-              <ListGroup.Item>
-                <ListGroup.ItemPrefix>
-                  <GlassIcon name="inbox" size={24} />
-                </ListGroup.ItemPrefix>
-                <ListGroup.ItemContent>
-                  <ListGroup.ItemTitle>{t('Email')}</ListGroup.ItemTitle>
-                  <ListGroup.ItemDescription>
-                    {user.email}
-                  </ListGroup.ItemDescription>
-                </ListGroup.ItemContent>
-              </ListGroup.Item>
-              <Separator className="mx-4" />
-              <ListGroup.Item>
-                <ListGroup.ItemPrefix>
-                  <GlassIcon name="badge-sparkle" size={24} />
-                </ListGroup.ItemPrefix>
-                <ListGroup.ItemContent>
-                  <ListGroup.ItemTitle>{t('Usuario')}</ListGroup.ItemTitle>
-                  <ListGroup.ItemDescription>
-                    {user.username ?? '—'}
-                  </ListGroup.ItemDescription>
-                </ListGroup.ItemContent>
-              </ListGroup.Item>
-            </ListGroup>
-          </>
+          <ListGroup>
+            <ListGroup.Item>
+              <ListGroup.ItemPrefix>
+                <GlassIcon name="inbox" size={24} />
+              </ListGroup.ItemPrefix>
+              <ListGroup.ItemContent>
+                <ListGroup.ItemTitle>{t('Email')}</ListGroup.ItemTitle>
+                <ListGroup.ItemDescription>
+                  {user.email}
+                </ListGroup.ItemDescription>
+              </ListGroup.ItemContent>
+            </ListGroup.Item>
+            <Separator className="mx-4" />
+            <LanguageRow
+              label={currentLanguageLabel}
+              onPress={() => setLangOpen(true)}
+            />
+          </ListGroup>
         ) : null}
 
         {authed === true && !Platform.isTV ? (
@@ -306,7 +305,33 @@ export default function SettingsTab() {
         visible={loginOpen}
         onClose={() => setLoginOpen(false)}
       />
+      <LanguageSheet visible={langOpen} onClose={() => setLangOpen(false)} />
     </SafeAreaView>
+  );
+}
+
+// Fila de idioma para la lista de Perfil: abre el sheet de selección. Muestra el
+// idioma activo como descripción y una flecha (chevron) por defecto a la derecha.
+function LanguageRow({
+  label,
+  onPress,
+}: {
+  label: string;
+  onPress: () => void;
+}) {
+  const { t } = useTranslation();
+  const { focused, focusProps } = useTvFocus();
+  return (
+    <ListGroup.Item onPress={onPress} {...focusProps} style={tvFocusRing(focused)}>
+      <ListGroup.ItemPrefix>
+        <GlassIcon name="badge-sparkle" size={24} />
+      </ListGroup.ItemPrefix>
+      <ListGroup.ItemContent>
+        <ListGroup.ItemTitle>{t('Idioma')}</ListGroup.ItemTitle>
+        <ListGroup.ItemDescription>{label}</ListGroup.ItemDescription>
+      </ListGroup.ItemContent>
+      <ListGroup.ItemSuffix />
+    </ListGroup.Item>
   );
 }
 

@@ -322,6 +322,7 @@ export default function PlayerScreen() {
     url: string;
     title?: string;
     background?: string;
+    poster?: string;
     logo?: string;
     type?: string;
     id?: string;
@@ -331,6 +332,7 @@ export default function PlayerScreen() {
   }>();
   const title = params.title;
   const background = params.background || undefined;
+  const poster = params.poster || undefined;
   const logo = params.logo || undefined;
   // type/id permiten reabrir la lista de fuentes desde el reproductor.
   const mediaType = params.type === 'series' ? 'series' : 'movie';
@@ -361,6 +363,7 @@ export default function PlayerScreen() {
     episode: episode ? Number(episode) : 0,
     name: title,
     background,
+    poster,
   });
 
   // `rawUrl` es la URL cruda de la fuente que se está intentando reproducir. El
