@@ -1,4 +1,3 @@
-import { X } from 'lucide-react-native';
 import { Typography } from 'heroui-native';
 import { router } from 'expo-router';
 import { useCallback } from 'react';
@@ -43,13 +42,6 @@ export function StreamLoginSheet({
             <Typography type="h4" weight="bold" align="center">
               {t('Iniciar sesión')}
             </Typography>
-            <Pressable
-              accessibilityLabel={t('Cerrar')}
-              onPress={onClose}
-              style={styles.close}
-            >
-              <X size={20} color="#fff" />
-            </Pressable>
           </View>
 
           <StreamLoginContent {...login} />
@@ -86,15 +78,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 36,
-  },
-  close: {
-    position: 'absolute',
-    right: 0,
-    width: 36,
-    height: 36,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#27272a',
   },
 });

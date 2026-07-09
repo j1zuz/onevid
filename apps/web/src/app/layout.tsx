@@ -23,8 +23,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const SITE_DESCRIPTION =
-  "Reproductor de video: modo local sin cuenta o streaming con tu catálogo TMDB.";
+const SITE_DESCRIPTION = "Tu reproductor de video.";
 
 export const metadata: Metadata = {
   title: {

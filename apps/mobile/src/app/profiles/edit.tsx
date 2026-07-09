@@ -35,7 +35,7 @@ export default function EditProfileScreen() {
   const { toast } = useToast();
 
   const [name, setName] = useState('');
-  const [avatar, setAvatar] = useState<AvatarKey>('blue');
+  const [avatar, setAvatar] = useState<AvatarKey>('black');
   const [isKids, setIsKids] = useState(false);
 
   const [hadPin, setHadPin] = useState(false); // este perfil ya tenía PIN

@@ -27,5 +27,5 @@ const SOURCES: Record<AvatarKey, ImageSourcePropType> = {
 };
 
 export function avatarSource(key: string | undefined): ImageSourcePropType {
-  return SOURCES[(key as AvatarKey) in SOURCES ? (key as AvatarKey) : 'blue'];
+  return SOURCES[(key as AvatarKey) in SOURCES ? (key as AvatarKey) : 'black'];
 }
