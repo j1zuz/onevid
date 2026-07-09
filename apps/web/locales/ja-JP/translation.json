@@ -10,6 +10,8 @@
   "Elige un nombre de usuario": "ユーザー名を入力してください",
   "Estrenos": "新作",
   "Gestiona tu token de TMDB y los complementos OneVLP.": "TMDB トークンと OneVLP アドオンを管理します。",
+  "Idioma": "言語",
+  "Modo local": "ローカルモード",
   "Máximo {{n}} caracteres": "最大{{n}}文字",
   "Mínimo {{n}} caracteres": "最低{{n}}文字",
   "Películas": "映画",
@@ -20,7 +22,6 @@
   "Solo letras, números, guiones bajos y puntos": "英数字、アンダースコア、ピリオドのみ使用可能",
   "Todas las cadenas": "すべてのネットワーク",
   "Usamos cookies": "Cookieを使用しています",
-  "Utilizamos cookies esenciales para el funcionamiento de la plataforma y cookies de análisis para mejorar tu experiencia.": "プラットフォームの動作に必要なCookieと、体験向上のための分析Cookieを使用しています。",
-  "Modo local": "ローカルモード"
+  "Utilizamos cookies esenciales para el funcionamiento de la plataforma y cookies de análisis para mejorar tu experiencia.": "プラットフォームの動作に必要なCookieと、体験向上のための分析Cookieを使用しています。"
 }
 

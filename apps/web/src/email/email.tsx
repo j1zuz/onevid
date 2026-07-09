@@ -187,7 +187,7 @@ export const MagicLinkEmail = ({
               <Row>
                 <Column align="center" className="w-full">
                   <Img
-                    alt="Hackw"
+                    alt="onevid"
                     className="mx-auto block border-0"
                     height={32}
                     src={logoImageSrc()}
@@ -254,7 +254,7 @@ export const PinResetEmail = ({ code, email = "" }: PinResetEmailProps) => {
               <Row>
                 <Column align="center" className="w-full">
                   <Img
-                    alt="Hackw"
+                    alt="onevid"
                     className="mx-auto block border-0"
                     height={32}
                     src={logoImageSrc()}

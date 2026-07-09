@@ -1,11 +1,15 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { ScrollShadow, Skeleton, Typography } from 'heroui-native';
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ScrollView, useWindowDimensions, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
+import {
+  ContinueWatchingRow,
+  type ContinueWatchingItem,
+} from '@/components/home/continue-watching-row';
 import { HeroCarousel } from '@/components/home/hero-carousel';
 import { PosterRow } from '@/components/home/poster-row';
 import { LocalVideoPicker } from '@/components/local-video-picker';
@@ -32,6 +36,26 @@ export default function HomeTab() {
   // el backend responde 4xx; en ese caso mostramos el SetupPrompt.
   const { data: status } = useSetupStatus(streamMode);
   const catalogEnabled = streamMode && status?.setupCompleted === true;
+
+  const queryClient = useQueryClient();
+  const continueQuery = useQuery({
+    queryKey: ['continue-watching'],
+    queryFn: () =>
+      apiFetch<{ results: ContinueWatchingItem[] }>(
+        '/api/onevid-progress',
+      ).then((r) => r.results ?? []),
+    enabled: catalogEnabled,
+  });
+  const continueItems = continueQuery.data ?? [];
+  // Al volver al Inicio (p. ej. tras salir del reproductor) refrescamos las
+  // posiciones para que "Continuar viendo" refleje lo recién visto.
+  useFocusEffect(
+    useCallback(() => {
+      if (catalogEnabled) {
+        queryClient.invalidateQueries({ queryKey: ['continue-watching'] });
+      }
+    }, [catalogEnabled, queryClient]),
+  );
   const moviesQuery = useQuery({
     queryKey: ['catalog', 'movie', 'trending'],
     queryFn: () =>
@@ -64,6 +88,27 @@ export default function HomeTab() {
     router.push({
       pathname: '/detail/[type]/[id]',
       params: { type: item.type, id: item.id },
+    });
+  }, []);
+
+  // Reproducir directo desde "Continuar viendo" (sin `url` → el player toma la
+  // 1ª fuente y salta a la posición guardada). Para series pasamos temporada/
+  // episodio para reanudar el episodio correcto.
+  const handleResume = useCallback((item: ContinueWatchingItem) => {
+    router.push({
+      pathname: '/player',
+      params: {
+        title: item.name,
+        background: item.background,
+        type: item.type,
+        id: item.id,
+        ...(item.type === 'series' && item.season && item.episode
+          ? {
+              season: String(item.season),
+              episode: String(item.episode),
+            }
+          : {}),
+      },
     });
   }, []);
 
@@ -111,6 +156,14 @@ export default function HomeTab() {
         ) : (
           <HeroCarousel items={heroItems} />
         )}
+
+        {continueItems.length > 0 ? (
+          <ContinueWatchingRow
+            title={t('Continuar viendo')}
+            items={continueItems}
+            onPressItem={handleResume}
+          />
+        ) : null}
 
         <PosterRow
           title={t('Películas en tendencia')}

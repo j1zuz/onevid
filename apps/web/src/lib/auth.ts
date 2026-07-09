@@ -3,7 +3,6 @@ import { dash } from "@better-auth/infra";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { bearer, deviceAuthorization, magicLink } from "better-auth/plugins";
-import { username } from "better-auth/plugins/username";
 import { Resend } from "resend";
 import {
   DEFAULT_LANGUAGE,
@@ -23,11 +22,6 @@ import {
   verification,
 } from "./auth-schema";
 import { db } from "./db";
-import {
-  isUsernameAllowed,
-  MAX_USERNAME_LEN,
-  MIN_USERNAME_LEN,
-} from "./username-validation";
 
 function parseLocaleFromMagicLinkUrl(url: string): SupportedLanguage {
   try {
@@ -52,7 +46,7 @@ function parseLocaleFromMagicLinkUrl(url: string): SupportedLanguage {
 const resend = new Resend(process.env.RESEND_API_KEY ?? "");
 
 export const auth = betterAuth({
-  appName: "Hackw",
+  appName: "onevid",
   database: drizzleAdapter(db, {
     provider: "pg",
     schema: {
@@ -112,11 +106,6 @@ export const auth = betterAuth({
       expiresIn: "15m",
       interval: "5s",
       schema: {}, // workaround: better-auth marca `schema` como obligatorio bajo zod v4
-    }),
-    username({
-      minUsernameLength: MIN_USERNAME_LEN,
-      maxUsernameLength: MAX_USERNAME_LEN,
-      usernameValidator: (value) => isUsernameAllowed(value),
     }),
     magicLink({
       storeToken: "hashed",

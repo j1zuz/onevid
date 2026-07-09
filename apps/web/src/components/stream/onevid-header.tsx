@@ -29,6 +29,7 @@ import { BoltIcon, LogOutIcon, SearchIcon, UploadIcon, XIcon } from "lucide-reac
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { LanguageMenuItem } from "@/components/language-selector";
 import {
   type OneVidAddonSummary,
   SetupStepper,
@@ -230,7 +231,7 @@ export function OneVidHeader({
     }
     return (
       <ul
-        className="max-h-80 overflow-y-auto [&::-webkit-scrollbar]:hidden"
+        className="scroll-fade-y max-h-80 overflow-y-auto [&::-webkit-scrollbar]:hidden"
         style={{ scrollbarWidth: "none" }}
       >
         {searchResults.map((item) => (
@@ -425,6 +426,7 @@ export function OneVidHeader({
               <BoltIcon className="size-3.5" />
               {t("Configuración de onevid")}
             </DropdownMenuItem>
+            <LanguageMenuItem />
             <DropdownMenuSeparator />
             {/* Navega a /: la MISMA pantalla de modo local que ve alguien sin
                 sesión (sin duplicar una versión propia acá). El proxy

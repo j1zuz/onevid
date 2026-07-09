@@ -11,6 +11,7 @@ import {
 import { ExploreMovieDialog } from "@/components/explore-movie-dialog";
 import { ExploreMovieGrid } from "@/components/explore-movie-grid";
 import type { OneVidAddonSummary } from "@/components/stepper-onevid";
+import { ContinueWatchingRow } from "@/components/stream/continue-watching-row";
 import { OneVidHeader } from "@/components/stream/onevid-header";
 import {
   type OneVidProfile,
@@ -126,23 +127,34 @@ export function OneVidPageClient({
 
   return (
     <OneVidProfileProvider initialProfiles={initialProfiles}>
-      <OneVidHeader
-        addons={addons}
-        allNetworks={allNetworks}
-        catalogs={catalogs}
-        catalogsByType={catalogsByType}
-        hasTorboxKey={hasTorboxKey}
-        linked={linked}
-        onMovieSelect={handleMovieSelect}
-        selectedCatalog={selectedCatalog}
-        selectedCatalogOption={selectedCatalogOption}
-        selectedNetwork={selectedNetwork}
-        selectedType={selectedType}
-        setupCompleted={setupCompleted}
-        typeOptions={typeOptions}
-      />
+      <div className="flex h-full min-h-0 flex-1 flex-col">
+        <OneVidHeader
+          addons={addons}
+          allNetworks={allNetworks}
+          catalogs={catalogs}
+          catalogsByType={catalogsByType}
+          hasTorboxKey={hasTorboxKey}
+          linked={linked}
+          onMovieSelect={handleMovieSelect}
+          selectedCatalog={selectedCatalog}
+          selectedCatalogOption={selectedCatalogOption}
+          selectedNetwork={selectedNetwork}
+          selectedType={selectedType}
+          setupCompleted={setupCompleted}
+          typeOptions={typeOptions}
+        />
 
-      {mainContent}
+        {/* Contenedor con scroll propio (no el de <body>): así el util
+            scroll-fade-t de shadcn, que necesita que el elemento con la clase
+            sea el que scrollea, puede aplicarse y verse al bajar.
+            no-scrollbar oculta la barra de este contenedor (sigue siendo
+            scrolleable con mouse/trackpad/touch/teclado, solo sin indicador
+            visual, igual que el dropdown de búsqueda del header). */}
+        <div className="scroll-fade-t no-scrollbar flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto py-4">
+          <ContinueWatchingRow />
+          {mainContent}
+        </div>
+      </div>
 
       {searchMovie && (
         <ExploreMovieDialog

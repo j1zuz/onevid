@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VideoJsStreamPlayer } from "@/components/stream/video-js-stream-player";
 import { useMediaBunny } from "@/hooks/use-mediabunny";
-import { getSavedTime, useVideoProgress } from "@/hooks/use-video-progress";
+import { useWatchProgress } from "@/hooks/use-video-progress";
 import type { MimeType, StreamWithAddon } from "@/types/stream";
 import { getMimeType, needsMediaBunny } from "@/utils/stream-codec";
 
@@ -57,6 +57,10 @@ export function StreamOnevid({
   rawId,
 }: StreamOnevidProps) {
   const router = useRouter();
+  // For series rawId is "seriesId:season:episode"; movies have no suffix.
+  const rawParts = rawId.split(":");
+  const season = rawParts.length >= 3 ? Number(rawParts[1]) || 0 : 0;
+  const episode = rawParts.length >= 3 ? Number(rawParts[2]) || 0 : 0;
   const backHref = `/home?movie=${encodeURIComponent(contentId)}&movieType=${contentType}`;
   const handleBack = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -97,7 +101,33 @@ export function StreamOnevid({
   if (sourceUrl && needsMediaBunny(sourceFilename)) {
     activeSrc = mediaBunny.status === "done" ? mediaBunny.src : "";
   }
-  const { onTimeUpdate, onEnded } = useVideoProgress(sourceUrl);
+  const { onTimeUpdate, onEnded, initialResume } = useWatchProgress({
+    mediaId: contentId,
+    mediaType: contentType,
+    season,
+    episode,
+    name: contentTitle,
+    poster: _contentPoster,
+    background: contentBackground,
+  });
+  // Resume seek is async (position comes from the server), so apply it in an
+  // effect once both the saved position and the <video> element are ready,
+  // guarded so we only seek once and don't fight the user scrubbing.
+  const hasResumed = useRef(false);
+  useEffect(() => {
+    if (hasResumed.current || !hasPlayed || !initialResume) {
+      return;
+    }
+    if (initialResume.positionSec > 10) {
+      const vid = document.querySelector<HTMLVideoElement>(
+        ".stream-video-player-root video"
+      );
+      if (vid) {
+        vid.currentTime = initialResume.positionSec;
+      }
+    }
+    hasResumed.current = true;
+  }, [hasPlayed, initialResume]);
   const R = 16;
   const C = 2 * Math.PI * R;
   const mbProgress =
@@ -281,17 +311,6 @@ export function StreamOnevid({
             onLoadStart={() => setIsBuffering(true)}
             onPlaying={() => {
               setIsBuffering(false);
-              if (!hasPlayed && sourceUrl) {
-                const saved = getSavedTime(sourceUrl);
-                if (saved > 10) {
-                  const vid = document.querySelector<HTMLVideoElement>(
-                    ".stream-video-player-root video"
-                  );
-                  if (vid) {
-                    vid.currentTime = saved;
-                  }
-                }
-              }
               setHasPlayed(true);
             }}
             onTimeUpdate={onTimeUpdate}

@@ -54,6 +54,7 @@ import {
   type StreamSource,
 } from '@/components/sources-list';
 import { tvFocusRing } from '@/hooks/use-tv-focus';
+import { useWatchProgress } from '@/hooks/use-watch-progress';
 import { track } from '@/lib/analytics';
 import { API_URL, appClientHeaders, getAccessToken } from '@/lib/auth';
 
@@ -349,6 +350,18 @@ export default function PlayerScreen() {
       ? `S${season}E${episode}${episodeTitle ? ` · ${episodeTitle}` : ''}`
       : undefined;
 
+  // "Continue watching": server-synced playback progress. Lives here in
+  // PlayerScreen (stable) rather than in Player, which remounts on every source
+  // fallback (key={url}); we hand its callbacks + resume position down as props.
+  const { onTime, flush, resumeMs } = useWatchProgress({
+    mediaId,
+    mediaType,
+    season: season ? Number(season) : 0,
+    episode: episode ? Number(episode) : 0,
+    name: title,
+    background,
+  });
+
   // `rawUrl` es la URL cruda de la fuente que se está intentando reproducir. El
   // auto-fallback la reapunta a la siguiente fuente cuando una falla.
   const [rawUrl, setRawUrl] = useState(params.url ?? '');
@@ -643,6 +656,9 @@ export default function PlayerScreen() {
               ? PLAYBACK_MANUAL_TIMEOUT_MS
               : PLAYBACK_START_TIMEOUT_MS
           }
+          resumeMs={resumeMs}
+          onProgress={onTime}
+          onFlush={flush}
           onReveal={() => {
             setRevealedUrl(state.url);
             revealedContent.add(contentKey);
@@ -792,6 +808,9 @@ function Player({
   mediaType,
   loadingInline,
   startTimeoutMs = PLAYBACK_START_TIMEOUT_MS,
+  resumeMs,
+  onProgress,
+  onFlush,
   onReveal,
   onUnplayable,
   onChangeSource,
@@ -807,6 +826,12 @@ function Player({
    *  true al cambiar de fuente o re-entrar a algo ya visto. */
   loadingInline?: boolean;
   startTimeoutMs?: number;
+  /** Posición guardada (ms) a la que saltar al primer fotograma ("Continuar viendo"). */
+  resumeMs?: number | null;
+  /** Reporta la posición actual (ms) y la duración (ms) para guardar el progreso. */
+  onProgress?: (positionMs: number, durationMs: number) => void;
+  /** Fuerza un guardado inmediato del progreso (pausa / detenido). */
+  onFlush?: () => void;
   /** Avisa al padre de que ya hay imagen (o error local) → funde la carátula. */
   onReveal?: () => void;
   onUnplayable?: () => void;
@@ -841,6 +866,8 @@ function Player({
   const sawBufferingRef = useRef(false);
   const sawStoppedRef = useRef(false);
   const dialogTypeRef = useRef<string | undefined>(undefined);
+  // Salto de reanudación ("Continuar viendo"): se aplica una sola vez por fuente.
+  const resumedRef = useRef(false);
   useEffect(() => {
     startedAtRef.current = Date.now();
   }, []);
@@ -907,6 +934,20 @@ function Player({
       onReveal?.();
     }
   }, [firstFrame, onReveal, mediaType, mediaId]);
+
+  // Reanuda desde la posición guardada una vez que hay imagen (VLC ya abrió el
+  // medio). Una sola vez por fuente y solo si vale la pena (> 30 s).
+  useEffect(() => {
+    if (resumedRef.current || !firstFrame) {
+      return;
+    }
+    if (resumeMs && resumeMs > 30_000) {
+      // El seek dispara onTimeChanged, que actualiza `time` (no lo tocamos aquí
+      // para no llamar setState dentro del effect).
+      playerRef.current?.seek(resumeMs, 'time');
+    }
+    resumedRef.current = true;
+  }, [firstFrame, resumeMs]);
 
   // Reporta la fuente como no reproducible al padre (auto-fallback). Una sola vez
   // por fuente y solo si aún no se había visto imagen: un corte tras el primer
@@ -1075,10 +1116,14 @@ function Player({
           setRawError(null);
           setProbe(null);
         }}
-        onPaused={() => setPlaying(false)}
+        onPaused={() => {
+          setPlaying(false);
+          onFlush?.(); // guarda el progreso al pausar
+        }}
         onStopped={() => {
           setPlaying(false);
           sawStoppedRef.current = true; // diagnóstico: VLC se detuvo solo
+          onFlush?.();
         }}
         // Diagnóstico clave en TV: VLC muestra diálogos OCULTOS (certificado SSL
         // no confiable, login del host, error) que sin manejar BLOQUEAN la
@@ -1102,6 +1147,9 @@ function Player({
           // El tiempo avanza ⇒ hay fotogramas pintándose ⇒ ya podemos fundir
           // la carátula al vídeo (sin pasar por negro ni spinner).
           if (value > 0 && !firstFrame) setFirstFrame(true);
+          // Guarda el progreso (el hook throttlea a cada 10 s). Ignoramos ticks
+          // previos al salto de reanudación para no sobrescribir con posición 0.
+          if (resumedRef.current) onProgress?.(value, duration);
           if (!scrubbing) {
             setTime(value);
             // Si el tiempo avanza, NO está buffering: limpiamos el spinner ya

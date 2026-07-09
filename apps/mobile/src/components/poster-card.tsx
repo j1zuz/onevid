@@ -13,6 +13,8 @@ interface PosterCardProps {
    * detalle siguen verticales.
    */
   landscape?: boolean;
+  /** Progreso de reproducción 0–1: dibuja una barra inferior ("Continuar viendo"). */
+  progress?: number;
   onPress?: () => void;
 }
 
@@ -20,6 +22,7 @@ export function PosterCard({
   item,
   width,
   landscape = false,
+  progress,
   onPress,
 }: PosterCardProps) {
   const containerStyle = width != null ? { width } : undefined;
@@ -47,6 +50,29 @@ export function PosterCard({
             cachePolicy="memory-disk"
             style={{ width: '100%', height: '100%' }}
           />
+        ) : null}
+        {progress != null && progress > 0 ? (
+          <View
+            style={{
+              position: 'absolute',
+              left: 8,
+              right: 8,
+              bottom: 8,
+              height: 3,
+              borderRadius: 999,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              overflow: 'hidden',
+            }}
+          >
+            <View
+              style={{
+                width: `${Math.min(100, Math.max(0, progress * 100))}%`,
+                height: '100%',
+                borderRadius: 999,
+                backgroundColor: '#fff',
+              }}
+            />
+          </View>
         ) : null}
       </View>
       <Typography type="body-sm" weight="medium" truncate>

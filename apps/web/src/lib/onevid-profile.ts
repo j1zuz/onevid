@@ -2,6 +2,7 @@ import { hashPassword, verifyPassword } from "better-auth/crypto";
 import { and, desc, eq } from "drizzle-orm";
 import {
   oneVidProfile,
+  oneVidProfileProgress,
   oneVidProfileSaved,
   verification,
 } from "@/lib/auth-schema";
@@ -353,4 +354,194 @@ export async function getProfileSavedStatus(
     favorite: rows.some((r) => r.kind === "favorite"),
     watchlist: rows.some((r) => r.kind === "watchlist"),
   };
+}
+
+// ─── Per-profile watch progress ("Continue watching") ────────────────
+
+/** Only start tracking once the user is meaningfully into the title. */
+export const PROGRESS_MIN_SEC = 30;
+/** At/after this fraction the title counts as finished and is dropped. */
+export const PROGRESS_DONE_RATIO = 0.92;
+
+export interface ProgressInput {
+  background?: string;
+  durationSec?: number;
+  episode?: number;
+  mediaId: string;
+  mediaType: SavedMediaType;
+  name?: string;
+  poster?: string;
+  positionSec: number;
+  season?: number;
+  year?: string;
+}
+
+export interface ContinueWatchingItem {
+  background?: string;
+  durationSec: number;
+  episode: number;
+  id: string;
+  name: string;
+  poster?: string;
+  positionSec: number;
+  season: number;
+  type: SavedMediaType;
+  year?: string;
+}
+
+/**
+ * Upsert a title's playback position for a profile. Ignores sub-threshold
+ * positions (accidental starts) and, once the title is effectively finished,
+ * removes the row so it drops out of "Continue watching".
+ */
+export async function setProfileProgress(
+  profileId: string,
+  input: ProgressInput
+): Promise<void> {
+  const season = input.season ?? 0;
+  const episode = input.episode ?? 0;
+  const positionSec = Math.max(0, Math.floor(input.positionSec));
+  const durationSec = Math.max(0, Math.floor(input.durationSec ?? 0));
+  const finished =
+    durationSec > 0 && positionSec / durationSec >= PROGRESS_DONE_RATIO;
+
+  if (finished) {
+    await db
+      .delete(oneVidProfileProgress)
+      .where(
+        and(
+          eq(oneVidProfileProgress.profileId, profileId),
+          eq(oneVidProfileProgress.mediaType, input.mediaType),
+          eq(oneVidProfileProgress.mediaId, input.mediaId),
+          eq(oneVidProfileProgress.season, season),
+          eq(oneVidProfileProgress.episode, episode)
+        )
+      );
+    return;
+  }
+
+  if (positionSec < PROGRESS_MIN_SEC) {
+    return;
+  }
+
+  await db
+    .insert(oneVidProfileProgress)
+    .values({
+      id: buildId(),
+      profileId,
+      mediaId: input.mediaId,
+      mediaType: input.mediaType,
+      season,
+      episode,
+      positionSec,
+      durationSec,
+      finished: false,
+      name: input.name ?? null,
+      poster: input.poster ?? null,
+      background: input.background ?? null,
+      year: input.year ?? null,
+      updatedAt: new Date(),
+      createdAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [
+        oneVidProfileProgress.profileId,
+        oneVidProfileProgress.mediaType,
+        oneVidProfileProgress.mediaId,
+        oneVidProfileProgress.season,
+        oneVidProfileProgress.episode,
+      ],
+      set: {
+        positionSec,
+        durationSec,
+        finished: false,
+        name: input.name ?? null,
+        poster: input.poster ?? null,
+        background: input.background ?? null,
+        year: input.year ?? null,
+        updatedAt: new Date(),
+      },
+    });
+}
+
+/**
+ * List a profile's in-progress titles, most-recent first. Collapses multiple
+ * episodes of the same series to its latest-watched entry.
+ */
+export async function listProfileProgress(
+  profileId: string
+): Promise<ContinueWatchingItem[]> {
+  const rows = await db
+    .select({
+      mediaId: oneVidProfileProgress.mediaId,
+      mediaType: oneVidProfileProgress.mediaType,
+      season: oneVidProfileProgress.season,
+      episode: oneVidProfileProgress.episode,
+      positionSec: oneVidProfileProgress.positionSec,
+      durationSec: oneVidProfileProgress.durationSec,
+      name: oneVidProfileProgress.name,
+      poster: oneVidProfileProgress.poster,
+      background: oneVidProfileProgress.background,
+      year: oneVidProfileProgress.year,
+    })
+    .from(oneVidProfileProgress)
+    .where(
+      and(
+        eq(oneVidProfileProgress.profileId, profileId),
+        eq(oneVidProfileProgress.finished, false)
+      )
+    )
+    .orderBy(desc(oneVidProfileProgress.updatedAt));
+
+  const seen = new Set<string>();
+  const items: ContinueWatchingItem[] = [];
+  for (const r of rows) {
+    if (seen.has(r.mediaId)) {
+      continue;
+    }
+    seen.add(r.mediaId);
+    items.push({
+      id: r.mediaId,
+      type: r.mediaType as SavedMediaType,
+      season: r.season,
+      episode: r.episode,
+      positionSec: r.positionSec,
+      durationSec: r.durationSec,
+      name: r.name ?? "",
+      poster: r.poster ?? undefined,
+      background: r.background ?? undefined,
+      year: r.year ?? undefined,
+    });
+  }
+  return items;
+}
+
+/** Saved position for a single title/episode within a profile (for resume). */
+export async function getProfileProgress(
+  profileId: string,
+  mediaType: SavedMediaType,
+  mediaId: string,
+  season = 0,
+  episode = 0
+): Promise<{ durationSec: number; positionSec: number } | null> {
+  const [row] = await db
+    .select({
+      positionSec: oneVidProfileProgress.positionSec,
+      durationSec: oneVidProfileProgress.durationSec,
+    })
+    .from(oneVidProfileProgress)
+    .where(
+      and(
+        eq(oneVidProfileProgress.profileId, profileId),
+        eq(oneVidProfileProgress.mediaType, mediaType),
+        eq(oneVidProfileProgress.mediaId, mediaId),
+        eq(oneVidProfileProgress.season, season),
+        eq(oneVidProfileProgress.episode, episode)
+      )
+    )
+    .limit(1);
+  if (!row) {
+    return null;
+  }
+  return { positionSec: row.positionSec, durationSec: row.durationSec };
 }

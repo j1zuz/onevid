@@ -245,6 +245,50 @@ export const oneVidProfileSaved = pgTable(
   ]
 );
 
+// Per-profile watch progress ("Continue watching"), synced server-side so a
+// title resumes across web, mobile and TV. Keyed by TMDB mediaId (+ season/
+// episode for series), NOT by stream URL (which changes across addons/sessions).
+export const oneVidProfileProgress = pgTable(
+  "onevid_profile_progress",
+  {
+    id: text("id").primaryKey(),
+    profileId: text("profile_id")
+      .notNull()
+      .references(() => oneVidProfile.id, { onDelete: "cascade" }),
+    mediaId: text("media_id").notNull(),
+    mediaType: text("media_type").notNull(), // 'movie' | 'series'
+    // 0/0 sentinel for movies (never null: Postgres treats NULLs as distinct,
+    // which would break the unique index used for upserts).
+    season: integer("season").default(0).notNull(),
+    episode: integer("episode").default(0).notNull(),
+    positionSec: integer("position_sec").notNull(),
+    durationSec: integer("duration_sec").default(0).notNull(),
+    finished: boolean("finished").default(false).notNull(),
+    name: text("name"),
+    poster: text("poster"),
+    background: text("background"),
+    year: text("year"),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("onevid_profile_progress_unique").on(
+      table.profileId,
+      table.mediaType,
+      table.mediaId,
+      table.season,
+      table.episode
+    ),
+    index("onevid_profile_progress_profile").on(
+      table.profileId,
+      table.updatedAt
+    ),
+  ]
+);
+
 export const oneVidProfileRelations = relations(oneVidProfile, ({ one }) => ({
   user: one(user, {
     fields: [oneVidProfile.userId],
@@ -257,6 +301,16 @@ export const oneVidProfileSavedRelations = relations(
   ({ one }) => ({
     profile: one(oneVidProfile, {
       fields: [oneVidProfileSaved.profileId],
+      references: [oneVidProfile.id],
+    }),
+  })
+);
+
+export const oneVidProfileProgressRelations = relations(
+  oneVidProfileProgress,
+  ({ one }) => ({
+    profile: one(oneVidProfile, {
+      fields: [oneVidProfileProgress.profileId],
       references: [oneVidProfile.id],
     }),
   })

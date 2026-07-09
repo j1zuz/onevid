@@ -3,7 +3,6 @@ import { sentinelClient } from "@better-auth/infra/client";
 import {
   deviceAuthorizationClient,
   magicLinkClient,
-  usernameClient,
 } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import type { AuthInstance } from "@/lib/auth";
@@ -14,7 +13,6 @@ export const authClient = createAuthClient({
     apiKeyClient(),
     deviceAuthorizationClient(),
     magicLinkClient(),
-    usernameClient(),
   ],
   /**
    * Alinea tipos del cliente con `betterAuth({...})` vía `BetterAuthClientOptions["$InferAuth"]`

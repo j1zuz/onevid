@@ -10,6 +10,8 @@
   "Elige un nombre de usuario": "사용자 이름을 선택하세요",
   "Estrenos": "신작",
   "Gestiona tu token de TMDB y los complementos OneVLP.": "TMDB 토큰과 OneVLP 추가 기능을 관리하세요.",
+  "Idioma": "언어",
+  "Modo local": "로컬 모드",
   "Máximo {{n}} caracteres": "최대 {{n}}자",
   "Mínimo {{n}} caracteres": "최소 {{n}}자",
   "Películas": "영화",
@@ -20,7 +22,6 @@
   "Solo letras, números, guiones bajos y puntos": "영문자, 숫자, 밑줄, 점만 사용 가능",
   "Todas las cadenas": "모든 네트워크",
   "Usamos cookies": "쿠키를 사용합니다",
-  "Utilizamos cookies esenciales para el funcionamiento de la plataforma y cookies de análisis para mejorar tu experiencia.": "플랫폼 작동에 필요한 필수 쿠키와 경험 개선을 위한 분석 쿠키를 사용합니다.",
-  "Modo local": "로컬 모드"
+  "Utilizamos cookies esenciales para el funcionamiento de la plataforma y cookies de análisis para mejorar tu experiencia.": "플랫폼 작동에 필요한 필수 쿠키와 경험 개선을 위한 분석 쿠키를 사용합니다."
 }
 
