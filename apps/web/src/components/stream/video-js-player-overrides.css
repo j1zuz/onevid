@@ -1,0 +1,32 @@
+/* Stream player video.js overrides */
+.stream-video-player-root .media-default-skin--video {
+  --media-border-color: transparent;
+  --media-surface-outer-border-color: transparent;
+  --media-surface-inner-border-color: transparent;
+  --media-border-radius: var(--radius-lg);
+  --media-video-border-radius: var(--radius-lg);
+}
+
+/* Ensure video fills the full container so the controls overlay it correctly.
+   Without this the skin's black background (#000) shows as a solid bar behind
+   the controls instead of the semi-transparent gradient over the video. */
+.stream-video-player-root .media-default-skin--video video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Play mode: fill the container edge-to-edge */
+.stream-video-player-root.play-mode {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+
+.stream-video-player-root.play-mode .media-default-skin--video {
+  --media-video-border-radius: 0;
+}
+
+.stream-video-player-root.play-mode video {
+  background-color: #000;
+}

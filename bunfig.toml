@@ -1,0 +1,7 @@
+# Expo / React Native no soportan copias duplicadas de un mismo paquete en un
+# monorepo. El linker aislado de bun (por defecto en workspaces) crea múltiples
+# copias con sufijos por peer-deps, lo que rompe el autolinking nativo y provoca
+# errores en runtime. Forzamos node_modules plano (hoisted), como recomienda Expo
+# para monorepos (equivalente a pnpm nodeLinker: hoisted).
+[install]
+linker = "hoisted"
