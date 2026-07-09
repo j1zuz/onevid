@@ -15,6 +15,7 @@ import { Platform, StatusBar as RNStatusBar } from 'react-native';
 import { Uniwind } from 'uniwind';
 import { AnimatedSplash } from '@/components/animated-splash';
 import i18next from '@/lib/i18n';
+import { useLanguageOverride } from '@/lib/i18n/language-preference';
 import { useDeviceLocale } from '@/lib/i18n/use-device-locale';
 import { validateSession } from '@/lib/auth';
 import { loadActiveProfile } from '@/lib/profiles';
@@ -57,10 +58,14 @@ export default function RootLayout() {
   const [hasProfile, setHasProfile] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
 
+  // Idioma efectivo: si el usuario eligió uno en Perfil (override) manda ése; si
+  // no, seguimos el idioma del dispositivo. Así no forzamos idioma por defecto,
+  // pero respetamos la elección manual aunque cambie el locale del sistema.
   const deviceLocale = useDeviceLocale();
+  const languageOverride = useLanguageOverride();
   useEffect(() => {
-    i18next.changeLanguage(deviceLocale);
-  }, [deviceLocale]);
+    i18next.changeLanguage(languageOverride ?? deviceLocale);
+  }, [languageOverride, deviceLocale]);
 
   // App stays portrait by default; the video player overrides to landscape.
   // En Android TV no aplica (siempre landscape), así que lo saltamos.

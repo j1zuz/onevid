@@ -3,6 +3,7 @@ import { Spinner, Typography, useToast } from 'heroui-native';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Pressable, TextInput, useWindowDimensions, View } from 'react-native';
 import { GodRaysBand } from '@/components/god-rays-band';
 import { tvFocusRing, useTvFocus } from '@/hooks/use-tv-focus';
@@ -19,6 +20,7 @@ function stripExt(name: string): string {
  * funcionalidad disponible sin sesión; vive dentro del tab Inicio.
  */
 export function LocalVideoPicker() {
+  const { t } = useTranslation();
   const { height: windowHeight } = useWindowDimensions();
   const { toast } = useToast();
   const [picking, setPicking] = useState(false);
@@ -34,8 +36,8 @@ export function LocalVideoPicker() {
     if (!/^https?:\/\//i.test(url)) {
       toast.show({
         variant: 'danger',
-        label: 'URL no válida',
-        description: 'Introduce una URL http(s) válida.',
+        label: t('URL no válida'),
+        description: t('Introduce una URL http(s) válida.'),
       });
       return;
     }
@@ -48,7 +50,7 @@ export function LocalVideoPicker() {
       /* URL sin path usable: dejamos "Video" */
     }
     router.push({ pathname: '/player', params: { url, title } });
-  }, [urlInput, toast]);
+  }, [urlInput, toast, t]);
 
   const handlePick = useCallback(async () => {
     if (picking) return;
@@ -61,8 +63,8 @@ export function LocalVideoPicker() {
       if (!perm.granted) {
         toast.show({
           variant: 'danger',
-          label: 'Permiso necesario',
-          description: 'Da acceso a tu galería para elegir un video.',
+          label: t('Permiso necesario'),
+          description: t('Da acceso a tu galería para elegir un video.'),
         });
         return;
       }
@@ -73,7 +75,10 @@ export function LocalVideoPicker() {
       if (res.canceled) return;
       const asset = res.assets[0];
       if (!asset?.uri) {
-        toast.show({ variant: 'danger', label: 'No se pudo abrir el video' });
+        toast.show({
+          variant: 'danger',
+          label: t('No se pudo abrir el video'),
+        });
         return;
       }
       router.push({
@@ -83,13 +88,13 @@ export function LocalVideoPicker() {
     } catch (e) {
       toast.show({
         variant: 'danger',
-        label: 'No se pudo seleccionar el video',
+        label: t('No se pudo seleccionar el video'),
         description: e instanceof Error ? e.message : undefined,
       });
     } finally {
       setPicking(false);
     }
-  }, [picking, toast]);
+  }, [picking, toast, t]);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
@@ -98,10 +103,10 @@ export function LocalVideoPicker() {
         <View className="w-full gap-8">
           <View className="items-center gap-2">
             <Typography type="h2" align="center" color="default">
-              Reproducir video
+              {t('Reproducir video')}
             </Typography>
             <Typography type="body" color="muted" align="center">
-              Elige un video de tu dispositivo o pega una URL
+              {t('Elige un video de tu dispositivo o pega una URL')}
             </Typography>
           </View>
 
@@ -145,10 +150,10 @@ export function LocalVideoPicker() {
             )}
             <View style={{ alignItems: 'center', gap: 4 }}>
               <Typography type="h5" align="center" color="default">
-                Sube un video para reproducir
+                {t('Sube un video para reproducir')}
               </Typography>
               <Typography type="body-sm" color="muted" align="center">
-                Toca para seleccionar desde tu galería
+                {t('Toca para seleccionar desde tu galería')}
               </Typography>
             </View>
           </Pressable>
@@ -157,7 +162,7 @@ export function LocalVideoPicker() {
           <View className="flex-row items-center gap-3">
             <View style={{ flex: 1, height: 1, backgroundColor: '#27272a' }} />
             <Typography type="body-sm" color="muted">
-              o
+              {t('o')}
             </Typography>
             <View style={{ flex: 1, height: 1, backgroundColor: '#27272a' }} />
           </View>
@@ -187,6 +192,7 @@ function UrlBar({
   onChangeText: (v: string) => void;
   onSubmit: () => void;
 }) {
+  const { t } = useTranslation();
   const { focused, focusProps } = useTvFocus();
   const disabled = !value.trim();
   return (
@@ -214,7 +220,7 @@ function UrlBar({
         onSubmitEditing={onSubmit}
         onFocus={focusProps.onFocus}
         onBlur={focusProps.onBlur}
-        placeholder="URL de video o stream en vivo…"
+        placeholder={t('URL de video o stream en vivo…')}
         placeholderTextColor="#666"
         keyboardType="url"
         autoCapitalize="none"
@@ -241,7 +247,7 @@ function UrlBar({
         }}
       >
         <Typography type="body-sm" weight="semibold" style={{ color: '#000' }}>
-          Reproducir
+          {t('Reproducir')}
         </Typography>
       </Pressable>
     </View>

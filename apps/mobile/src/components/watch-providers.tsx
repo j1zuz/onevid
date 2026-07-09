@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { PressableFeedback, Skeleton, Typography } from 'heroui-native';
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Linking, View } from 'react-native';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { apiFetch } from '@/lib/api';
@@ -25,9 +26,13 @@ export interface WatchProvidersResponse {
  * debe ser el id base de TMDB (no el compuesto `id:season:episode`): los
  * proveedores son por título, no por episodio.
  */
-export function watchProvidersQueryOptions(type: 'movie' | 'series', id: string) {
+export function watchProvidersQueryOptions(
+  type: 'movie' | 'series',
+  id: string,
+  lang?: string,
+) {
   return {
-    queryKey: ['watch-providers', id, type] as const,
+    queryKey: ['watch-providers', id, type, lang] as const,
     queryFn: () =>
       apiFetch<WatchProvidersResponse>(
         `/api/watch-providers?type=${type}&id=${encodeURIComponent(id)}`,
@@ -53,8 +58,9 @@ export function WatchProvidersNotice({
   id: string;
   fallback?: ReactNode;
 }) {
+  const { t, i18n } = useTranslation();
   const query = useQuery({
-    ...watchProvidersQueryOptions(type, id),
+    ...watchProvidersQueryOptions(type, id, i18n.language),
     enabled: Boolean(id),
   });
 
@@ -62,7 +68,7 @@ export function WatchProvidersNotice({
     return (
       <View style={{ gap: 12, alignItems: 'center' }}>
         <Typography type="h5" align="center">
-          Medios disponibles
+          {t('Medios disponibles')}
         </Typography>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           {Array.from({ length: 3 }).map((_, i) => (
@@ -95,10 +101,10 @@ export function WatchProvidersNotice({
   return (
     <View style={{ gap: 12, alignItems: 'center' }}>
       <Typography type="h5" align="center">
-        Medios disponibles
+        {t('Medios disponibles')}
       </Typography>
       <Typography type="body-sm" color="muted" align="center">
-        No hay fuentes de streaming en la app. Míralo en:
+        {t('No hay fuentes de streaming en la app. Míralo en:')}
       </Typography>
       <View
         style={{
@@ -113,7 +119,7 @@ export function WatchProvidersNotice({
         ))}
       </View>
       <Typography type="body-xs" color="muted" align="center">
-        Datos de JustWatch
+        {t('Datos de JustWatch')}
       </Typography>
     </View>
   );

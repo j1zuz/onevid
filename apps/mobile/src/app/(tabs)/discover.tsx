@@ -40,7 +40,10 @@ const NETWORKS: Network[] = [
 const networkLogoUrl = (logo: string) => `https://image.tmdb.org/t/p/w300${logo}`;
 
 export default function DiscoverTab() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // Idioma activo en las query keys: al cambiarlo, React Query refetchea el
+  // catálogo/búsqueda en el nuevo idioma en vez de servir la cache anterior.
+  const lang = i18n.language;
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [network, setNetwork] = useState<Network>(NETWORKS[0]);
@@ -69,7 +72,7 @@ export default function DiscoverTab() {
 
   // Populares de la cadena seleccionada (películas y series), cacheadas por red.
   const moviesQuery = useQuery({
-    queryKey: ['catalog', 'movie', 'top', network.value],
+    queryKey: ['catalog', 'movie', 'top', network.value, lang],
     queryFn: () =>
       apiFetch<{ results: MediaMeta[] }>(
         `/api/onevid-catalog?type=movie&catalog=top&network=${network.value}`,
@@ -77,7 +80,7 @@ export default function DiscoverTab() {
     enabled: catalogEnabled && !isSearching,
   });
   const seriesQuery = useQuery({
-    queryKey: ['catalog', 'series', 'top', network.value],
+    queryKey: ['catalog', 'series', 'top', network.value, lang],
     queryFn: () =>
       apiFetch<{ results: MediaMeta[] }>(
         `/api/onevid-catalog?type=series&catalog=top&network=${network.value}`,
@@ -87,7 +90,7 @@ export default function DiscoverTab() {
 
   // Búsqueda: cubre películas y series, intercaladas.
   const searchMoviesQuery = useQuery({
-    queryKey: ['search', debouncedQuery, 'movie'],
+    queryKey: ['search', debouncedQuery, 'movie', lang],
     queryFn: () =>
       apiFetch<{ results: MediaMeta[] }>(
         `/api/search?q=${encodeURIComponent(debouncedQuery)}&type=movie`,
@@ -95,7 +98,7 @@ export default function DiscoverTab() {
     enabled: catalogEnabled && isSearching && debouncedQuery.length > 0,
   });
   const searchSeriesQuery = useQuery({
-    queryKey: ['search', debouncedQuery, 'series'],
+    queryKey: ['search', debouncedQuery, 'series', lang],
     queryFn: () =>
       apiFetch<{ results: MediaMeta[] }>(
         `/api/search?q=${encodeURIComponent(debouncedQuery)}&type=series`,

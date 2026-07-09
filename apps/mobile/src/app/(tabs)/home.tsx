@@ -22,7 +22,10 @@ import { COLORS } from '@/lib/theme';
 const HERO_TAKE = 8;
 
 export default function HomeTab() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // Idioma activo: entra en las query keys del catálogo para que, al cambiarlo,
+  // React Query refetchee en vez de servir la cache del idioma anterior.
+  const lang = i18n.language;
   const { height: windowHeight } = useWindowDimensions();
   const heroSkeletonHeight = Math.round(windowHeight * 0.72);
 
@@ -57,7 +60,7 @@ export default function HomeTab() {
     }, [catalogEnabled, queryClient]),
   );
   const moviesQuery = useQuery({
-    queryKey: ['catalog', 'movie', 'trending'],
+    queryKey: ['catalog', 'movie', 'trending', lang],
     queryFn: () =>
       apiFetch<{ results: MediaMeta[] }>(
         '/api/onevid-catalog?type=movie&catalog=trending',
@@ -65,7 +68,7 @@ export default function HomeTab() {
     enabled: catalogEnabled,
   });
   const seriesQuery = useQuery({
-    queryKey: ['catalog', 'series', 'trending'],
+    queryKey: ['catalog', 'series', 'trending', lang],
     queryFn: () =>
       apiFetch<{ results: MediaMeta[] }>(
         '/api/onevid-catalog?type=series&catalog=trending',
@@ -100,6 +103,7 @@ export default function HomeTab() {
       params: {
         title: item.name,
         background: item.background,
+        poster: item.poster,
         type: item.type,
         id: item.id,
         ...(item.type === 'series' && item.season && item.episode
