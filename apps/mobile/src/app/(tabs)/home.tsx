@@ -1,0 +1,205 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
+import { router, useFocusEffect } from 'expo-router';
+import { ScrollShadow, Skeleton, Typography } from 'heroui-native';
+import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import { ScrollView, useWindowDimensions, View } from 'react-native';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
+import {
+  ContinueWatchingRow,
+  type ContinueWatchingItem,
+} from '@/components/home/continue-watching-row';
+import { HeroCarousel } from '@/components/home/hero-carousel';
+import { PosterRow } from '@/components/home/poster-row';
+import { LocalVideoPicker } from '@/components/local-video-picker';
+import { SetupPrompt, useSetupStatus } from '@/components/setup-prompt';
+import { StreamLoginScreen } from '@/components/stream-login-screen';
+import { useAppSurface } from '@/hooks/use-app-surface';
+import { apiFetch, type MediaMeta } from '@/lib/api';
+import { COLORS } from '@/lib/theme';
+
+const HERO_TAKE = 8;
+
+export default function HomeTab() {
+  const { t } = useTranslation();
+  const { height: windowHeight } = useWindowDimensions();
+  const heroSkeletonHeight = Math.round(windowHeight * 0.72);
+
+  // El tab Inicio es "Reproducir video" en modo local (sin sesión, o si el
+  // usuario eligió modo local en Configuración) y el catálogo en modo stream.
+  // `surface` es null mientras se resuelve; se revalida en cada focus.
+  const surface = useAppSurface();
+  const streamMode = surface?.showLocal === false;
+
+  // El catálogo solo se pide en modo stream Y con setup completo: sin TMDB token
+  // el backend responde 4xx; en ese caso mostramos el SetupPrompt.
+  const { data: status } = useSetupStatus(streamMode);
+  const catalogEnabled = streamMode && status?.setupCompleted === true;
+
+  const queryClient = useQueryClient();
+  const continueQuery = useQuery({
+    queryKey: ['continue-watching'],
+    queryFn: () =>
+      apiFetch<{ results: ContinueWatchingItem[] }>(
+        '/api/onevid-progress',
+      ).then((r) => r.results ?? []),
+    enabled: catalogEnabled,
+  });
+  const continueItems = continueQuery.data ?? [];
+  // Al volver al Inicio (p. ej. tras salir del reproductor) refrescamos las
+  // posiciones para que "Continuar viendo" refleje lo recién visto.
+  useFocusEffect(
+    useCallback(() => {
+      if (catalogEnabled) {
+        queryClient.invalidateQueries({ queryKey: ['continue-watching'] });
+      }
+    }, [catalogEnabled, queryClient]),
+  );
+  const moviesQuery = useQuery({
+    queryKey: ['catalog', 'movie', 'trending'],
+    queryFn: () =>
+      apiFetch<{ results: MediaMeta[] }>(
+        '/api/onevid-catalog?type=movie&catalog=trending',
+      ).then((r) => r.results ?? []),
+    enabled: catalogEnabled,
+  });
+  const seriesQuery = useQuery({
+    queryKey: ['catalog', 'series', 'trending'],
+    queryFn: () =>
+      apiFetch<{ results: MediaMeta[] }>(
+        '/api/onevid-catalog?type=series&catalog=trending',
+      ).then((r) => r.results ?? []),
+    enabled: catalogEnabled,
+  });
+
+  const movies = moviesQuery.data ?? [];
+  const series = seriesQuery.data ?? [];
+  // Solo skeleton si aún no hay datos en cache (primera carga real).
+  const loading = moviesQuery.isLoading || seriesQuery.isLoading;
+  const error =
+    moviesQuery.isError && seriesQuery.isError
+      ? t('No pudimos cargar el catálogo. Reintenta en un momento.')
+      : null;
+
+  const heroItems = interleave(movies, series).slice(0, HERO_TAKE);
+
+  const handlePressItem = useCallback((item: MediaMeta) => {
+    router.push({
+      pathname: '/detail/[type]/[id]',
+      params: { type: item.type, id: item.id },
+    });
+  }, []);
+
+  // Reproducir directo desde "Continuar viendo" (sin `url` → el player toma la
+  // 1ª fuente y salta a la posición guardada). Para series pasamos temporada/
+  // episodio para reanudar el episodio correcto.
+  const handleResume = useCallback((item: ContinueWatchingItem) => {
+    router.push({
+      pathname: '/player',
+      params: {
+        title: item.name,
+        background: item.background,
+        type: item.type,
+        id: item.id,
+        ...(item.type === 'series' && item.season && item.episode
+          ? {
+              season: String(item.season),
+              episode: String(item.episode),
+            }
+          : {}),
+      },
+    });
+  }, []);
+
+  // Mientras se resuelve sesión/modo no pintamos nada (evita parpadeo picker↔catálogo).
+  if (surface == null)
+    return <View style={{ flex: 1, backgroundColor: COLORS.background }} />;
+  // Modo local: el tab Inicio muestra "Reproducir video".
+  if (surface.showLocal) return <LocalVideoPicker />;
+
+  // Stream sin sesión (caso TV, sin picker): mostramos el QR de login centrado
+  // a pantalla completa, sin que el usuario tenga que ir a Perfil.
+  if (!surface.authed) return <StreamLoginScreen />;
+
+  if (status && !status.setupCompleted) return <SetupPrompt />;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+      <ScrollShadow
+        style={{ flex: 1 }}
+        size={36}
+        color={COLORS.background}
+        LinearGradientComponent={ExpoLinearGradient}
+      >
+      <ScrollView contentContainerStyle={{ paddingBottom: 32, gap: 24 }}>
+        {loading ? (
+          <View style={{ height: heroSkeletonHeight, width: '100%' }}>
+            <Skeleton style={{ width: '100%', height: '100%', borderRadius: 0 }} />
+            <Svg
+              pointerEvents="none"
+              height={Math.round(heroSkeletonHeight * 0.7)}
+              width="100%"
+              style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}
+            >
+              <Defs>
+                <LinearGradient id="heroSkelFade" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor={COLORS.background} stopOpacity="0" />
+                  <Stop offset="0.4" stopColor={COLORS.background} stopOpacity="0.4" />
+                  <Stop offset="0.75" stopColor={COLORS.background} stopOpacity="0.85" />
+                  <Stop offset="1" stopColor={COLORS.background} stopOpacity="1" />
+                </LinearGradient>
+              </Defs>
+              <Rect x="0" y="0" width="100%" height="100%" fill="url(#heroSkelFade)" />
+            </Svg>
+          </View>
+        ) : (
+          <HeroCarousel items={heroItems} />
+        )}
+
+        {continueItems.length > 0 ? (
+          <ContinueWatchingRow
+            title={t('Continuar viendo')}
+            items={continueItems}
+            onPressItem={handleResume}
+          />
+        ) : null}
+
+        <PosterRow
+          title={t('Películas en tendencia')}
+          items={movies}
+          loading={loading}
+          onPressItem={handlePressItem}
+        />
+        <PosterRow
+          title={t('Series en tendencia')}
+          items={series}
+          loading={loading}
+          onPressItem={handlePressItem}
+        />
+
+        {error && !loading ? (
+          <Typography
+            type="body-sm"
+            color="muted"
+            align="center"
+            style={{ paddingHorizontal: 16 }}
+          >
+            {error}
+          </Typography>
+        ) : null}
+      </ScrollView>
+      </ScrollShadow>
+    </View>
+  );
+}
+
+function interleave<T>(a: T[], b: T[]): T[] {
+  const out: T[] = [];
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i += 1) {
+    if (a[i]) out.push(a[i]);
+    if (b[i]) out.push(b[i]);
+  }
+  return out;
+}
