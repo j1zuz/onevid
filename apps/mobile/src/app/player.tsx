@@ -24,7 +24,7 @@ import {
   RotateCw,
   X,
 } from 'lucide-react-native';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -53,6 +53,7 @@ import {
   sourcesQueryOptions,
   type StreamSource,
 } from '@/components/sources-list';
+import { WatchProvidersNotice } from '@/components/watch-providers';
 import { tvFocusRing } from '@/hooks/use-tv-focus';
 import { useWatchProgress } from '@/hooks/use-watch-progress';
 import { track } from '@/lib/analytics';
@@ -395,6 +396,14 @@ export default function PlayerScreen() {
   const playedBefore = revealedUrl !== null || revealedContent.has(contentKey);
   const coverBackground = playedBefore ? undefined : background;
 
+  // No hay ninguna fuente para reproducir (lista vacía o agotada sin fuentes):
+  // en vez de un error muerto mostramos en qué plataformas de streaming está el
+  // título. Requiere `mediaId` para consultar los proveedores por título.
+  const noSources =
+    Boolean(mediaId) &&
+    (state.kind === 'error' ||
+      (state.kind === 'exhausted' && state.total === 0));
+
   // Carátula EXTERNA: se reserva para estados SIN Player montado (resolviendo,
   // probando otra fuente, error/agotado) y para la primera apertura. Cuando ya se
   // vio vídeo y hay Player montado ('ready'), la carga de la nueva fuente la pinta
@@ -677,12 +686,43 @@ export default function PlayerScreen() {
           Montada siempre (opacidad 0 cuando hay vídeo) para no remontar. */}
       <Animated.View
         style={[StyleSheet.absoluteFill, coverStyle]}
-        pointerEvents="none"
+        // Sin fuentes: dejamos pasar los toques a los chips de plataformas.
+        pointerEvents={noSources ? 'box-none' : 'none'}
       >
         <LoadingArt
           background={coverBackground}
           logo={logo}
           title={title}
+          providers={
+            noSources && mediaId ? (
+              <WatchProvidersNotice
+                type={mediaType}
+                id={mediaId}
+                fallback={
+                  <>
+                    <Typography
+                      type="body"
+                      weight="semibold"
+                      color="default"
+                      align="center"
+                    >
+                      No se pudo reproducir
+                    </Typography>
+                    <Typography
+                      type="body-sm"
+                      color="muted"
+                      align="center"
+                      style={{ marginTop: 6 }}
+                    >
+                      {state.kind === 'error'
+                        ? state.message
+                        : 'No encontramos fuentes para este título. Vuelve atrás e inténtalo más tarde.'}
+                    </Typography>
+                  </>
+                }
+              />
+            ) : undefined
+          }
           status={
             state.kind === 'switching'
               ? `Probando otra fuente… (${state.attempt}/${state.total})`
@@ -1604,6 +1644,7 @@ function LoadingArt({
   error,
   detail,
   status,
+  providers,
 }: {
   background?: string;
   logo?: string;
@@ -1611,6 +1652,8 @@ function LoadingArt({
   error?: string;
   detail?: string;
   status?: string;
+  /** Aviso de "dónde ver" que reemplaza al texto de error cuando no hay fuentes. */
+  providers?: ReactNode;
 }) {
   return (
     <View style={styles.artRoot} pointerEvents={error ? 'auto' : 'none'}>
@@ -1631,22 +1674,31 @@ function LoadingArt({
         // demás (no texto suelto sobre el arte).
         <View style={styles.artCenter}>
           <View style={styles.errorBox}>
-            <Typography type="body" weight="semibold" color="default" align="center">
-              No se pudo reproducir
-            </Typography>
-            <Typography
-              type="body-sm"
-              color="muted"
-              align="center"
-              style={{ marginTop: 6 }}
-            >
-              {error}
-            </Typography>
-            {detail ? (
-              <Text style={styles.errorDetail} selectable numberOfLines={4}>
-                {detail}
-              </Text>
-            ) : null}
+            {providers ?? (
+              <>
+                <Typography
+                  type="body"
+                  weight="semibold"
+                  color="default"
+                  align="center"
+                >
+                  No se pudo reproducir
+                </Typography>
+                <Typography
+                  type="body-sm"
+                  color="muted"
+                  align="center"
+                  style={{ marginTop: 6 }}
+                >
+                  {error}
+                </Typography>
+                {detail ? (
+                  <Text style={styles.errorDetail} selectable numberOfLines={4}>
+                    {detail}
+                  </Text>
+                ) : null}
+              </>
+            )}
           </View>
         </View>
       ) : (

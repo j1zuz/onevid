@@ -4,6 +4,7 @@ import { Check, Globe2, HardDrive } from 'lucide-react-native';
 import { ScrollView, View } from 'react-native';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { apiFetch } from '@/lib/api';
+import { WatchProvidersNotice } from '@/components/watch-providers';
 
 export interface StreamSource {
   title: string;
@@ -109,14 +110,22 @@ export function SourcesList({
       {!loading && data && data.sources.length === 0 ? (
         <Card>
           <Card.Body className="gap-3">
-            <Typography type="h5" align="center">
-              Sin fuentes disponibles
-            </Typography>
-            <Typography type="body-sm" color="muted" align="center">
-              {data.totalAddonsTried === 0
-                ? 'No tienes addons instalados. Agrégalos en hackw.tech.'
-                : `Se consultaron ${data.totalAddonsTried} addon(s) y ninguno devolvió resultados.`}
-            </Typography>
+            <WatchProvidersNotice
+              type={type}
+              id={id}
+              fallback={
+                <>
+                  <Typography type="h5" align="center">
+                    Sin fuentes disponibles
+                  </Typography>
+                  <Typography type="body-sm" color="muted" align="center">
+                    {data.totalAddonsTried === 0
+                      ? 'No tienes addons instalados. Agrégalos en hackw.tech.'
+                      : `Se consultaron ${data.totalAddonsTried} addon(s) y ninguno devolvió resultados.`}
+                  </Typography>
+                </>
+              }
+            />
             {data.addonErrors.length > 0 ? (
               <View style={{ gap: 6, marginTop: 4 }}>
                 {data.addonErrors.map((ae) => (
