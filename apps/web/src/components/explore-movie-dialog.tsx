@@ -15,13 +15,17 @@ import {
   Bookmark,
   CheckIcon,
   ChevronDownIcon,
+  Film,
   Heart,
   Play,
+  X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { useOneVidProfiles } from "@/components/stream/onevid-profile-context";
+import { WatchProvidersNotice } from "@/components/watch-providers-notice";
 import type { MediaMeta } from "@/lib/tmdb";
 import type { StreamWithAddon } from "@/types/stream";
 import { getBadgeText, getSourceCompatibility } from "@/utils/stream-codec";
@@ -88,6 +92,10 @@ export function ExploreMovieDialog({
   const [logo, setLogo] = useState<string | undefined>(movie.logo);
   const [logoLoaded, setLogoLoaded] = useState(Boolean(movie.logo));
 
+  // Trailer state (YouTube key from TMDB, cargado al abrir)
+  const [trailerKey, setTrailerKey] = useState<string | null>(null);
+  const [showTrailer, setShowTrailer] = useState(false);
+
   // Favorite / watchlist state (per active profile, stored in hackw)
   const [favorite, setFavorite] = useState(false);
   const [watchlist, setWatchlist] = useState(false);
@@ -137,6 +145,46 @@ export function ExploreMovieDialog({
       .catch(() => setLogoLoaded(true));
     return () => controller.abort();
   }, [isOpen, logoLoaded, movie.id, movie.type]);
+
+  // Fetch trailer key when dialog opens.
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    const controller = new AbortController();
+    fetch(
+      `/api/tmdb-trailer?id=${encodeURIComponent(movie.id)}&type=${movie.type}`,
+      { signal: controller.signal }
+    )
+      .then((res) => (res.ok ? res.json() : { trailer: null }))
+      .then((data: { trailer: string | null }) => setTrailerKey(data.trailer))
+      .catch(() => {
+        // sin conexión / abortado — sin tráiler
+      });
+    return () => controller.abort();
+  }, [isOpen, movie.id, movie.type]);
+
+  // Al cerrar el diálogo, ocultar el tráiler (desmonta el iframe y corta el
+  // audio/vídeo).
+  useEffect(() => {
+    if (!isOpen) {
+      setShowTrailer(false);
+    }
+  }, [isOpen]);
+
+  // Cerrar el overlay del tráiler con Escape.
+  useEffect(() => {
+    if (!showTrailer) {
+      return;
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setShowTrailer(false);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [showTrailer]);
 
   // Load favorite / watchlist state for the active profile when opened.
   useEffect(() => {
@@ -454,10 +502,20 @@ export function ExploreMovieDialog({
                   />
                   Ver después
                 </Button>
+                {trailerKey && (
+                  <Button
+                    onClick={() => setShowTrailer((v) => !v)}
+                    size="sm"
+                    variant={showTrailer ? "default" : "outline"}
+                  >
+                    <Film className="size-3.5" />
+                    Tráiler
+                  </Button>
+                )}
               </div>
             </DrawerHeader>
 
-            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-4">
               <div className="space-y-4">
                 {/* Genres */}
                 {genres.length > 0 && (
@@ -535,11 +593,20 @@ export function ExploreMovieDialog({
                         {!sourcesLoading &&
                           sourcesLoaded &&
                           sources.length === 0 && (
-                            <div className="rounded-lg border border-border/50 bg-muted/50 p-3">
-                              <p className="text-muted-foreground text-xs">
-                                No hay fuentes disponibles para este episodio.
-                              </p>
-                            </div>
+                            <WatchProvidersNotice
+                              fallback={
+                                <div className="rounded-lg border border-border/50 bg-muted/50 p-3">
+                                  <p className="text-muted-foreground text-xs">
+                                    No hay fuentes disponibles para este
+                                    episodio.
+                                  </p>
+                                </div>
+                              }
+                              id={movie.id}
+                              title={movie.name}
+                              type={movie.type}
+                              year={movie.year}
+                            />
                           )}
 
                         {!sourcesLoading &&
@@ -761,11 +828,19 @@ export function ExploreMovieDialog({
                     {!sourcesLoading &&
                       sourcesLoaded &&
                       sources.length === 0 && (
-                        <div className="rounded-lg border border-border/50 bg-muted/50 p-3">
-                          <p className="text-muted-foreground text-xs">
-                            No hay fuentes de streaming disponibles.
-                          </p>
-                        </div>
+                        <WatchProvidersNotice
+                          fallback={
+                            <div className="rounded-lg border border-border/50 bg-muted/50 p-3">
+                              <p className="text-muted-foreground text-xs">
+                                No hay fuentes de streaming disponibles.
+                              </p>
+                            </div>
+                          }
+                          id={movie.id}
+                          title={movie.name}
+                          type={movie.type}
+                          year={movie.year}
+                        />
                       )}
 
                     {!sourcesLoading && sourcesLoaded && sources.length > 0 && (
@@ -840,6 +915,42 @@ export function ExploreMovieDialog({
           </div>
         </DrawerContent>
       </Drawer>
+
+      {/* Tráiler al frente: overlay a nivel de <body> (createPortal) para quedar
+          por encima del Drawer sin chocar con su gestor de foco/portal. */}
+      {showTrailer &&
+        trailerKey &&
+        typeof document !== "undefined" &&
+        createPortal(
+          // biome-ignore lint/a11y/noStaticElementInteractions: backdrop cierra al click
+          <div
+            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
+            onClick={() => setShowTrailer(false)}
+          >
+            <button
+              aria-label="Cerrar tráiler"
+              className="absolute top-4 right-4 flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+              onClick={() => setShowTrailer(false)}
+              type="button"
+            >
+              <X className="size-5" />
+            </button>
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: evita que el click en el vídeo cierre */}
+            <div
+              className="aspect-video w-full max-w-4xl overflow-hidden rounded-lg bg-black shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <iframe
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className="h-full w-full"
+                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0`}
+                title="Tráiler"
+              />
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

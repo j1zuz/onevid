@@ -1,3 +1,5 @@
+import { fetchJustWatchLinks } from "@/lib/justwatch";
+
 const TMDB_BASE = "https://api.themoviedb.org";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
 
@@ -56,6 +58,26 @@ export interface NetworkRef {
   id: number;
   logo?: string;
   name: string;
+}
+
+export interface WatchProvider {
+  id: number;
+  /** Deep-link directo a la ficha del título en la plataforma (vía JustWatch). */
+  link?: string;
+  logo?: string;
+  name: string;
+}
+
+export interface WatchProviders {
+  // Compra (categoría `buy`).
+  buy: WatchProvider[];
+  // Plataformas de streaming por suscripción (categoría `flatrate`).
+  flatrate: WatchProvider[];
+  // Enlace a la página de TMDB/JustWatch de esa región.
+  link?: string;
+  region: string;
+  // Alquiler (categoría `rent`).
+  rent: WatchProvider[];
 }
 
 export interface MediaMeta {
@@ -846,6 +868,165 @@ function localeToLang(locale?: string): string | undefined {
   }
   const lang = locale.split("-")[0]?.trim().toLowerCase();
   return lang || undefined;
+}
+
+interface TmdbWatchProvider {
+  display_priority?: number;
+  logo_path?: string | null;
+  provider_id?: number;
+  provider_name?: string;
+}
+
+interface TmdbWatchRegion {
+  ads?: TmdbWatchProvider[];
+  buy?: TmdbWatchProvider[];
+  flatrate?: TmdbWatchProvider[];
+  free?: TmdbWatchProvider[];
+  link?: string;
+  rent?: TmdbWatchProvider[];
+}
+
+interface TmdbWatchProvidersResponse {
+  id?: number;
+  results?: Record<string, TmdbWatchRegion>;
+}
+
+function mapWatchProviders(
+  items: TmdbWatchProvider[] | undefined
+): WatchProvider[] {
+  return (items ?? [])
+    .slice()
+    .sort((a, b) => (a.display_priority ?? 0) - (b.display_priority ?? 0))
+    .flatMap((p) => {
+      if (!(p.provider_id && p.provider_name)) {
+        return [];
+      }
+      const provider: WatchProvider = {
+        id: p.provider_id,
+        name: p.provider_name,
+      };
+      if (p.logo_path) {
+        provider.logo = `${TMDB_IMAGE_BASE}/w154${p.logo_path}`;
+      }
+      return [provider];
+    });
+}
+
+/**
+ * Plataformas de streaming (por suscripción) donde está disponible el título.
+ * La lista y los logos vienen de TMDB; los deep-links directos a cada
+ * plataforma vienen de JustWatch (cruzados por `provider_id == packageId`),
+ * porque TMDB solo expone un enlace agregador a su propia página.
+ *
+ * Se usa como alternativa cuando la app no tiene fuentes propias para
+ * reproducir. Con `title` (y opcionalmente `year`) se resuelven los deep-links.
+ */
+export async function fetchWatchProviders(
+  token: string,
+  type: "movie" | "series",
+  tmdbId: string,
+  region: string,
+  opts?: { language?: string; title?: string; year?: number }
+): Promise<WatchProviders> {
+  const path = `/3/${type === "series" ? "tv" : "movie"}/${tmdbId}/watch/providers`;
+  const data = await tmdbFetch<TmdbWatchProvidersResponse>(
+    token,
+    path,
+    undefined,
+    3600
+  );
+
+  const regionData = data.results?.[region];
+  const flatrate = mapWatchProviders(regionData?.flatrate);
+  const rent = mapWatchProviders(regionData?.rent);
+  const buy = mapWatchProviders(regionData?.buy);
+
+  // Enriquecer con los deep-links reales de JustWatch (best-effort).
+  if ((flatrate.length || rent.length || buy.length) && opts?.title) {
+    const links = await fetchJustWatchLinks({
+      title: opts.title,
+      year: opts.year,
+      type,
+      country: region,
+      language: opts.language || "en",
+    });
+    for (const provider of [...flatrate, ...rent, ...buy]) {
+      const link = links.get(provider.id);
+      if (link) {
+        provider.link = link;
+      }
+    }
+  }
+
+  return {
+    region,
+    link: regionData?.link,
+    flatrate,
+    rent,
+    buy,
+  };
+}
+
+// ─── Trailer (YouTube vía TMDB) ──────────────────────────────────────
+
+interface TmdbVideo {
+  key?: string;
+  official?: boolean;
+  site?: string;
+  type?: string;
+}
+
+interface TmdbVideosResponse {
+  results?: TmdbVideo[];
+}
+
+function pickTrailerKey(results: TmdbVideo[] | undefined): string | undefined {
+  const youtube = (results ?? []).filter(
+    (v) => v.site === "YouTube" && v.key
+  );
+  if (youtube.length === 0) {
+    return;
+  }
+  const trailers = youtube.filter((v) => v.type === "Trailer");
+  const teasers = youtube.filter((v) => v.type === "Teaser");
+  const pool =
+    trailers.length > 0 ? trailers : teasers.length > 0 ? teasers : youtube;
+  return (pool.find((v) => v.official) ?? pool[0]).key;
+}
+
+/**
+ * Clave de YouTube del mejor tráiler del título. Prefiere el idioma de la app y
+ * cae a `en-US` si no hay tráiler localizado. Devuelve `undefined` si no hay.
+ */
+export async function fetchTrailerKey(
+  token: string,
+  type: "movie" | "series",
+  tmdbId: string,
+  locale?: string
+): Promise<string | undefined> {
+  const path = `/3/${type === "series" ? "tv" : "movie"}/${tmdbId}/videos`;
+
+  const localized = await tmdbFetch<TmdbVideosResponse>(
+    token,
+    path,
+    { language: locale || "es-MX" },
+    3600
+  ).catch(() => ({ results: [] }) as TmdbVideosResponse);
+
+  const key = pickTrailerKey(localized.results);
+  if (key) {
+    return key;
+  }
+
+  // Fallback a inglés: muchos títulos solo tienen el tráiler en en-US.
+  const english = await tmdbFetch<TmdbVideosResponse>(
+    token,
+    path,
+    { language: "en-US" },
+    3600
+  ).catch(() => ({ results: [] }) as TmdbVideosResponse);
+
+  return pickTrailerKey(english.results);
 }
 
 async function fetchMovieLogo(
