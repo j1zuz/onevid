@@ -34,17 +34,26 @@ export const metadata: Metadata = {
   description: SITE_DESCRIPTION,
   metadataBase: new URL("https://onevid.hackw.tech"),
   openGraph: {
+    type: "website",
     title: "onevid",
     description: SITE_DESCRIPTION,
     url: "https://onevid.hackw.tech",
     siteName: "onevid",
-    images: ["/opengraph.png"],
+    images: [
+      {
+        url: "/opengraph.jpg",
+        width: 1200,
+        height: 675,
+        alt: "onevid — tu reproductor de video",
+        type: "image/jpeg",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "onevid",
     description: SITE_DESCRIPTION,
-    images: ["/opengraph.png"],
+    images: ["/opengraph.jpg"],
   },
 };
 
