@@ -1,10 +1,11 @@
 import { Image } from 'expo-image';
-import { Tabs } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { Tabs, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Platform, View } from 'react-native';
 import { TabIcon, type TabIconName } from '@/components/tab-icon';
 import { TvSidebar } from '@/components/tv-sidebar';
+import { getAccessToken } from '@/lib/auth';
 import { avatarSource } from '@/lib/avatars';
 import { loadActiveProfile } from '@/lib/profiles';
 import { COLORS } from '@/lib/theme';
@@ -37,10 +38,29 @@ function profileIcon(avatar: string | undefined) {
 
 export default function TabsLayout() {
   const { t } = useTranslation();
+  // Avatar del tab Perfil: SOLO refleja el perfil cuando hay sesión. Sin sesión
+  // (modo local) mostramos siempre el avatar negro por defecto — aunque quede un
+  // perfil guardado de una sesión anterior en SecureStore. Revalidamos en cada
+  // focus para reaccionar a login/logout.
   const [avatar, setAvatar] = useState<string | undefined>(undefined);
-  useEffect(() => {
-    loadActiveProfile().then((p) => setAvatar(p?.avatar)).catch(() => {});
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        const token = await getAccessToken();
+        if (cancelled) return;
+        if (!token) {
+          setAvatar(undefined); // sin sesión → avatarSource(undefined) = black.jpg
+          return;
+        }
+        const p = await loadActiveProfile().catch(() => null);
+        if (!cancelled) setAvatar(p?.avatar);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>

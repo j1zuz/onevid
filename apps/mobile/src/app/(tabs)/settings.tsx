@@ -151,7 +151,9 @@ export default function SettingsTab() {
                   </Typography>
                 </View>
               </View>
-              <FocusButton onPress={handleLogin}>{t('Iniciar sesión')}</FocusButton>
+              <FocusButton onPress={handleLogin}>
+                {t('Iniciar sesión')}
+              </FocusButton>
             </Card.Body>
           </Card>
         ) : null}

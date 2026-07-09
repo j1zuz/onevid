@@ -3,7 +3,12 @@
 
 @import "heroui-native/styles";
 
-@source '../node_modules/heroui-native/lib';
+/* Monorepo bun: heroui-native está hoisted en el node_modules de la RAÍZ, no en
+   apps/mobile/node_modules. El @source es relativo a este archivo (apps/mobile/src),
+   así que hay que subir tres niveles hasta la raíz. Si apunta a un dir inexistente,
+   Tailwind no escanea las clases de heroui (bg-accent, text-foreground, h-12…) y sus
+   componentes se renderizan SIN estilo. */
+@source '../../../node_modules/heroui-native/lib';
 
 :root {
   --font-display:
