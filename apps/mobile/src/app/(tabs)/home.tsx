@@ -42,7 +42,7 @@ export default function HomeTab() {
 
   const queryClient = useQueryClient();
   const continueQuery = useQuery({
-    queryKey: ['continue-watching'],
+    queryKey: ['continue-watching', lang],
     queryFn: () =>
       apiFetch<{ results: ContinueWatchingItem[] }>(
         '/api/onevid-progress',

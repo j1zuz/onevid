@@ -860,6 +860,29 @@ export async function fetchTvDetail(
   return meta;
 }
 
+/**
+ * Lightweight fetch of ONLY the localized title/name for a title. Used to
+ * refresh the "Continue watching" names (stored at watch-time, so frozen in the
+ * language used then) to the current locale — much cheaper than a full
+ * fetchMovieDetail/fetchTvDetail, which pulls credits, related, logos, etc.
+ */
+export async function fetchLocalizedTitle(
+  token: string,
+  type: "movie" | "series",
+  tmdbId: string,
+  locale?: string
+): Promise<string | undefined> {
+  const path = type === "series" ? `/3/tv/${tmdbId}` : `/3/movie/${tmdbId}`;
+  const data = await tmdbFetch<{ title?: string; name?: string }>(
+    token,
+    path,
+    { language: locale || "es-MX" },
+    600
+  );
+  const title = type === "series" ? data.name : data.title;
+  return title?.trim() || undefined;
+}
+
 // ─── Images (logos) ──────────────────────────────────────────────────
 
 function localeToLang(locale?: string): string | undefined {

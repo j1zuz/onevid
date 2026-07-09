@@ -65,7 +65,7 @@ export default function DetailPage() {
   const id = params.id;
   // Idioma activo en la query key: al cambiarlo, la metadata (título, sinopsis,
   // carátula) se refetchea en el nuevo idioma en vez de servir la cache anterior.
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const lang = i18n.language;
   const { height } = useWindowDimensions();
   const queryClient = useQueryClient();
@@ -166,14 +166,14 @@ export default function DetailPage() {
         writeSaved(current); // revertir
         toast.show({
           variant: 'danger',
-          label: 'No se pudo guardar',
-          description: 'Revisa tu conexión e intenta de nuevo.',
+          label: t('No se pudo guardar'),
+          description: t('Revisa tu conexión e intenta de nuevo.'),
         });
       } finally {
         setSaving(false);
       }
     },
-    [id, type, favorite, watchlist, meta, toast, queryClient],
+    [id, type, favorite, watchlist, meta, toast, queryClient, t],
   );
 
   const seasonEpisodes = useMemo(
@@ -265,8 +265,11 @@ export default function DetailPage() {
 
   const playLabel =
     type === 'series' && seasonEpisodes[0]
-      ? `Reproducir S${seasonEpisodes[0].season}E${seasonEpisodes[0].number}`
-      : 'Reproducir';
+      ? t('Reproducir S{{season}}E{{episode}}', {
+          season: seasonEpisodes[0].season,
+          episode: seasonEpisodes[0].number,
+        })
+      : t('Reproducir');
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
@@ -420,7 +423,7 @@ export default function DetailPage() {
               />
               {isTV ? (
                 <Typography type="body" weight="semibold" numberOfLines={1}>
-                  Ver después
+                  {t('Ver después')}
                 </Typography>
               ) : null}
             </Button>
@@ -448,7 +451,7 @@ export default function DetailPage() {
               />
               {isTV ? (
                 <Typography type="body" weight="semibold" numberOfLines={1}>
-                  Favoritos
+                  {t('Favoritos')}
                 </Typography>
               ) : null}
             </Button>
@@ -473,7 +476,7 @@ export default function DetailPage() {
 
         {/* Seasons (series only) */}
         {type === 'series' && series && series.seasons.length > 0 ? (
-          <SectionTitle title="Temporadas" />
+          <SectionTitle title={t('Temporadas')} />
         ) : null}
         {type === 'series' && series ? (
           <ScrollShadow size={28} LinearGradientComponent={ExpoLinearGradient}>
@@ -497,7 +500,7 @@ export default function DetailPage() {
         {/* Episodes of selected season */}
         {type === 'series' && selectedSeason != null && seasonEpisodes.length > 0 ? (
           <>
-            <SectionTitle title={`Temporada ${selectedSeason}`} />
+            <SectionTitle title={t('Temporada {{n}}', { n: selectedSeason })} />
             <ScrollShadow size={28} LinearGradientComponent={ExpoLinearGradient}>
               <FlatList
                 horizontal
@@ -521,7 +524,7 @@ export default function DetailPage() {
         {/* Cast */}
         {meta?.cast && meta.cast.length > 0 ? (
           <>
-            <SectionTitle title="Reparto" />
+            <SectionTitle title={t('Reparto')} />
             <ScrollShadow size={28} LinearGradientComponent={ExpoLinearGradient}>
               <FlatList
                 horizontal
@@ -538,7 +541,7 @@ export default function DetailPage() {
         {/* Networks */}
         {meta?.networks && meta.networks.length > 0 ? (
           <>
-            <SectionTitle title="Cadenas" />
+            <SectionTitle title={t('Cadenas')} />
             <View
               style={{
                 flexDirection: 'row',
@@ -560,7 +563,7 @@ export default function DetailPage() {
         {/* Related */}
         {meta?.related && meta.related.length > 0 ? (
           <>
-            <SectionTitle title="Relacionados" />
+            <SectionTitle title={t('Relacionados')} />
             <ScrollShadow size={28} LinearGradientComponent={ExpoLinearGradient}>
               <FlatList
                 horizontal
@@ -733,6 +736,7 @@ function SeasonTab({
   selected: boolean;
   onPress: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Pressable
       onPress={onPress}
@@ -751,7 +755,7 @@ function SeasonTab({
         weight={selected ? 'bold' : 'medium'}
         style={{ color: selected ? '#000' : '#fff' }}
       >
-        Temporada {seasonNumber}
+        {t('Temporada {{n}}', { n: seasonNumber })}
       </Typography>
     </Pressable>
   );
@@ -940,19 +944,24 @@ function NetworkChip({ network }: { network: NetworkInfo }) {
 }
 
 function DetailsSection({ meta }: { meta: MediaMeta }) {
+  const { t } = useTranslation();
   const rows: Array<{ label: string; value: string }> = [];
-  if (meta.status) rows.push({ label: 'Estado', value: meta.status });
+  if (meta.status) rows.push({ label: t('Estado'), value: meta.status });
   if (meta.releaseDate)
-    rows.push({ label: 'Información de estreno', value: formatDate(meta.releaseDate) });
-  else if (meta.year) rows.push({ label: 'Año', value: meta.year });
+    rows.push({
+      label: t('Información de estreno'),
+      value: formatDate(meta.releaseDate),
+    });
+  else if (meta.year) rows.push({ label: t('Año'), value: meta.year });
   const runtime = meta.runtime ?? meta.episodeRunTime;
-  if (runtime) rows.push({ label: 'Duración', value: formatRuntime(runtime) });
+  if (runtime) rows.push({ label: t('Duración'), value: formatRuntime(runtime) });
   if (meta.director && meta.director.length > 0)
-    rows.push({ label: 'Director', value: meta.director.join(', ') });
+    rows.push({ label: t('Director'), value: meta.director.join(', ') });
 
   if (rows.length === 0) return null;
 
-  const titleLabel = meta.type === 'series' ? 'Detalles de la serie' : 'Detalles';
+  const titleLabel =
+    meta.type === 'series' ? t('Detalles de la serie') : t('Detalles');
 
   return (
     <>
