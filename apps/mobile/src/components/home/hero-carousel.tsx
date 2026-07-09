@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { Button, Typography } from 'heroui-native';
 import { GlassIcon } from '@/components/glass-icon';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   FlatList,
   type NativeScrollEvent,
@@ -139,6 +140,7 @@ function HeroSlide({
   height: number;
   onPressPlay: () => void;
 }) {
+  const { t } = useTranslation();
   const playFocus = useTvFocus();
   // 'w1280' para que el hero a pantalla completa se vea nítido en pantallas
   // HiDPI ('w780' se veía borroso). El riesgo en gama baja —que el reproductor
@@ -245,7 +247,7 @@ function HeroSlide({
         >
           <GlassIcon name="circle-arrow-right" size={20} />
           <Typography type="body" weight="semibold" style={{ color: '#000' }}>
-            Reproducir
+            {t('Reproducir')}
           </Typography>
         </Button>
       </View>

@@ -52,7 +52,7 @@ export function ContinueWatchingRow() {
       <h2 className="px-1 font-semibold text-lg md:text-xl">
         {t("Continuar viendo")}
       </h2>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
         {items.map((item) => {
           const pct =
             item.durationSec > 0

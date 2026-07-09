@@ -9,6 +9,9 @@ import {
   type SavedMediaType,
   setProfileProgress,
 } from "@/lib/onevid-profile";
+import { getOneVidTmdb } from "@/lib/onevid-tmdb";
+import { getServerT } from "@/lib/server-t";
+import { fetchLocalizedTitle, getTmdbLocale } from "@/lib/tmdb";
 
 const NUMERIC_ID_RE = /^\d+$/;
 
@@ -52,6 +55,34 @@ export async function GET(request: NextRequest) {
   }
 
   const results = await listProfileProgress(resolved.profile.id);
+
+  // Los nombres se guardan al reproducir, así que quedan "congelados" en el
+  // idioma de entonces. Refrescamos el título al idioma actual (cookie web o
+  // header x-app-language del móvil) con una consulta ligera a TMDB por título.
+  // Es best-effort: si no hay token o TMDB falla, conservamos el nombre guardado.
+  try {
+    const { effectiveToken: token } = await getOneVidTmdb(session.user.id);
+    if (token && results.length > 0) {
+      const { locale } = await getServerT();
+      const tmdbLocale = getTmdbLocale(locale);
+      await Promise.all(
+        results.map(async (item) => {
+          const localized = await fetchLocalizedTitle(
+            token,
+            item.type,
+            item.id,
+            tmdbLocale
+          ).catch(() => undefined);
+          if (localized) {
+            item.name = localized;
+          }
+        })
+      );
+    }
+  } catch {
+    /* enriquecimiento best-effort: mantenemos los nombres guardados */
+  }
+
   return NextResponse.json({ results });
 }
 

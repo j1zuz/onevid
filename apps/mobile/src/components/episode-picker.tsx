@@ -3,6 +3,7 @@ import { Image } from 'expo-image';
 import { Typography } from 'heroui-native';
 import { Check, X } from 'lucide-react-native';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
   FlatList,
@@ -60,8 +61,9 @@ export function EpisodePicker({
   onSelect: (next: EpisodeSelection) => void;
   onClose: () => void;
 }) {
+  const { t, i18n } = useTranslation();
   const query = useQuery({
-    queryKey: ['detail', 'series', id],
+    queryKey: ['detail', 'series', id, i18n.language],
     queryFn: () =>
       apiFetch<SeriesMetaResponse>(
         `/api/series-meta?id=${encodeURIComponent(id)}`,
@@ -94,7 +96,7 @@ export function EpisodePicker({
       <View style={[styles.pickerCard, { width: cardWidth }]}>
         <View style={styles.menuHeader}>
           <Typography type="h5" weight="bold">
-            Episodios
+            {t('Episodios')}
           </Typography>
           <Pressable
             onPress={onClose}
@@ -127,7 +129,7 @@ export function EpisodePicker({
                     n === effectiveSeason && styles.seasonTextActive,
                   ]}
                 >
-                  {`Temporada ${n}`}
+                  {t('Temporada {{n}}', { n })}
                 </Text>
               </Pressable>
             ))}
