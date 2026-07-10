@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { Button, Typography } from 'heroui-native';
@@ -14,7 +15,7 @@ import {
 } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
-import { type MediaMeta, tmdbImage } from '@/lib/api';
+import { apiFetch, type MediaMeta, tmdbImage } from '@/lib/api';
 import { COLORS } from '@/lib/theme';
 
 const AUTOPLAY_MS = 5000;
@@ -142,25 +143,27 @@ function HeroSlide({
 }) {
   const { t } = useTranslation();
   const playFocus = useTvFocus();
-  // 'w1280' para que el hero a pantalla completa se vea nítido en pantallas
-  // HiDPI ('w780' se veía borroso). El riesgo en gama baja —que el reproductor
-  // desaloje la imagen grande de RAM y deje el hero en negro— lo cubre el
-  // placeholder 'w185' de abajo, que se muestra al instante mientras recarga.
-  const bg = tmdbImage(item.background ?? item.poster, 'w1280');
-  // Placeholder de baja resolución (w185) de la MISMA portada: es minúsculo,
-  // rara vez se desaloja de RAM y se muestra al instante mientras la versión
-  // grande (re)carga. Evita que la diapositiva quede en negro cuando el
-  // reproductor desaloja las imágenes grandes en gama baja.
-  const lowRes = tmdbImage(item.background ?? item.poster, 'w185');
   // En TV alineamos el contenido a la izquierda (estilo Netflix/Apple TV) y
   // mostramos la sinopsis. En móvil se mantiene centrado y sin descripción.
   const isTV = Platform.isTV;
-  // Recorte defensivo de la sinopsis: acota el largo aunque Typography no
-  // aplique el clamp de líneas, para que el hero nunca se desborde.
-  const description =
-    item.description && item.description.length > 220
-      ? `${item.description.slice(0, 220).trimEnd()}…`
-      : item.description;
+  // En TV pedimos el backdrop en 'original' (pantalla grande, se agradece la
+  // máxima calidad); en móvil 'w1280' basta y pesa menos. El placeholder 'w185'
+  // se muestra al instante mientras carga la versión grande (evita hero en negro
+  // si el reproductor desaloja las imágenes grandes de RAM en gama baja).
+  const bg = tmdbImage(item.background ?? item.poster, isTV ? 'original' : 'w1280');
+  const lowRes = tmdbImage(item.background ?? item.poster, 'w185');
+  // Logo del título (imagen tipográfica de TMDB) en vez del nombre en texto.
+  // El catálogo no trae logo, así que lo pedimos aparte y lo cacheamos por
+  // (type,id). Si no hay logo, caemos al nombre en texto.
+  const logoQuery = useQuery({
+    queryKey: ['tmdb-logo', item.type, item.id],
+    queryFn: () =>
+      apiFetch<{ logo: string | null }>(
+        `/api/tmdb-logo?type=${item.type}&id=${encodeURIComponent(item.id)}`,
+      ).then((r) => r.logo),
+    staleTime: 60 * 60 * 1000,
+  });
+  const logo = tmdbImage(logoQuery.data ?? undefined, 'w500');
   return (
     <View style={{ width, height }}>
       {bg ? (
@@ -205,30 +208,42 @@ function HeroSlide({
           gap: 16,
         }}
       >
-        <Typography
-          type="h2"
-          align={isTV ? 'start' : 'center'}
-          color="default"
-          weight="bold"
-        >
-          {item.name}
-        </Typography>
-        <Typography
-          type="body-sm"
-          color="muted"
-          align={isTV ? 'start' : 'center'}
-        >
-          {item.type === 'movie' ? 'Película' : 'Serie'}
-          {item.year ? `  ·  ${item.year}` : ''}
-        </Typography>
-        {isTV && description ? (
+        {logo ? (
+          <Image
+            source={logo}
+            contentFit="contain"
+            // Anclamos el logo abajo-izquierda (TV) / abajo-centro (móvil): los
+            // logos de 1 línea dejan hueco dentro de la caja con 'contain'; al
+            // fijarlos abajo, la separación con la descripción es consistente y
+            // no queda ese espacio grande entre logo y texto.
+            contentPosition={isTV ? 'bottom left' : 'bottom center'}
+            transition={200}
+            cachePolicy="memory-disk"
+            style={{
+              width: isTV ? 280 : 190,
+              height: isTV ? 96 : 70,
+              alignSelf: isTV ? 'flex-start' : 'center',
+            }}
+          />
+        ) : (
+          <Typography
+            type="h2"
+            align={isTV ? 'start' : 'center'}
+            color="default"
+            weight="bold"
+          >
+            {item.name}
+          </Typography>
+        )}
+        {isTV && item.description ? (
           <Typography
             type="body-sm"
             color="muted"
             align="start"
             numberOfLines={3}
+            className="text-balance"
           >
-            {description}
+            {item.description}
           </Typography>
         ) : null}
         <Button

@@ -17,10 +17,15 @@ interface ContinueWatchingItem extends MediaMeta {
  * progress bar over each poster. Hidden entirely when there's nothing to resume.
  */
 export function ContinueWatchingRow() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { activeProfileId } = useOneVidProfiles();
   const [items, setItems] = useState<ContinueWatchingItem[]>([]);
 
+  // Depende también de `language`: al cambiar idioma queremos re-pedir los
+  // títulos ya localizados (el endpoint los traduce leyendo la cookie
+  // NEXT_LOCALE, que el selector persiste antes del refresh). Sin esto, como es
+  // un componente cliente, sus datos quedaban en el idioma anterior hasta un
+  // recargado manual, aunque el catálogo (server) sí cambiaba.
   useEffect(() => {
     if (!activeProfileId) {
       setItems([]);
@@ -41,7 +46,7 @@ export function ContinueWatchingRow() {
         /* no profile / offline — just don't show the row */
       });
     return () => controller.abort();
-  }, [activeProfileId]);
+  }, [activeProfileId, language]);
 
   if (items.length === 0) {
     return null;

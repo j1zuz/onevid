@@ -60,8 +60,10 @@ export default function DiscoverTab() {
 
   const isSearching = query.trim().length > 0;
 
-  // Tarjetas de cadenas en el slider horizontal: más grandes en TV.
-  const cardW = isTV ? 200 : 132;
+  // Tarjetas de cadenas en el slider horizontal. En TV no las agrandamos tanto
+  // (antes 200 px se veían más grandes que los pósters del grid de abajo); las
+  // dejamos en un tamaño cercano al de esas tarjetas para que la fila combine.
+  const cardW = isTV ? 148 : 132;
 
   // Debounce de la búsqueda.
   useEffect(() => {
