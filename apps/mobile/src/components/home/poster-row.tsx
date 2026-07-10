@@ -20,6 +20,10 @@ export function PosterRow({ title, items, loading, onPressItem }: PosterRowProps
   // desplazar), en vez de un ancho fijo que solo mostraba 3. Se acota para que no
   // queden ni gigantes ni diminutas en TVs de distinta densidad.
   const { posterWidth, isTV, width } = useResponsive();
+  // No mostramos una fila vacía: si no está cargando y no hay items, ocultamos
+  // el título por completo (evita ver "Películas/Series en tendencia" sueltos,
+  // sin tarjetas, en el instante en que la app abre y el catálogo aún no llega).
+  if (!loading && items.length === 0) return null;
   const cardAspectRatio = isTV ? 16 / 9 : 2 / 3;
   // (ancho útil − paddings 16×2) entre 5.3 ≈ 5 tarjetas + asomo de la siguiente.
   const CARD_WIDTH = isTV

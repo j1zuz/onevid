@@ -28,9 +28,14 @@ export function ContinueWatchingRow({
   onPressItem,
   title,
 }: ContinueWatchingRowProps) {
-  const { width } = useResponsive();
+  const { width, isTV } = useResponsive();
   // Landscape (16/9) cards so the progress bar reads like a real continue row.
-  const CARD_WIDTH = Math.min(320, Math.max(200, Math.round((width - 32) / 2.4)));
+  // En TV usamos la MISMA fórmula que PosterRow (≈5 tarjetas por fila) para que
+  // "Continuar viendo" no salga con tarjetas gigantes al lado de las filas de
+  // abajo; en móvil mantenemos ~2 por pantalla (estilo Netflix móvil).
+  const CARD_WIDTH = isTV
+    ? Math.min(320, Math.max(180, Math.round((width - 32) / 5.3)))
+    : Math.min(320, Math.max(200, Math.round((width - 32) / 2.4)));
 
   if (items.length === 0) {
     return null;
