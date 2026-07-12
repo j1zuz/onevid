@@ -19,7 +19,10 @@ interface ContinueWatchingItem extends MediaMeta {
 export function ContinueWatchingRow() {
   const { t, language } = useTranslation();
   const { activeProfileId } = useOneVidProfiles();
-  const [items, setItems] = useState<ContinueWatchingItem[]>([]);
+  // `null` = fetch in flight (show a skeleton reserving this row's space so
+  // the section below it doesn't render first and then get pushed down once
+  // this data arrives); `[]` = loaded, nothing to resume (hide the row).
+  const [items, setItems] = useState<ContinueWatchingItem[] | null>(null);
 
   // Depende también de `language`: al cambiar idioma queremos re-pedir los
   // títulos ya localizados (el endpoint los traduce leyendo la cookie
@@ -31,6 +34,7 @@ export function ContinueWatchingRow() {
       setItems([]);
       return;
     }
+    setItems(null);
     const controller = new AbortController();
     fetch("/api/onevid-progress", {
       headers: { "X-Profile-Id": activeProfileId },
@@ -38,15 +42,32 @@ export function ContinueWatchingRow() {
     })
       .then((r) => (r.ok ? (r.json() as Promise<{ results: ContinueWatchingItem[] }>) : null))
       .then((data) => {
-        if (data?.results) {
-          setItems(data.results);
-        }
+        setItems(data?.results ?? []);
       })
       .catch(() => {
         /* no profile / offline — just don't show the row */
+        setItems([]);
       });
     return () => controller.abort();
   }, [activeProfileId, language]);
+
+  if (items === null) {
+    return (
+      <section className="container mx-auto flex flex-col gap-3 px-2">
+        <h2 className="px-1 font-semibold text-lg md:text-xl">
+          {t("Continuar viendo")}
+        </h2>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
+          {["a", "b", "c", "d", "e"].map((key) => (
+            <div className="space-y-1" key={key}>
+              <div className="aspect-video w-full animate-pulse rounded-(--radius) bg-muted/40" />
+              <div className="mx-auto h-4 w-3/4 animate-pulse rounded bg-muted/40" />
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   if (items.length === 0) {
     return null;

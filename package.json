@@ -41,5 +41,9 @@
       "tailwindcss": "^4.3.0",
       "typescript": "^5"
     }
+  },
+  "devDependencies": {
+    "react-scan": "^0.5.7",
+    "web": "workspace:*"
   }
 }

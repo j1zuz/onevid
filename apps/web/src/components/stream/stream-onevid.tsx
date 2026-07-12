@@ -4,7 +4,7 @@ import { Button } from "@workspace/ui/components/button";
 import { ArrowLeftIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { VideoJsStreamPlayer } from "@/components/stream/video-js-stream-player";
 import { useMediaBunny } from "@/hooks/use-mediabunny";
 import { useWatchProgress } from "@/hooks/use-video-progress";
@@ -37,6 +37,34 @@ function renderLogoCenter({
   );
 }
 
+// Isolated so the back button/title don't re-render on every mediabunny
+// transcoding progress tick (StreamOnevid re-renders hundreds of times during
+// a transcode; without this the whole header re-rendered along with it).
+const PlayerTopBar = memo(function PlayerTopBar({
+  backHref,
+  contentTitle,
+  handleBack,
+}: {
+  backHref: string;
+  contentTitle: string;
+  handleBack: (e: React.MouseEvent<HTMLAnchorElement>) => void;
+}) {
+  return (
+    <div className="absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 opacity-0 transition-opacity duration-300 group-hover/player:opacity-100">
+      <Link
+        className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+        href={backHref}
+        onClick={handleBack}
+      >
+        <ArrowLeftIcon className="size-5" />
+      </Link>
+      <h1 className="truncate font-medium text-base text-white">
+        {contentTitle}
+      </h1>
+    </div>
+  );
+});
+
 interface StreamOnevidProps {
   contentBackground?: string;
   contentId: string;
@@ -56,11 +84,11 @@ export function StreamOnevid({
   contentLogo,
   rawId,
 }: StreamOnevidProps) {
-  const router = useRouter();
   // For series rawId is "seriesId:season:episode"; movies have no suffix.
   const rawParts = rawId.split(":");
   const season = rawParts.length >= 3 ? Number(rawParts[1]) || 0 : 0;
   const episode = rawParts.length >= 3 ? Number(rawParts[2]) || 0 : 0;
+  const router = useRouter();
   const backHref = `/home?movie=${encodeURIComponent(contentId)}&movieType=${contentType}`;
   const handleBack = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -221,18 +249,11 @@ export function StreamOnevid({
   // Player
   return (
     <div className="group/player fixed inset-0 z-50 flex flex-col bg-gray-950">
-      <div className="absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 opacity-0 transition-opacity duration-300 group-hover/player:opacity-100">
-        <Link
-          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-          href={backHref}
-          onClick={handleBack}
-        >
-          <ArrowLeftIcon className="size-5" />
-        </Link>
-        <h1 className="truncate font-medium text-base text-white">
-          {contentTitle}
-        </h1>
-      </div>
+      <PlayerTopBar
+        backHref={backHref}
+        contentTitle={contentTitle}
+        handleBack={handleBack}
+      />
 
       <div className="relative min-h-0 w-full flex-1">
         {/* Logo overlay shown until the video actually plays */}

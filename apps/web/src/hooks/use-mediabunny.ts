@@ -30,15 +30,29 @@ function createOpfsWriteStream(opfsWritable: FileSystemWritableFileStream) {
   });
 }
 
+/** Minimal shape used to cancel an in-flight conversion from the caller. */
+interface CancellableConversion {
+  cancel: () => Promise<void>;
+}
+
 /**
  * Runs the full MediaBunny pipeline for one source and returns the finished
  * MP4 as a File. Video is passed through (H.264/AVC) and only audio is
  * re-encoded (→ Opus); the output is streamed into the given OPFS file.
+ *
+ * `conversionRef` is populated with the live `Conversion` instance as soon as
+ * it exists, so the caller can `cancel()` it (releasing its WebCodecs
+ * decoder/encoder sessions) if the component unmounts mid-transcode. Without
+ * this, an abandoned `execute()` keeps decoding in the background against an
+ * OPFS file the caller has already deleted, which pins GPU decoder sessions
+ * and can leave the page's compositor stuck painting black.
  */
 async function transcodeToMp4(
   source: File | string,
   opfsName: string,
-  onProgress: (progress: number) => void
+  onProgress: (progress: number) => void,
+  conversionRef: { current: CancellableConversion | null },
+  abortedRef: { current: boolean }
 ): Promise<File> {
   const [
     {
@@ -82,6 +96,13 @@ async function transcodeToMp4(
     throw new Error(`No se pudo procesar el audio (${reason}).`);
   }
 
+  conversionRef.current = conversion;
+  // The component may have unmounted while we were awaiting the dynamic
+  // imports/OPFS setup above, before there was a `conversion` to cancel.
+  // Catch that race here instead of letting an orphaned execute() run.
+  if (abortedRef.current) {
+    await conversion.cancel();
+  }
   conversion.onProgress = onProgress;
   await conversion.execute();
   return await fileHandle.getFile();
@@ -106,6 +127,7 @@ export function useMediaBunny(
   const [state, setState] = useState<MediaBunnyState>({ status: "idle" });
   const blobUrlRef = useRef<string | null>(null);
   const opfsNameRef = useRef<string | null>(null);
+  const conversionRef = useRef<CancellableConversion | null>(null);
 
   useEffect(() => {
     if (!(source && needsMediaBunny(filename))) {
@@ -113,7 +135,7 @@ export function useMediaBunny(
       return;
     }
 
-    let aborted = false;
+    const abortedRef = { current: false };
     setState({ status: "processing", progress: 0 });
 
     const cleanup = async () => {
@@ -137,12 +159,18 @@ export function useMediaBunny(
 
     (async () => {
       try {
-        const file = await transcodeToMp4(source, opfsName, (progress) => {
-          if (!aborted) {
-            setState({ status: "processing", progress });
-          }
-        });
-        if (aborted) {
+        const file = await transcodeToMp4(
+          source,
+          opfsName,
+          (progress) => {
+            if (!abortedRef.current) {
+              setState({ status: "processing", progress });
+            }
+          },
+          conversionRef,
+          abortedRef
+        );
+        if (abortedRef.current) {
           return;
         }
         const blobUrl = URL.createObjectURL(file);
@@ -151,15 +179,23 @@ export function useMediaBunny(
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         await cleanup();
-        if (!aborted) {
+        if (!abortedRef.current) {
           setState({ status: "error", message: msg });
         }
       }
     })();
 
     return () => {
-      aborted = true;
-      cleanup();
+      abortedRef.current = true;
+      // Cancel the in-flight conversion first (if it already exists) so its
+      // WebCodecs decoder/encoder sessions are released before we pull the
+      // OPFS file out from under it. If `conversion` hasn't been created yet,
+      // the abortedRef check inside transcodeToMp4 cancels it as soon as it is.
+      if (conversionRef.current) {
+        conversionRef.current.cancel().finally(cleanup);
+      } else {
+        cleanup();
+      }
     };
   }, [source, filename]);
 
