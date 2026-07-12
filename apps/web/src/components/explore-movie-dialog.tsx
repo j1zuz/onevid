@@ -70,16 +70,72 @@ function formatDate(dateStr?: string): string {
   }
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: complex dialog with source fetching and state management
+// Lightweight shell: owns only open/close state and the Drawer chrome. The
+// catalog grid mounts one of these per poster (dozens at once), so keeping
+// it cheap matters — every fetch, effect, and piece of state for the
+// drawer's actual content lives in `MovieDialogContent` below, which is
+// only ever mounted once the drawer has been opened at least once. Before
+// that, a closed card costs React nothing beyond this shell's single
+// `isOpen`/`hasOpened` state.
 export function ExploreMovieDialog({
   movie,
   onPlay,
   children,
   defaultOpen = false,
 }: ExploreMovieDialogProps) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const [hasOpened, setHasOpened] = useState(defaultOpen);
+
+  const handleOpenChange = useCallback((open: boolean) => {
+    setIsOpen(open);
+    if (open) {
+      setHasOpened(true);
+    }
+  }, []);
+
+  return (
+    <div className={cn("group relative", children && "h-full w-full")}>
+      {children && (
+        // biome-ignore lint/a11y/useSemanticElements: clickable card wrapper needs div for layout
+        <div
+          className="h-full w-full cursor-pointer"
+          onClick={() => handleOpenChange(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              handleOpenChange(true);
+            }
+          }}
+          role="button"
+          tabIndex={0}
+        >
+          {children}
+        </div>
+      )}
+
+      <Drawer onOpenChange={handleOpenChange} open={isOpen} swipeDirection="right">
+        <DrawerContent>
+          {hasOpened && (
+            <MovieDialogContent isOpen={isOpen} movie={movie} onPlay={onPlay} />
+          )}
+        </DrawerContent>
+      </Drawer>
+    </div>
+  );
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: complex dialog with source fetching and state management
+function MovieDialogContent({
+  movie,
+  onPlay,
+  isOpen,
+}: {
+  isOpen: boolean;
+  movie: MediaMeta;
+  onPlay?: () => void;
+}) {
   const { push } = useRouter();
   const { activeProfileId } = useOneVidProfiles();
-  const [isOpen, setIsOpen] = useState(defaultOpen);
 
   // Series state
   const [seasons, setSeasons] = useState<number[]>([]);
@@ -143,7 +199,17 @@ export function ExploreMovieDialog({
         }
         setLogoLoaded(true);
       })
-      .catch(() => setLogoLoaded(true));
+      .catch((err: unknown) => {
+        // An aborted fetch (StrictMode's dev-only mount→cleanup→remount, or a
+        // real unmount) must NOT mark this loaded — a fresh, un-aborted fetch
+        // is about to run right after and needs the chance to actually
+        // resolve. Locking logoLoaded=true here permanently blanks the logo,
+        // since the effect bails out early on every future run once it's set.
+        if (err instanceof DOMException && err.name === "AbortError") {
+          return;
+        }
+        setLogoLoaded(true);
+      });
     return () => controller.abort();
   }, [isOpen, logoLoaded, movie.id, movie.type]);
 
@@ -162,8 +228,13 @@ export function ExploreMovieDialog({
         setTrailerKey(data.trailer);
         setTrailerLoaded(true);
       })
-      .catch(() => {
-        // sin conexión / abortado — sin tráiler
+      .catch((err: unknown) => {
+        // Same abort-race as the logo fetch above: an aborted request (dev
+        // StrictMode mount→cleanup→remount) must not lock trailerLoaded, or
+        // the real follow-up fetch never gets to show its result.
+        if (err instanceof DOMException && err.name === "AbortError") {
+          return;
+        }
         setTrailerLoaded(true);
       });
     return () => controller.abort();
@@ -417,410 +488,150 @@ export function ExploreMovieDialog({
   }, [isOpen, isSeries, sourcesLoaded, sourcesLoading, loadSources, movie.id]);
 
   return (
-    // `h-full w-full` only make sense when we're wrapping a trigger (the
-    // per-card grid usage). The standalone usage (no children, e.g. the
-    // reopen-after-player / search-selected flow) renders this as a flex
-    // sibling of the catalog's `flex-1 min-h-0` container; giving it `h-full`
-    // there makes its flex-basis resolve to 100% of the shared flex parent,
-    // which steals all the space and collapses the catalog to zero height.
-    <div className={cn("group relative", children && "h-full w-full")}>
-      {children && (
-        // biome-ignore lint/a11y/useSemanticElements: clickable card wrapper needs div for layout
-        <div
-          className="h-full w-full cursor-pointer"
-          onClick={() => setIsOpen(true)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              setIsOpen(true);
-            }
-          }}
-          role="button"
-          tabIndex={0}
-        >
-          {children}
-        </div>
-      )}
-
-      <Drawer onOpenChange={setIsOpen} open={isOpen} swipeDirection="right">
-        <DrawerContent>
-          <div
-            className="mx-auto flex w-full max-w-sm flex-col overflow-hidden"
-            style={{ height: "min(80vh, 100dvh - 3rem)" }}
-          >
-            <DrawerHeader className="shrink-0">
-              {!logoLoaded && (
-                <div className="mx-auto mb-1 h-12 w-40 animate-pulse rounded bg-muted" />
+    <>
+      <div
+        className="mx-auto flex w-full max-w-sm flex-col overflow-hidden"
+        style={{ height: "min(80vh, 100dvh - 3rem)" }}
+      >
+        <DrawerHeader className="shrink-0">
+          {/* Fixed h-12 box for both the skeleton and the loaded logo: the
+              logo's own aspect ratio (unknown until decoded) must not
+              resize this box, or the header jumps once the image loads. */}
+          <div className="mx-auto mb-1 flex h-12 items-center justify-center">
+            {!logoLoaded && (
+              <div className="h-full w-40 animate-pulse rounded bg-muted" />
+            )}
+            {logoLoaded && logo && (
+              // biome-ignore lint/performance/noImgElement: external CDN logo
+              <img
+                alt={movie.name}
+                className="h-full w-auto object-contain"
+                src={logo}
+              />
+            )}
+          </div>
+          <DrawerTitle className={logo ? "sr-only" : ""}>
+            {movie.name}
+          </DrawerTitle>
+          <DrawerDescription>
+            <span className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
+              {movie.year && <span>{movie.year}</span>}
+              {movie.imdbRating && (
+                <>
+                  <span>•</span>
+                  <span className="font-medium text-yellow-500/80">
+                    ★ {movie.imdbRating}
+                  </span>
+                </>
               )}
-              {logoLoaded && logo && (
-                // biome-ignore lint/performance/noImgElement: external CDN logo
-                <img
-                  alt={movie.name}
-                  className="mx-auto mb-1 max-h-12 w-auto object-contain"
-                  height={0}
-                  src={logo}
-                  width={0}
-                />
+              {movie.type && (
+                <>
+                  <span>•</span>
+                  <span className="capitalize">
+                    {movie.type === "series" ? "Series" : "Movie"}
+                  </span>
+                </>
               )}
-              <DrawerTitle className={logo ? "sr-only" : ""}>
-                {movie.name}
-              </DrawerTitle>
-              <DrawerDescription>
-                <span className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
-                  {movie.year && <span>{movie.year}</span>}
-                  {movie.imdbRating && (
-                    <>
-                      <span>•</span>
-                      <span className="font-medium text-yellow-500/80">
-                        ★ {movie.imdbRating}
-                      </span>
-                    </>
-                  )}
-                  {movie.type && (
-                    <>
-                      <span>•</span>
-                      <span className="capitalize">
-                        {movie.type === "series" ? "Series" : "Movie"}
-                      </span>
-                    </>
-                  )}
-                </span>
-              </DrawerDescription>
-              <div className="mt-2 flex items-center justify-center gap-2">
-                <Button
-                  disabled={savingFavorite}
-                  onClick={toggleFavorite}
-                  size="sm"
-                  variant="outline"
-                >
-                  <Heart
-                    className={cn(
-                      "size-3.5",
-                      favorite && "fill-red-500 text-red-500"
-                    )}
-                  />
-                  Favorito
-                </Button>
-                <Button
-                  className={cn(watchlist && "btn-primary")}
-                  disabled={savingWatchlist}
-                  onClick={toggleWatchlist}
-                  size="sm"
-                  variant={watchlist ? "default" : "outline"}
-                >
-                  <Bookmark
-                    className={cn("size-3.5", watchlist && "fill-current")}
-                  />
-                  Ver después
-                </Button>
-                {!trailerLoaded && (
-                  <Skeleton className="h-6 w-20 rounded-md" />
+            </span>
+          </DrawerDescription>
+          <div className="mt-2 flex items-center justify-center gap-2">
+            <Button
+              disabled={savingFavorite}
+              onClick={toggleFavorite}
+              size="sm"
+              variant="outline"
+            >
+              <Heart
+                className={cn(
+                  "size-3.5",
+                  favorite && "fill-red-500 text-red-500"
                 )}
-                {trailerLoaded && trailerKey && (
-                  <Button
-                    onClick={() => setShowTrailer((v) => !v)}
-                    size="sm"
-                    variant={showTrailer ? "default" : "outline"}
+              />
+              Favorito
+            </Button>
+            <Button
+              className={cn(watchlist && "btn-primary")}
+              disabled={savingWatchlist}
+              onClick={toggleWatchlist}
+              size="sm"
+              variant={watchlist ? "default" : "outline"}
+            >
+              <Bookmark
+                className={cn("size-3.5", watchlist && "fill-current")}
+              />
+              Ver después
+            </Button>
+            {!trailerLoaded && <Skeleton className="h-6 w-20 rounded-md" />}
+            {trailerLoaded && trailerKey && (
+              <Button
+                onClick={() => setShowTrailer((v) => !v)}
+                size="sm"
+                variant={showTrailer ? "default" : "outline"}
+              >
+                <Film className="size-3.5" />
+                Tráiler
+              </Button>
+            )}
+          </div>
+        </DrawerHeader>
+
+        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-4">
+          <div className="space-y-4">
+            {/* Genres */}
+            {genres.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {genres.slice(0, 3).map((genre) => (
+                  <span
+                    className={cn(
+                      "inline-flex items-center",
+                      "rounded-full px-2 py-1",
+                      "bg-muted text-muted-foreground",
+                      "font-medium text-xs"
+                    )}
+                    key={genre}
                   >
-                    <Film className="size-3.5" />
-                    Tráiler
-                  </Button>
+                    {genre}
+                  </span>
+                ))}
+                {genres.length > 3 && (
+                  <span className="inline-flex items-center px-2 py-1 text-muted-foreground text-xs">
+                    +{genres.length - 3}
+                  </span>
                 )}
               </div>
-            </DrawerHeader>
+            )}
 
-            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-4">
-              <div className="space-y-4">
-                {/* Genres */}
-                {genres.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {genres.slice(0, 3).map((genre) => (
-                      <span
-                        className={cn(
-                          "inline-flex items-center",
-                          "rounded-full px-2 py-1",
-                          "bg-muted text-muted-foreground",
-                          "font-medium text-xs"
-                        )}
-                        key={genre}
+            {/* Description */}
+            {movie.description && (
+              <p className="line-clamp-2 text-muted-foreground text-xs leading-relaxed">
+                {movie.description}
+              </p>
+            )}
+
+            {/* === SERIES === */}
+            {isSeries && (
+              <div className="space-y-3">
+                {selectedEpisode ? (
+                  <>
+                    {/* Episode selected — show back button + episode title + sources */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted/50 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        onClick={() => {
+                          setSelectedEpisode(null);
+                          setSources([]);
+                          setSourcesLoaded(false);
+                        }}
+                        type="button"
                       >
-                        {genre}
-                      </span>
-                    ))}
-                    {genres.length > 3 && (
-                      <span className="inline-flex items-center px-2 py-1 text-muted-foreground text-xs">
-                        +{genres.length - 3}
-                      </span>
-                    )}
-                  </div>
-                )}
+                        <ArrowLeftIcon className="size-4" />
+                      </button>
+                      <p className="min-w-0 truncate font-medium text-foreground text-sm">
+                        S{selectedEpisode.season}E{selectedEpisode.number} -{" "}
+                        {selectedEpisode.name}
+                      </p>
+                    </div>
 
-                {/* Description */}
-                {movie.description && (
-                  <p className="line-clamp-2 text-muted-foreground text-xs leading-relaxed">
-                    {movie.description}
-                  </p>
-                )}
-
-                {/* === SERIES === */}
-                {isSeries && (
-                  <div className="space-y-3">
-                    {selectedEpisode ? (
-                      <>
-                        {/* Episode selected — show back button + episode title + sources */}
-                        <div className="flex items-center gap-2">
-                          <button
-                            className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted/50 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                            onClick={() => {
-                              setSelectedEpisode(null);
-                              setSources([]);
-                              setSourcesLoaded(false);
-                            }}
-                            type="button"
-                          >
-                            <ArrowLeftIcon className="size-4" />
-                          </button>
-                          <p className="min-w-0 truncate font-medium text-foreground text-sm">
-                            S{selectedEpisode.season}E{selectedEpisode.number} -{" "}
-                            {selectedEpisode.name}
-                          </p>
-                        </div>
-
-                        <p className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-                          Medios disponibles
-                        </p>
-
-                        {sourcesLoading && (
-                          <div className="space-y-1.5">
-                            {["a", "b", "c"].map((key) => (
-                              <div
-                                className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-background p-2.5"
-                                key={key}
-                              >
-                                <Skeleton className="h-3 w-3/4" />
-                                <Skeleton className="size-6 shrink-0 rounded-full" />
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {!sourcesLoading &&
-                          sourcesLoaded &&
-                          sources.length === 0 && (
-                            <WatchProvidersNotice
-                              fallback={
-                                <div className="rounded-lg border border-border/50 bg-muted/50 p-3">
-                                  <p className="text-muted-foreground text-xs">
-                                    No hay fuentes disponibles para este
-                                    episodio.
-                                  </p>
-                                </div>
-                              }
-                              id={movie.id}
-                              title={movie.name}
-                              type={movie.type}
-                              year={movie.year}
-                            />
-                          )}
-
-                        {!sourcesLoading &&
-                          sourcesLoaded &&
-                          sources.length > 0 && (
-                            <div className="space-y-1.5">
-                              {sources.map((source) => {
-                                const compat = getSourceCompatibility(source);
-                                const badgeText = getBadgeText(compat);
-                                const streamName =
-                                  typeof source.name === "string"
-                                    ? source.name
-                                    : source.title;
-                                const streamDesc =
-                                  typeof source.description === "string"
-                                    ? source.description
-                                    : null;
-
-                                return (
-                                  // biome-ignore lint/a11y/useSemanticElements: clickable list item needs div for layout
-                                  <div
-                                    className={cn(
-                                      "group/source relative cursor-pointer rounded-lg border p-2.5 text-left transition-colors",
-                                      "border-border/50 bg-background",
-                                      "hover:border-primary/50 hover:bg-accent"
-                                    )}
-                                    key={`${source.addonId}-${source.sourceIndex}`}
-                                    onClick={() => handlePlay(source)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter" || e.key === " ") {
-                                        e.preventDefault();
-                                        handlePlay(source);
-                                      }
-                                    }}
-                                    role="button"
-                                    tabIndex={0}
-                                  >
-                                    <div className="flex items-center justify-between gap-3">
-                                      <div className="min-w-0 flex-1">
-                                        <p className="whitespace-pre-line font-medium text-foreground text-xs leading-relaxed">
-                                          {streamName}
-                                        </p>
-                                        {streamDesc && (
-                                          <p className="mt-0.5 whitespace-pre-line text-[10px] text-muted-foreground leading-relaxed">
-                                            {streamDesc}
-                                          </p>
-                                        )}
-                                      </div>
-                                      <div className="flex shrink-0 items-center gap-1.5">
-                                        {badgeText && (
-                                          <Badge
-                                            className="whitespace-nowrap px-1.5 py-0 text-[10px]"
-                                            variant="destructive"
-                                          >
-                                            {badgeText}
-                                          </Badge>
-                                        )}
-                                        <div className="shrink-0 opacity-0 transition-opacity duration-200 group-hover/source:opacity-100">
-                                          <div className="flex size-8 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
-                                            <Play className="size-3.5 fill-current" />
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                      </>
-                    ) : (
-                      <>
-                        {/* Temporadas y episodios - visible when no episode selected */}
-                        <p className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-                          Temporadas y episodios
-                        </p>
-
-                        {seriesLoading && (
-                          <div className="space-y-2">
-                            <Skeleton className="h-9 w-full rounded-lg" />
-                            {["a", "b", "c", "d"].map((key) => (
-                              <div className="flex gap-3" key={key}>
-                                <Skeleton className="h-16 w-28 shrink-0 rounded" />
-                                <div className="flex-1 space-y-1.5 py-1">
-                                  <Skeleton className="h-3 w-3/4" />
-                                  <Skeleton className="h-3 w-1/2" />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {!seriesLoading &&
-                          seriesLoaded &&
-                          seasons.length === 0 && (
-                            <div className="rounded-lg border border-border/50 bg-muted/50 p-3">
-                              <p className="text-muted-foreground text-xs">
-                                No se encontraron episodios.
-                              </p>
-                            </div>
-                          )}
-
-                        {!seriesLoading &&
-                          seriesLoaded &&
-                          seasons.length > 0 && (
-                            <>
-                              {/* Season dropdown */}
-                              <div className="relative" ref={seasonDropdownRef}>
-                                <button
-                                  className="flex w-full items-center justify-between gap-1.5 rounded-md border border-input bg-input/20 px-2 py-1.5 text-foreground text-xs/relaxed outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30"
-                                  onClick={() =>
-                                    setSeasonDropdownOpen(!seasonDropdownOpen)
-                                  }
-                                  type="button"
-                                >
-                                  <span>
-                                    Temporada {selectedSeason ?? seasons[0]}
-                                  </span>
-                                  <ChevronDownIcon className="pointer-events-none size-3.5 text-muted-foreground" />
-                                </button>
-                                {seasonDropdownOpen && (
-                                  <div className="absolute top-full left-0 z-50 mt-1 w-full overflow-hidden rounded-lg border border-border bg-popover shadow-md ring-1 ring-foreground/10">
-                                    {seasons.map((s) => {
-                                      const isActive =
-                                        s === (selectedSeason ?? seasons[0]);
-                                      return (
-                                        <button
-                                          className={`flex w-full items-center gap-2 px-2 py-1.5 text-xs outline-none hover:bg-accent ${isActive ? "bg-accent text-accent-foreground" : "text-foreground"}`}
-                                          key={s}
-                                          onClick={() => {
-                                            setSelectedSeason(s);
-                                            setSeasonDropdownOpen(false);
-                                          }}
-                                          type="button"
-                                        >
-                                          <span className="flex-1 text-left">
-                                            Temporada {s}
-                                          </span>
-                                          {isActive && (
-                                            <CheckIcon className="size-3.5" />
-                                          )}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Episode list */}
-                              <div className="space-y-2">
-                                {filteredEpisodes.map((ep) => (
-                                  <button
-                                    className="flex w-full items-center gap-3 rounded-lg border border-border/50 bg-background p-2 text-left transition-colors hover:border-primary/50 hover:bg-accent"
-                                    key={ep.id}
-                                    onClick={() => handleEpisodeClick(ep)}
-                                    type="button"
-                                  >
-                                    {ep.thumbnail ? (
-                                      // biome-ignore lint/performance/noImgElement: external CDN thumbnail
-                                      <img
-                                        alt={ep.name}
-                                        className="h-16 w-28 shrink-0 rounded object-cover"
-                                        height={64}
-                                        loading="lazy"
-                                        src={ep.thumbnail}
-                                        width={112}
-                                      />
-                                    ) : (
-                                      <div className="flex h-16 w-28 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground text-xs">
-                                        E{ep.number}
-                                      </div>
-                                    )}
-                                    <div className="min-w-0 flex-1 py-0.5">
-                                      <p className="truncate font-medium text-foreground text-xs">
-                                        {ep.number}. {ep.name}
-                                      </p>
-                                      {ep.released && (
-                                        <p className="text-[10px] text-muted-foreground">
-                                          {formatDate(ep.released)}
-                                        </p>
-                                      )}
-                                      {ep.description && (
-                                        <p className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">
-                                          {ep.description}
-                                        </p>
-                                      )}
-                                    </div>
-                                  </button>
-                                ))}
-                              </div>
-                            </>
-                          )}
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {/* === Streaming Sources (for movies) === */}
-                {!isSeries && (
-                  <div className="space-y-2">
                     <p className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
                       Medios disponibles
                     </p>
@@ -846,7 +657,7 @@ export function ExploreMovieDialog({
                           fallback={
                             <div className="rounded-lg border border-border/50 bg-muted/50 p-3">
                               <p className="text-muted-foreground text-xs">
-                                No hay fuentes de streaming disponibles.
+                                No hay fuentes disponibles para este episodio.
                               </p>
                             </div>
                           }
@@ -857,78 +668,308 @@ export function ExploreMovieDialog({
                         />
                       )}
 
-                    {!sourcesLoading && sourcesLoaded && sources.length > 0 && (
-                      <div className="space-y-1.5">
-                        {sources.map((source) => {
-                          const compat = getSourceCompatibility(source);
-                          const badgeText = getBadgeText(compat);
-                          const streamName =
-                            typeof source.name === "string"
-                              ? source.name
-                              : source.title;
-                          const streamDesc =
-                            typeof source.description === "string"
-                              ? source.description
-                              : null;
+                    {!sourcesLoading &&
+                      sourcesLoaded &&
+                      sources.length > 0 && (
+                        <div className="space-y-1.5">
+                          {sources.map((source) => {
+                            const compat = getSourceCompatibility(source);
+                            const badgeText = getBadgeText(compat);
+                            const streamName =
+                              typeof source.name === "string"
+                                ? source.name
+                                : source.title;
+                            const streamDesc =
+                              typeof source.description === "string"
+                                ? source.description
+                                : null;
 
-                          return (
-                            // biome-ignore lint/a11y/useSemanticElements: clickable list item needs div for layout
-                            <div
-                              className={cn(
-                                "group/source relative cursor-pointer rounded-lg border p-2.5 text-left transition-colors",
-                                "border-border/50 bg-background",
-                                "hover:border-primary/50 hover:bg-accent"
-                              )}
-                              key={`${source.addonId}-${source.sourceIndex}`}
-                              onClick={() => handlePlay(source)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  e.preventDefault();
-                                  handlePlay(source);
-                                }
-                              }}
-                              role="button"
-                              tabIndex={0}
-                            >
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="min-w-0 flex-1">
-                                  <p className="whitespace-pre-line font-medium text-foreground text-xs leading-relaxed">
-                                    {streamName}
-                                  </p>
-                                  {streamDesc && (
-                                    <p className="mt-0.5 whitespace-pre-line text-[10px] text-muted-foreground leading-relaxed">
-                                      {streamDesc}
+                            return (
+                              // biome-ignore lint/a11y/useSemanticElements: clickable list item needs div for layout
+                              <div
+                                className={cn(
+                                  "group/source relative cursor-pointer rounded-lg border p-2.5 text-left transition-colors",
+                                  "border-border/50 bg-background",
+                                  "hover:border-primary/50 hover:bg-accent"
+                                )}
+                                key={`${source.addonId}-${source.sourceIndex}`}
+                                onClick={() => handlePlay(source)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    handlePlay(source);
+                                  }
+                                }}
+                                role="button"
+                                tabIndex={0}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="whitespace-pre-line font-medium text-foreground text-xs leading-relaxed">
+                                      {streamName}
                                     </p>
-                                  )}
-                                </div>
-                                <div className="flex shrink-0 items-center gap-1.5">
-                                  {badgeText && (
-                                    <Badge
-                                      className="whitespace-nowrap px-1.5 py-0 text-[10px]"
-                                      variant="destructive"
-                                    >
-                                      {badgeText}
-                                    </Badge>
-                                  )}
-                                  <div className="shrink-0 opacity-0 transition-opacity duration-200 group-hover/source:opacity-100">
-                                    <div className="flex size-8 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
-                                      <Play className="size-3.5 fill-current" />
+                                    {streamDesc && (
+                                      <p className="mt-0.5 whitespace-pre-line text-[10px] text-muted-foreground leading-relaxed">
+                                        {streamDesc}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <div className="flex shrink-0 items-center gap-1.5">
+                                    {badgeText && (
+                                      <Badge
+                                        className="whitespace-nowrap px-1.5 py-0 text-[10px]"
+                                        variant="destructive"
+                                      >
+                                        {badgeText}
+                                      </Badge>
+                                    )}
+                                    <div className="shrink-0 opacity-0 transition-opacity duration-200 group-hover/source:opacity-100">
+                                      <div className="flex size-8 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
+                                        <Play className="size-3.5 fill-current" />
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
                               </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                  </>
+                ) : (
+                  <>
+                    {/* Temporadas y episodios - visible when no episode selected */}
+                    <p className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+                      Temporadas y episodios
+                    </p>
+
+                    {seriesLoading && (
+                      <div className="space-y-2">
+                        <Skeleton className="h-9 w-full rounded-lg" />
+                        {["a", "b", "c", "d"].map((key) => (
+                          <div className="flex gap-3" key={key}>
+                            <Skeleton className="h-16 w-28 shrink-0 rounded" />
+                            <div className="flex-1 space-y-1.5 py-1">
+                              <Skeleton className="h-3 w-3/4" />
+                              <Skeleton className="h-3 w-1/2" />
                             </div>
-                          );
-                        })}
+                          </div>
+                        ))}
                       </div>
                     )}
+
+                    {!seriesLoading &&
+                      seriesLoaded &&
+                      seasons.length === 0 && (
+                        <div className="rounded-lg border border-border/50 bg-muted/50 p-3">
+                          <p className="text-muted-foreground text-xs">
+                            No se encontraron episodios.
+                          </p>
+                        </div>
+                      )}
+
+                    {!seriesLoading &&
+                      seriesLoaded &&
+                      seasons.length > 0 && (
+                        <>
+                          {/* Season dropdown */}
+                          <div className="relative" ref={seasonDropdownRef}>
+                            <button
+                              className="flex w-full items-center justify-between gap-1.5 rounded-md border border-input bg-input/20 px-2 py-1.5 text-foreground text-xs/relaxed outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30"
+                              onClick={() =>
+                                setSeasonDropdownOpen(!seasonDropdownOpen)
+                              }
+                              type="button"
+                            >
+                              <span>
+                                Temporada {selectedSeason ?? seasons[0]}
+                              </span>
+                              <ChevronDownIcon className="pointer-events-none size-3.5 text-muted-foreground" />
+                            </button>
+                            {seasonDropdownOpen && (
+                              <div className="absolute top-full left-0 z-50 mt-1 w-full overflow-hidden rounded-lg border border-border bg-popover shadow-md ring-1 ring-foreground/10">
+                                {seasons.map((s) => {
+                                  const isActive =
+                                    s === (selectedSeason ?? seasons[0]);
+                                  return (
+                                    <button
+                                      className={`flex w-full items-center gap-2 px-2 py-1.5 text-xs outline-none hover:bg-accent ${isActive ? "bg-accent text-accent-foreground" : "text-foreground"}`}
+                                      key={s}
+                                      onClick={() => {
+                                        setSelectedSeason(s);
+                                        setSeasonDropdownOpen(false);
+                                      }}
+                                      type="button"
+                                    >
+                                      <span className="flex-1 text-left">
+                                        Temporada {s}
+                                      </span>
+                                      {isActive && (
+                                        <CheckIcon className="size-3.5" />
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Episode list */}
+                          <div className="space-y-2">
+                            {filteredEpisodes.map((ep) => (
+                              <button
+                                className="flex w-full items-center gap-3 rounded-lg border border-border/50 bg-background p-2 text-left transition-colors hover:border-primary/50 hover:bg-accent"
+                                key={ep.id}
+                                onClick={() => handleEpisodeClick(ep)}
+                                type="button"
+                              >
+                                {ep.thumbnail ? (
+                                  // biome-ignore lint/performance/noImgElement: external CDN thumbnail
+                                  <img
+                                    alt={ep.name}
+                                    className="h-16 w-28 shrink-0 rounded object-cover"
+                                    height={64}
+                                    loading="lazy"
+                                    src={ep.thumbnail}
+                                    width={112}
+                                  />
+                                ) : (
+                                  <div className="flex h-16 w-28 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground text-xs">
+                                    E{ep.number}
+                                  </div>
+                                )}
+                                <div className="min-w-0 flex-1 py-0.5">
+                                  <p className="truncate font-medium text-foreground text-xs">
+                                    {ep.number}. {ep.name}
+                                  </p>
+                                  {ep.released && (
+                                    <p className="text-[10px] text-muted-foreground">
+                                      {formatDate(ep.released)}
+                                    </p>
+                                  )}
+                                  {ep.description && (
+                                    <p className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">
+                                      {ep.description}
+                                    </p>
+                                  )}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* === Streaming Sources (for movies) === */}
+            {!isSeries && (
+              <div className="space-y-2">
+                <p className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+                  Medios disponibles
+                </p>
+
+                {sourcesLoading && (
+                  <div className="space-y-1.5">
+                    {["a", "b", "c"].map((key) => (
+                      <div
+                        className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-background p-2.5"
+                        key={key}
+                      >
+                        <Skeleton className="h-3 w-3/4" />
+                        <Skeleton className="size-6 shrink-0 rounded-full" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!sourcesLoading && sourcesLoaded && sources.length === 0 && (
+                  <WatchProvidersNotice
+                    fallback={
+                      <div className="rounded-lg border border-border/50 bg-muted/50 p-3">
+                        <p className="text-muted-foreground text-xs">
+                          No hay fuentes de streaming disponibles.
+                        </p>
+                      </div>
+                    }
+                    id={movie.id}
+                    title={movie.name}
+                    type={movie.type}
+                    year={movie.year}
+                  />
+                )}
+
+                {!sourcesLoading && sourcesLoaded && sources.length > 0 && (
+                  <div className="space-y-1.5">
+                    {sources.map((source) => {
+                      const compat = getSourceCompatibility(source);
+                      const badgeText = getBadgeText(compat);
+                      const streamName =
+                        typeof source.name === "string"
+                          ? source.name
+                          : source.title;
+                      const streamDesc =
+                        typeof source.description === "string"
+                          ? source.description
+                          : null;
+
+                      return (
+                        // biome-ignore lint/a11y/useSemanticElements: clickable list item needs div for layout
+                        <div
+                          className={cn(
+                            "group/source relative cursor-pointer rounded-lg border p-2.5 text-left transition-colors",
+                            "border-border/50 bg-background",
+                            "hover:border-primary/50 hover:bg-accent"
+                          )}
+                          key={`${source.addonId}-${source.sourceIndex}`}
+                          onClick={() => handlePlay(source)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              handlePlay(source);
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="whitespace-pre-line font-medium text-foreground text-xs leading-relaxed">
+                                {streamName}
+                              </p>
+                              {streamDesc && (
+                                <p className="mt-0.5 whitespace-pre-line text-[10px] text-muted-foreground leading-relaxed">
+                                  {streamDesc}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              {badgeText && (
+                                <Badge
+                                  className="whitespace-nowrap px-1.5 py-0 text-[10px]"
+                                  variant="destructive"
+                                >
+                                  {badgeText}
+                                </Badge>
+                              )}
+                              <div className="shrink-0 opacity-0 transition-opacity duration-200 group-hover/source:opacity-100">
+                                <div className="flex size-8 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
+                                  <Play className="size-3.5 fill-current" />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
-            </div>
+            )}
           </div>
-        </DrawerContent>
-      </Drawer>
+        </div>
+      </div>
 
       {/* Tráiler al frente: overlay a nivel de <body> (createPortal) para quedar
           por encima del Drawer sin chocar con su gestor de foco/portal. */}
@@ -965,6 +1006,6 @@ export function ExploreMovieDialog({
           </div>,
           document.body
         )}
-    </div>
+    </>
   );
 }

@@ -1,8 +1,10 @@
 "use client";
 
+import { cn } from "@workspace/ui/lib/utils";
 import { useSearchParams } from "next/navigation";
 import {
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useRef,
@@ -25,6 +27,58 @@ interface CatalogOption {
   id: string;
   name: string;
   type: CatalogType;
+}
+
+// Top-edge fade, cheap version: the shadcn `scroll-fade-t` utility masks
+// (`mask-image`) whatever element it's applied to and re-evaluates that mask
+// every scroll frame via a CSS scroll-driven animation. Applied directly to
+// the scrollable container (dozens of poster `<img>`s), that forced the
+// browser to re-rasterize the whole grid on every scroll tick.
+//
+// This component owns its `isScrolled` state itself, attaching the scroll
+// listener directly to the DOM node via an effect, instead of lifting that
+// state into `OneVidPageClient`. Lifting it up made the WHOLE page
+// (including `OneVidProfileProvider` and everything under it) re-render on
+// every scroll-direction toggle, even though nothing about the catalog
+// itself changed — react-scan flagged this as dozens of "no changes
+// detected" renders. Keeping the state here means only this tiny overlay
+// re-renders when scrolling.
+function ScrollTopFade({
+  scrollAreaRef,
+}: {
+  scrollAreaRef: RefObject<HTMLDivElement | null>;
+}) {
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const el = scrollAreaRef.current;
+    if (!el) {
+      return;
+    }
+    let ticking = false;
+    const handleScroll = () => {
+      if (ticking) {
+        return;
+      }
+      ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
+        setIsScrolled(el.scrollTop > 0);
+      });
+    };
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, [scrollAreaRef]);
+
+  return (
+    <div
+      aria-hidden="true"
+      className={cn(
+        "pointer-events-none absolute inset-x-0 top-0 z-10 h-10 bg-gradient-to-b from-background to-transparent transition-opacity duration-150",
+        isScrolled ? "opacity-100" : "opacity-0"
+      )}
+    />
+  );
 }
 
 interface OneVidPageClientProps {
@@ -64,6 +118,7 @@ export function OneVidPageClient({
   const [searchMovie, setSearchMovie] = useState<MediaMeta | null>(null);
   const [drawerKey, setDrawerKey] = useState(0);
   const consumedReopenRef = useRef(false);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   const handleMovieSelect = useCallback(
     (id: string, type: CatalogType) => {
@@ -142,15 +197,20 @@ export function OneVidPageClient({
           typeOptions={typeOptions}
         />
 
-        {/* Contenedor con scroll propio (no el de <body>): así el util
-            scroll-fade-t de shadcn, que necesita que el elemento con la clase
-            sea el que scrollea, puede aplicarse y verse al bajar.
-            no-scrollbar oculta la barra de este contenedor (sigue siendo
+        {/* Contenedor con scroll propio (no el de <body>): así el fondo con
+            fade del borde superior puede overlayarse sobre este contenedor
+            específico. no-scrollbar oculta la barra (sigue siendo
             scrolleable con mouse/trackpad/touch/teclado, solo sin indicador
             visual, igual que el dropdown de búsqueda del header). */}
-        <div className="scroll-fade-t no-scrollbar flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto py-4">
-          <ContinueWatchingRow />
-          {mainContent}
+        <div className="relative min-h-0 flex-1">
+          <ScrollTopFade scrollAreaRef={scrollAreaRef} />
+          <div
+            className="no-scrollbar flex h-full flex-col gap-8 overflow-y-auto py-4"
+            ref={scrollAreaRef}
+          >
+            <ContinueWatchingRow />
+            {mainContent}
+          </div>
         </div>
       </div>
 

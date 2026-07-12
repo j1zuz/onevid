@@ -35,6 +35,14 @@ interface CancellableConversion {
   cancel: () => Promise<void>;
 }
 
+// Codecs the browser's <video> element can already decode natively once
+// remuxed into an MP4 container — matches this project's own compatibility
+// list in stream-codec.ts (SUPPORTED_VIDEO_PATTERNS/SUPPORTED_AUDIO_PATTERNS),
+// but checked against the file's *real* codec (via mediabunny's track probing)
+// instead of guessed from the filename.
+const PASSTHROUGH_VIDEO_CODECS = new Set(["avc", "vp9", "av1"]);
+const PASSTHROUGH_AUDIO_CODECS = new Set(["aac", "mp3", "opus"]);
+
 /**
  * Runs the full MediaBunny pipeline for one source and returns the finished
  * MP4 as a File. Video is passed through (H.264/AVC) and only audio is
@@ -87,8 +95,21 @@ async function transcodeToMp4(
       format: new Mp4OutputFormat(),
       target: new StreamTarget(createOpfsWriteStream(opfsWritable)),
     }),
-    video: { codec: "avc" },
-    audio: { codec: "opus", numberOfChannels: 2, sampleRate: 48_000 },
+    // Returning `{}` leaves mediabunny's own codec/channel/rate untouched, so
+    // it takes its fast passthrough path (raw packet copy, no decode+encode)
+    // whenever the source track is already browser-playable. Only a track
+    // whose real codec isn't in our compatibility set pays for a transcode —
+    // e.g. an MKV with H.264 video + AC-3 audio only re-encodes the audio.
+    video: async (track) => {
+      const codec = await track.getCodec();
+      return codec && PASSTHROUGH_VIDEO_CODECS.has(codec) ? {} : { codec: "avc" };
+    },
+    audio: async (track) => {
+      const codec = await track.getCodec();
+      return codec && PASSTHROUGH_AUDIO_CODECS.has(codec)
+        ? {}
+        : { codec: "opus", numberOfChannels: 2, sampleRate: 48_000 };
+    },
   });
 
   if (!conversion.isValid) {
