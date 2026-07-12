@@ -94,6 +94,7 @@ export function ExploreMovieDialog({
 
   // Trailer state (YouTube key from TMDB, cargado al abrir)
   const [trailerKey, setTrailerKey] = useState<string | null>(null);
+  const [trailerLoaded, setTrailerLoaded] = useState(false);
   const [showTrailer, setShowTrailer] = useState(false);
 
   // Favorite / watchlist state (per active profile, stored in hackw)
@@ -148,7 +149,7 @@ export function ExploreMovieDialog({
 
   // Fetch trailer key when dialog opens.
   useEffect(() => {
-    if (!isOpen) {
+    if (!isOpen || trailerLoaded) {
       return;
     }
     const controller = new AbortController();
@@ -157,12 +158,16 @@ export function ExploreMovieDialog({
       { signal: controller.signal }
     )
       .then((res) => (res.ok ? res.json() : { trailer: null }))
-      .then((data: { trailer: string | null }) => setTrailerKey(data.trailer))
+      .then((data: { trailer: string | null }) => {
+        setTrailerKey(data.trailer);
+        setTrailerLoaded(true);
+      })
       .catch(() => {
         // sin conexión / abortado — sin tráiler
+        setTrailerLoaded(true);
       });
     return () => controller.abort();
-  }, [isOpen, movie.id, movie.type]);
+  }, [isOpen, trailerLoaded, movie.id, movie.type]);
 
   // Al cerrar el diálogo, ocultar el tráiler (desmonta el iframe y corta el
   // audio/vídeo).
@@ -508,7 +513,10 @@ export function ExploreMovieDialog({
                   />
                   Ver después
                 </Button>
-                {trailerKey && (
+                {!trailerLoaded && (
+                  <Skeleton className="h-6 w-20 rounded-md" />
+                )}
+                {trailerLoaded && trailerKey && (
                   <Button
                     onClick={() => setShowTrailer((v) => !v)}
                     size="sm"
