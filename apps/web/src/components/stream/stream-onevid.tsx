@@ -56,11 +56,11 @@ export function StreamOnevid({
   contentLogo,
   rawId,
 }: StreamOnevidProps) {
-  const router = useRouter();
   // For series rawId is "seriesId:season:episode"; movies have no suffix.
   const rawParts = rawId.split(":");
   const season = rawParts.length >= 3 ? Number(rawParts[1]) || 0 : 0;
   const episode = rawParts.length >= 3 ? Number(rawParts[2]) || 0 : 0;
+  const router = useRouter();
   const backHref = `/home?movie=${encodeURIComponent(contentId)}&movieType=${contentType}`;
   const handleBack = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement>) => {

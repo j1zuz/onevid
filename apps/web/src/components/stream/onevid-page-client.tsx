@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import {
   type ReactNode,
   useCallback,
@@ -60,7 +60,6 @@ export function OneVidPageClient({
   linked,
   setupCompleted,
 }: OneVidPageClientProps) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [searchMovie, setSearchMovie] = useState<MediaMeta | null>(null);
   const [drawerKey, setDrawerKey] = useState(0);
@@ -99,18 +98,17 @@ export function OneVidPageClient({
       movieTypeParam === "series" ? "series" : "movie";
     handleMovieSelect(movieId, movieType);
 
-    // Strip the params from the URL without adding history
+    // Strip the params from the URL via the native History API instead of
+    // router.replace: this avoids a second Next.js soft-navigation (RSC
+    // round-trip) stacked right on top of the one that brought us back from
+    // the player, which was leaving the lazy-loaded poster grid in a broken,
+    // blank-canvas state.
     const next = new URLSearchParams(searchParams.toString());
     next.delete("movie");
     next.delete("movieType");
     const qs = next.toString();
-    router.replace(
-      qs ? `/home?${qs}` : "/home",
-      {
-        scroll: false,
-      }
-    );
-  }, [searchParams, handleMovieSelect, router]);
+    window.history.replaceState(null, "", qs ? `/home?${qs}` : "/home");
+  }, [searchParams, handleMovieSelect]);
 
   let mainContent: ReactNode;
   if (posters.length === 0) {

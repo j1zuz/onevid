@@ -412,7 +412,13 @@ export function ExploreMovieDialog({
   }, [isOpen, isSeries, sourcesLoaded, sourcesLoading, loadSources, movie.id]);
 
   return (
-    <div className="group relative h-full w-full">
+    // `h-full w-full` only make sense when we're wrapping a trigger (the
+    // per-card grid usage). The standalone usage (no children, e.g. the
+    // reopen-after-player / search-selected flow) renders this as a flex
+    // sibling of the catalog's `flex-1 min-h-0` container; giving it `h-full`
+    // there makes its flex-basis resolve to 100% of the shared flex parent,
+    // which steals all the space and collapses the catalog to zero height.
+    <div className={cn("group relative", children && "h-full w-full")}>
       {children && (
         // biome-ignore lint/a11y/useSemanticElements: clickable card wrapper needs div for layout
         <div
