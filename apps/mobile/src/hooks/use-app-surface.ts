@@ -13,6 +13,14 @@ export interface AppSurface {
    * es local; con sesión depende del modo elegido.
    */
   showLocal: boolean;
+  /**
+   * Fuerza una revalidación inmediata (sin depender de un cambio de foco de
+   * ruta). Necesario cuando el cambio de modo ocurre en la MISMA pantalla que
+   * lee `useAppSurface` (p. ej. "Continuar sin cuenta" en StreamLoginScreen,
+   * que vive dentro de /home: un router.replace('/home') ahí es un no-op de
+   * navegación y no dispara useFocusEffect).
+   */
+  refresh: () => void;
 }
 
 /**
@@ -21,21 +29,25 @@ export interface AppSurface {
  */
 export function useAppSurface(): AppSurface | null {
   const [surface, setSurface] = useState<AppSurface | null>(null);
+
+  const load = useCallback(() => {
+    Promise.all([getAccessToken(), loadAppMode()]).then(([token, mode]) => {
+      const authed = Boolean(token);
+      // En TV no hay sesión implícita en modo local (a diferencia de móvil):
+      // por defecto se pide login, pero el usuario puede elegir "Continuar
+      // sin cuenta" en la pantalla de QR, que persiste mode: 'local'.
+      const showLocal = Platform.isTV
+        ? mode === 'local'
+        : !authed || mode === 'local';
+      setSurface({ authed, mode, showLocal, refresh: load });
+    });
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      let cancelled = false;
-      Promise.all([getAccessToken(), loadAppMode()]).then(([token, mode]) => {
-        if (cancelled) return;
-        const authed = Boolean(token);
-        // En Android TV no hay modo local (el selector de galería no aplica): la
-        // app es siempre stream (catálogo / login).
-        const showLocal = Platform.isTV ? false : !authed || mode === 'local';
-        setSurface({ authed, mode, showLocal });
-      });
-      return () => {
-        cancelled = true;
-      };
-    }, []),
+      load();
+    }, [load]),
   );
+
   return surface;
 }
