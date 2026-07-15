@@ -124,7 +124,8 @@ export default function HomeTab() {
 
   // Stream sin sesión (caso TV, sin picker): mostramos el QR de login centrado
   // a pantalla completa, sin que el usuario tenga que ir a Perfil.
-  if (!surface.authed) return <StreamLoginScreen />;
+  if (!surface.authed)
+    return <StreamLoginScreen onContinueWithoutAccount={surface.refresh} />;
 
   if (status && !status.setupCompleted) return <SetupPrompt />;
 
