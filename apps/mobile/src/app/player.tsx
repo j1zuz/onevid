@@ -155,27 +155,14 @@ async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
   return { url: final ? sanitizeUrlForVlc(final) : url, fileName };
 }
 
-// Caché de resoluciones (a nivel de módulo, sobrevive a salir/volver al player):
-// al re-entrar al mismo vídeo nos saltamos el fetch de resolución + redirección,
-// que es la parte lenta antes del buffer de VLC. TTL corto porque los enlaces de
-// debrid caducan; si caduca el enlace real, el fallback salta de fuente igual.
-const RESOLVE_CACHE_TTL_MS = 5 * 60_000;
-const resolvedCache = new Map<string, { value: ResolvedStream; at: number }>();
-
-async function resolveStreamUrlCached(raw: string): Promise<ResolvedStream> {
-  const hit = resolvedCache.get(raw);
-  if (hit && Date.now() - hit.at < RESOLVE_CACHE_TTL_MS) return hit.value;
-  const value = await resolveStreamUrl(raw);
-  resolvedCache.set(raw, { value, at: Date.now() });
-  return value;
-}
-
 // Contenidos cuyo primer fotograma ya se vio (clave estable por contenido).
 // Sobrevive a salir/volver: al re-entrar a algo ya reproducido mostramos solo el
 // logo de carga, no el poster de fondo (igual que al cambiar de fuente en vivo).
 const revealedContent = new Set<string>();
 
 const SEEK_STEP_MS = 10_000;
+const SEEK_HOLD_DELAY_MS = 320;
+const SEEK_HOLD_INTERVAL_MS = 180;
 const CONTROLS_HIDE_MS = 4_000;
 // Watchdog en DOS fases (las fuentes debrid/torbox tardan en arrancar):
 //  • START: si en este tiempo NO hay ni una señal de vida (ninguna pista
@@ -466,8 +453,6 @@ export default function PlayerScreen() {
     const raw = rawUrlRef.current;
     if (raw) {
       triedUrls.current.add(raw);
-      // No reutilices la resolución cacheada de una fuente que acaba de fallar.
-      resolvedCache.delete(raw);
     }
     const next = pickNextSource(list, triedUrls.current, raw);
     if (next) {
@@ -624,7 +609,7 @@ export default function PlayerScreen() {
     // No reseteamos a 'resolving' aquí: durante un salto el estado ya es
     // 'switching' (con su contador) y queremos conservarlo.
     let cancelled = false;
-    resolveStreamUrlCached(rawUrl)
+    resolveStreamUrl(rawUrl)
       .then(({ url, fileName }) => {
         if (cancelled) return;
         setState({ kind: 'ready', url, fileName });
@@ -889,6 +874,16 @@ function Player({
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
+  const seekHoldTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const seekHoldInterval = useRef<ReturnType<typeof setInterval> | undefined>(
+    undefined,
+  );
+  const seekHoldActive = useRef(false);
+  const seekHoldTicks = useRef(0);
+  const seekHoldStartedAt = useRef(0);
+  const seekHoldStartTime = useRef(0);
   // Auto-fallback: se dispara como mucho una vez por fuente. El ref se reinicia
   // solo en cada remontaje (key={url}). `startTimer` es el watchdog de arranque y
   // `firstFrameRef` deja leer el primer fotograma dentro de callbacks.
@@ -928,6 +923,8 @@ function Player({
 
   const [time, setTime] = useState(0); // ms
   const [duration, setDuration] = useState(0); // ms
+  const timeRef = useRef(0);
+  const durationRef = useRef(0);
   const [scrubbing, setScrubbing] = useState(false);
   const [scrubTime, setScrubTime] = useState(0);
 
@@ -1053,6 +1050,8 @@ function Player({
     return () => {
       clearTimeout(hideTimer.current);
       clearTimeout(bufferTimer.current);
+      clearTimeout(seekHoldTimer.current);
+      clearInterval(seekHoldInterval.current);
     };
   }, [scheduleHide]);
 
@@ -1064,12 +1063,72 @@ function Player({
 
   const skip = useCallback(
     (deltaMs: number) => {
-      const next = Math.max(0, Math.min(time + deltaMs, duration || time + deltaMs));
+      const currentTime = timeRef.current;
+      const currentDuration = durationRef.current;
+      const next = Math.max(
+        0,
+        Math.min(currentTime + deltaMs, currentDuration || currentTime + deltaMs),
+      );
       playerRef.current?.seek(next, 'time');
+      timeRef.current = next;
       setTime(next);
       showControls();
     },
-    [time, duration, showControls],
+    [showControls],
+  );
+
+  const startSeekHold = useCallback(
+    (direction: -1 | 1) => {
+      clearTimeout(seekHoldTimer.current);
+      clearInterval(seekHoldInterval.current);
+      seekHoldActive.current = false;
+      seekHoldTicks.current = 0;
+      seekHoldStartedAt.current = Date.now();
+      seekHoldStartTime.current = timeRef.current;
+      showControls();
+      seekHoldTimer.current = setTimeout(() => {
+        seekHoldActive.current = true;
+        skip(direction * SEEK_STEP_MS);
+        seekHoldInterval.current = setInterval(() => {
+          seekHoldTicks.current += 1;
+          const multiplier = Math.min(6, 1 + Math.floor(seekHoldTicks.current / 5));
+          skip(direction * SEEK_STEP_MS * multiplier);
+        }, SEEK_HOLD_INTERVAL_MS);
+      }, SEEK_HOLD_DELAY_MS);
+    },
+    [showControls, skip],
+  );
+
+  const stopSeekHold = useCallback(
+    (direction: -1 | 1) => {
+      clearTimeout(seekHoldTimer.current);
+      clearInterval(seekHoldInterval.current);
+      seekHoldTimer.current = undefined;
+      seekHoldInterval.current = undefined;
+      if (!seekHoldActive.current) {
+        skip(direction * SEEK_STEP_MS);
+      } else {
+        track('player_seek_hold', {
+          mediaType,
+          mediaId,
+          direction: direction > 0 ? 'forward' : 'backward',
+          holdMs: seekHoldStartedAt.current
+            ? Date.now() - seekHoldStartedAt.current
+            : undefined,
+          ticks: seekHoldTicks.current + 1,
+          fromMs: seekHoldStartTime.current,
+          toMs: timeRef.current,
+          deltaMs: timeRef.current - seekHoldStartTime.current,
+          durationMs: durationRef.current || undefined,
+        });
+      }
+      seekHoldActive.current = false;
+      seekHoldTicks.current = 0;
+      seekHoldStartedAt.current = 0;
+      seekHoldStartTime.current = 0;
+      scheduleHide();
+    },
+    [scheduleHide, skip, mediaType, mediaId],
   );
 
   // --- barra de progreso (Slider de heroui-native) ---
@@ -1085,6 +1144,7 @@ function Player({
     const t = toTime(v);
     if (duration) {
       playerRef.current?.seek(t, 'time');
+      timeRef.current = t;
       setTime(t);
     }
     setScrubbing(false);
@@ -1185,7 +1245,10 @@ function Player({
             /* ignore */
           });
         }}
-        onFirstPlay={({ length }) => setDuration(length)}
+        onFirstPlay={({ length }) => {
+          durationRef.current = length;
+          setDuration(length);
+        }}
         onTimeChanged={({ value }) => {
           // El tiempo avanza ⇒ hay fotogramas pintándose ⇒ ya podemos fundir
           // la carátula al vídeo (sin pasar por negro ni spinner).
@@ -1194,6 +1257,7 @@ function Player({
           // previos al salto de reanudación para no sobrescribir con posición 0.
           if (resumedRef.current) onProgress?.(value, duration);
           if (!scrubbing) {
+            timeRef.current = value;
             setTime(value);
             // Si el tiempo avanza, NO está buffering: limpiamos el spinner ya
             // (aunque VLC siga emitiendo onBuffering, así no se queda pegado el
@@ -1415,7 +1479,8 @@ function Player({
             <View style={styles.centerRow} pointerEvents="box-none">
               <Pressable
                 style={withRing(styles.ctrlBtn)}
-                onPress={() => skip(-SEEK_STEP_MS)}
+                onPressIn={() => startSeekHold(-1)}
+                onPressOut={() => stopSeekHold(-1)}
                 hitSlop={8}
               >
                 <RotateCcw size={26} color="#fff" />
@@ -1434,7 +1499,8 @@ function Player({
               </Pressable>
               <Pressable
                 style={withRing(styles.ctrlBtn)}
-                onPress={() => skip(SEEK_STEP_MS)}
+                onPressIn={() => startSeekHold(1)}
+                onPressOut={() => stopSeekHold(1)}
                 hitSlop={8}
               >
                 <RotateCw size={26} color="#fff" />

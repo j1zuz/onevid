@@ -80,6 +80,7 @@ export function OneVidProfileSwitcher() {
             buttonVariants({ variant: "outline", size: "icon" }),
             "overflow-hidden p-0"
           )}
+          data-dpad-focusable
         >
           {activeProfile ? (
             <OneVidProfileAvatar
@@ -96,7 +97,11 @@ export function OneVidProfileSwitcher() {
             Perfiles
           </div>
           {profiles.map((p) => (
-            <DropdownMenuItem key={p.id} onClick={() => selectProfile(p)}>
+            <DropdownMenuItem
+              data-dpad-focusable
+              key={p.id}
+              onClick={() => selectProfile(p)}
+            >
               <OneVidProfileAvatar
                 avatar={p.avatar}
                 className="size-6 text-[0.65rem]"
@@ -110,7 +115,10 @@ export function OneVidProfileSwitcher() {
             </DropdownMenuItem>
           ))}
           {profiles.length > 0 && <DropdownMenuSeparator />}
-          <DropdownMenuItem onClick={() => setManagerOpen(true)}>
+          <DropdownMenuItem
+            data-dpad-focusable
+            onClick={() => setManagerOpen(true)}
+          >
             <SettingsIcon className="size-3.5" />
             Administrar perfiles
           </DropdownMenuItem>

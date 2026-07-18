@@ -1,5 +1,4 @@
 "use client";
-import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
 import {
   Drawer,
@@ -28,7 +27,6 @@ import { useOneVidProfiles } from "@/components/stream/onevid-profile-context";
 import { WatchProvidersNotice } from "@/components/watch-providers-notice";
 import type { MediaMeta } from "@/lib/tmdb";
 import type { StreamWithAddon } from "@/types/stream";
-import { getBadgeText, getSourceCompatibility } from "@/utils/stream-codec";
 
 interface EpisodeItem {
   description?: string;
@@ -70,6 +68,70 @@ function formatDate(dateStr?: string): string {
   }
 }
 
+function getStreamLines(source: StreamWithAddon): string[] {
+  const behaviors = Array.isArray(source.behaviors) ? source.behaviors : [];
+  return [
+    source.title,
+    source.description,
+    source.name,
+    ...behaviors,
+  ].filter((line): line is string => Boolean(line?.trim()));
+}
+
+function SourceOption({
+  source,
+  onPlay,
+}: {
+  onPlay: (source: StreamWithAddon) => void;
+  source: StreamWithAddon;
+}) {
+  const lines = getStreamLines(source);
+
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: clickable list item needs div for layout
+    <div
+      className={cn(
+        "group/source relative cursor-pointer rounded-lg border p-2.5 text-left outline-none transition-[border-color,box-shadow,filter]",
+        "border-border/50 bg-background"
+      )}
+      data-dpad-focusable
+      onClick={() => onPlay(source)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onPlay(source);
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 space-y-1">
+          {lines.map((line, index) => (
+            <p
+              className={cn(
+                "whitespace-pre-line text-xs leading-relaxed",
+                index === 0
+                  ? "font-medium text-foreground"
+                  : "text-muted-foreground"
+              )}
+              // biome-ignore lint/suspicious/noArrayIndexKey: stream metadata is static text from addon
+              key={index}
+            >
+              {line}
+            </p>
+          ))}
+        </div>
+        <div className="shrink-0 opacity-0 transition-opacity duration-200 group-hover/source:opacity-100 group-focus/source:opacity-100">
+          <div className="flex size-8 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
+            <Play className="size-3.5 fill-current" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Lightweight shell: owns only open/close state and the Drawer chrome. The
 // catalog grid mounts one of these per poster (dozens at once), so keeping
 // it cheap matters — every fetch, effect, and piece of state for the
@@ -98,12 +160,18 @@ export function ExploreMovieDialog({
       {children && (
         // biome-ignore lint/a11y/useSemanticElements: clickable card wrapper needs div for layout
         <div
-          className="h-full w-full cursor-pointer"
+          className="h-full w-full cursor-pointer rounded-(--radius)"
+          data-dpad-focusable
           onClick={() => handleOpenChange(true)}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
               handleOpenChange(true);
+            }
+          }}
+          onPointerEnter={(e) => {
+            if (e.pointerType === "mouse") {
+              e.currentTarget.focus({ preventScroll: true });
             }
           }}
           role="button"
@@ -536,6 +604,7 @@ function MovieDialogContent({
           </DrawerDescription>
           <div className="mt-2 flex items-center justify-center gap-2">
             <Button
+              data-dpad-focusable
               disabled={savingFavorite}
               onClick={toggleFavorite}
               size="sm"
@@ -551,6 +620,7 @@ function MovieDialogContent({
             </Button>
             <Button
               className={cn(watchlist && "btn-primary")}
+              data-dpad-focusable
               disabled={savingWatchlist}
               onClick={toggleWatchlist}
               size="sm"
@@ -564,6 +634,7 @@ function MovieDialogContent({
             {!trailerLoaded && <Skeleton className="h-6 w-20 rounded-md" />}
             {trailerLoaded && trailerKey && (
               <Button
+                data-dpad-focusable
                 onClick={() => setShowTrailer((v) => !v)}
                 size="sm"
                 variant={showTrailer ? "default" : "outline"}
@@ -672,67 +743,13 @@ function MovieDialogContent({
                       sourcesLoaded &&
                       sources.length > 0 && (
                         <div className="space-y-1.5">
-                          {sources.map((source) => {
-                            const compat = getSourceCompatibility(source);
-                            const badgeText = getBadgeText(compat);
-                            const streamName =
-                              typeof source.name === "string"
-                                ? source.name
-                                : source.title;
-                            const streamDesc =
-                              typeof source.description === "string"
-                                ? source.description
-                                : null;
-
-                            return (
-                              // biome-ignore lint/a11y/useSemanticElements: clickable list item needs div for layout
-                              <div
-                                className={cn(
-                                  "group/source relative cursor-pointer rounded-lg border p-2.5 text-left transition-colors",
-                                  "border-border/50 bg-background",
-                                  "hover:border-primary/50 hover:bg-accent"
-                                )}
-                                key={`${source.addonId}-${source.sourceIndex}`}
-                                onClick={() => handlePlay(source)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" || e.key === " ") {
-                                    e.preventDefault();
-                                    handlePlay(source);
-                                  }
-                                }}
-                                role="button"
-                                tabIndex={0}
-                              >
-                                <div className="flex items-center justify-between gap-3">
-                                  <div className="min-w-0 flex-1">
-                                    <p className="whitespace-pre-line font-medium text-foreground text-xs leading-relaxed">
-                                      {streamName}
-                                    </p>
-                                    {streamDesc && (
-                                      <p className="mt-0.5 whitespace-pre-line text-[10px] text-muted-foreground leading-relaxed">
-                                        {streamDesc}
-                                      </p>
-                                    )}
-                                  </div>
-                                  <div className="flex shrink-0 items-center gap-1.5">
-                                    {badgeText && (
-                                      <Badge
-                                        className="whitespace-nowrap px-1.5 py-0 text-[10px]"
-                                        variant="destructive"
-                                      >
-                                        {badgeText}
-                                      </Badge>
-                                    )}
-                                    <div className="shrink-0 opacity-0 transition-opacity duration-200 group-hover/source:opacity-100">
-                                      <div className="flex size-8 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
-                                        <Play className="size-3.5 fill-current" />
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
+                          {sources.map((source) => (
+                            <SourceOption
+                              key={`${source.addonId}-${source.sourceIndex}`}
+                              onPlay={handlePlay}
+                              source={source}
+                            />
+                          ))}
                         </div>
                       )}
                   </>
@@ -902,67 +919,13 @@ function MovieDialogContent({
 
                 {!sourcesLoading && sourcesLoaded && sources.length > 0 && (
                   <div className="space-y-1.5">
-                    {sources.map((source) => {
-                      const compat = getSourceCompatibility(source);
-                      const badgeText = getBadgeText(compat);
-                      const streamName =
-                        typeof source.name === "string"
-                          ? source.name
-                          : source.title;
-                      const streamDesc =
-                        typeof source.description === "string"
-                          ? source.description
-                          : null;
-
-                      return (
-                        // biome-ignore lint/a11y/useSemanticElements: clickable list item needs div for layout
-                        <div
-                          className={cn(
-                            "group/source relative cursor-pointer rounded-lg border p-2.5 text-left transition-colors",
-                            "border-border/50 bg-background",
-                            "hover:border-primary/50 hover:bg-accent"
-                          )}
-                          key={`${source.addonId}-${source.sourceIndex}`}
-                          onClick={() => handlePlay(source)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              handlePlay(source);
-                            }
-                          }}
-                          role="button"
-                          tabIndex={0}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0 flex-1">
-                              <p className="whitespace-pre-line font-medium text-foreground text-xs leading-relaxed">
-                                {streamName}
-                              </p>
-                              {streamDesc && (
-                                <p className="mt-0.5 whitespace-pre-line text-[10px] text-muted-foreground leading-relaxed">
-                                  {streamDesc}
-                                </p>
-                              )}
-                            </div>
-                            <div className="flex shrink-0 items-center gap-1.5">
-                              {badgeText && (
-                                <Badge
-                                  className="whitespace-nowrap px-1.5 py-0 text-[10px]"
-                                  variant="destructive"
-                                >
-                                  {badgeText}
-                                </Badge>
-                              )}
-                              <div className="shrink-0 opacity-0 transition-opacity duration-200 group-hover/source:opacity-100">
-                                <div className="flex size-8 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
-                                  <Play className="size-3.5 fill-current" />
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                    {sources.map((source) => (
+                      <SourceOption
+                        key={`${source.addonId}-${source.sourceIndex}`}
+                        onPlay={handlePlay}
+                        source={source}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
