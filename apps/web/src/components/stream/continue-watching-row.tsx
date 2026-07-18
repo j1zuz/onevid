@@ -78,7 +78,10 @@ export function ContinueWatchingRow() {
       <h2 className="px-1 font-semibold text-lg md:text-xl">
         {t("Continuar viendo")}
       </h2>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
+      <div
+        className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5"
+        data-dpad-poster-grid
+      >
         {items.map((item) => {
           const pct =
             item.durationSec > 0
@@ -99,8 +102,14 @@ export function ContinueWatchingRow() {
               }}
             >
               <article className="group block h-full">
-                <div className="relative aspect-video w-full rounded-(--radius) border border-border/70 bg-muted/40 p-1 transition-all duration-200 hover:border-primary/50 hover:shadow-sm">
-                  <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-[calc(var(--radius)-4px)] border border-border/60 bg-card">
+                <div
+                  className="relative aspect-video w-full rounded-(--radius) border border-border/70 bg-muted/40 p-1 transition-[border-color,box-shadow,filter] duration-200"
+                  data-dpad-card-frame
+                >
+                  <div
+                    className="flex h-full w-full items-center justify-center overflow-hidden rounded-[calc(var(--radius)-4px)] border border-border/60 bg-card transition-[filter]"
+                    data-dpad-card-art
+                  >
                     {art ? (
                       // biome-ignore lint/performance/noImgElement: external CDN art
                       <img
@@ -118,7 +127,10 @@ export function ContinueWatchingRow() {
                     )}
                   </div>
 
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100">
+                  <div
+                    className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100"
+                    data-dpad-card-overlay
+                  >
                     <div className="flex size-11 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
                       <Play className="size-5 fill-current" />
                     </div>

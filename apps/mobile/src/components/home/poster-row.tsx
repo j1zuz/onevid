@@ -25,9 +25,10 @@ export function PosterRow({ title, items, loading, onPressItem }: PosterRowProps
   // sin tarjetas, en el instante en que la app abre y el catálogo aún no llega).
   if (!loading && items.length === 0) return null;
   const cardAspectRatio = isTV ? 16 / 9 : 2 / 3;
-  // (ancho útil − paddings 16×2) entre 5.3 ≈ 5 tarjetas + asomo de la siguiente.
+  // (ancho útil − paddings 16×2) entre 4.7 ≈ tarjetas horizontales más grandes
+  // con asomo de la siguiente para mantener la pista de scroll.
   const CARD_WIDTH = isTV
-    ? Math.min(320, Math.max(180, Math.round((width - 32) / 5.3)))
+    ? Math.min(360, Math.max(220, Math.round((width - 32) / 4.7)))
     : posterWidth;
   return (
     <View className="gap-3">

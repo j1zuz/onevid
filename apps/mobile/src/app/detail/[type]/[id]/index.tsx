@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
+import * as WebBrowser from 'expo-web-browser';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   Button,
@@ -10,11 +11,12 @@ import {
   Typography,
   useToast,
 } from 'heroui-native';
-import { ArrowLeft } from 'lucide-react-native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, Film } from 'lucide-react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   FlatList,
+  Linking,
   Pressable,
   ScrollView,
   useWindowDimensions,
@@ -24,7 +26,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { GlassIcon } from '@/components/glass-icon';
 import { PosterCard } from '@/components/poster-card';
-import { sourcesQueryOptions } from '@/components/sources-list';
 import { useResponsive } from '@/hooks/use-responsive';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import {
@@ -40,6 +41,7 @@ import {
   setFavorite,
   setWatchlist,
 } from '@/lib/saved';
+import { track } from '@/lib/analytics';
 import { COLORS } from '@/lib/theme';
 
 interface EpisodeItem {
@@ -73,6 +75,7 @@ export default function DetailPage() {
   const playFocus = useTvFocus();
   const watchFocus = useTvFocus();
   const favFocus = useTvFocus();
+  const trailerFocus = useTvFocus();
   // En TV el hero es una banda (como en Inicio), no pantalla completa: misma
   // proporción del alto que el carrusel de Inicio (0.72). En móvil, 0.55.
   const heroHeight = Math.round(height * (isTV ? 0.72 : 0.55));
@@ -83,6 +86,7 @@ export default function DetailPage() {
   const [seasonOverride, setSeasonOverride] = useState<number | null>(null);
   const [savingFav, setSavingFav] = useState(false);
   const [savingWatch, setSavingWatch] = useState(false);
+  const trackedTrailerKey = useRef<string | null | undefined>(undefined);
   const { toast } = useToast();
 
   // Metadata del título, cacheada por (type, id): volver a abrir el mismo
@@ -130,6 +134,29 @@ export default function DetailPage() {
   });
   const favorite = savedQuery.data?.favorite ?? false;
   const watchlist = savedQuery.data?.watchlist ?? false;
+
+  const trailerQuery = useQuery({
+    queryKey: ['trailer', type, id, lang],
+    queryFn: () =>
+      apiFetch<{ trailer: string | null }>(
+        `/api/tmdb-trailer?id=${encodeURIComponent(id)}&type=${type}`,
+      ),
+    enabled: Boolean(id && type),
+    staleTime: 60 * 60 * 1000,
+  });
+  const trailerKey = trailerQuery.data?.trailer ?? null;
+
+  useEffect(() => {
+    if (!trailerQuery.isSuccess || trackedTrailerKey.current === trailerKey) {
+      return;
+    }
+    trackedTrailerKey.current = trailerKey;
+    track('detail_trailer_resolved', {
+      mediaType: type,
+      mediaId: id,
+      hasTrailer: Boolean(trailerKey),
+    });
+  }, [trailerQuery.isSuccess, trailerKey, type, id]);
 
   const toggleSaved = useCallback(
     async (kind: 'favorite' | 'watchlist') => {
@@ -244,17 +271,37 @@ export default function DetailPage() {
     [id, type, meta?.name, artParams],
   );
 
-  // Prefetch de las fuentes del destino por defecto (película o 1er episodio)
-  // para que "Reproducir" arranque al instante. Comparte `queryKey` con el
-  // reproductor y el SourcePicker, así que no hay fetch duplicado.
-  useEffect(() => {
-    if (!id || !type) return;
-    const first = seasonEpisodes[0];
-    if (type === 'series' && !first) return; // episodios aún no cargados
-    const season = first ? String(first.season) : undefined;
-    const episode = first ? String(first.number) : undefined;
-    queryClient.prefetchQuery(sourcesQueryOptions(type, id, season, episode));
-  }, [id, type, seasonEpisodes, queryClient]);
+  const handleTrailer = useCallback(async () => {
+    if (!trailerKey) return;
+    const url = `https://www.youtube.com/watch?v=${encodeURIComponent(trailerKey)}`;
+    track('detail_trailer_open', {
+      mediaType: type,
+      mediaId: id,
+      trailerKey,
+      opener: 'web_browser',
+    });
+    try {
+      await WebBrowser.openBrowserAsync(url);
+    } catch {
+      track('detail_trailer_open_fallback', {
+        mediaType: type,
+        mediaId: id,
+        trailerKey,
+      });
+      Linking.openURL(url).catch(() => {
+        track('detail_trailer_open_error', {
+          mediaType: type,
+          mediaId: id,
+          trailerKey,
+        });
+        toast.show({
+          variant: 'danger',
+          label: t('No se pudo abrir el tráiler'),
+          description: t('Intenta de nuevo más tarde.'),
+        });
+      });
+    }
+  }, [trailerKey, type, id, toast, t]);
 
   const handlePressRelated = useCallback((item: MediaMeta) => {
     router.push({
@@ -455,6 +502,31 @@ export default function DetailPage() {
                 </Typography>
               ) : null}
             </Button>
+            {trailerKey ? (
+              <Button
+                variant="secondary"
+                onPress={handleTrailer}
+                {...trailerFocus.focusProps}
+                style={[
+                  {
+                    ...(isTV
+                      ? { height: 56, paddingHorizontal: 18, gap: 8 }
+                      : { width: sideBtnW }),
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  },
+                  tvFocusRing(trailerFocus.focused),
+                ]}
+              >
+                <Film size={actionIconSize} color="#fff" opacity={0.75} />
+                {isTV ? (
+                  <Typography type="body" weight="semibold" numberOfLines={1}>
+                    {t('Tráiler')}
+                  </Typography>
+                ) : null}
+              </Button>
+            ) : null}
           </View>
 
           {meta?.description ? (

@@ -6,6 +6,7 @@ import { NuqsAdapter } from "nuqs/adapters/next/app";
 import "@workspace/ui/globals.css";
 import { Toaster } from "@workspace/ui/components/sonner";
 import { CookieConsent } from "@/components/cookie-consent";
+import { DpadNavigation } from "@/components/dpad-navigation";
 import { ReactScan } from "@/components/react-scan";
 import { OnevidI18nProvider } from "@/lib/onevid-i18n-context";
 import {
@@ -85,6 +86,7 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {process.env.NODE_ENV === "development" && <ReactScan />}
+        <DpadNavigation />
         <OnevidI18nProvider initialLocale={initialLocale}>
           <NuqsAdapter>
             {children}

@@ -33,7 +33,7 @@ export function LanguageMenuItem() {
 
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger>
+      <DropdownMenuSubTrigger data-dpad-focusable>
         <GlobeIcon className="size-3.5" />
         {t("Idioma")}
       </DropdownMenuSubTrigger>
@@ -51,7 +51,11 @@ export function LanguageMenuItem() {
           value={language}
         >
           {SUPPORTED_LANGUAGES.map((lang) => (
-            <DropdownMenuRadioItem key={lang.code} value={lang.code}>
+            <DropdownMenuRadioItem
+              data-dpad-focusable
+              key={lang.code}
+              value={lang.code}
+            >
               {lang.label}
             </DropdownMenuRadioItem>
           ))}

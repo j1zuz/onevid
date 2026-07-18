@@ -9,6 +9,10 @@
 @source "../../../../apps/web/src";
 
 @custom-variant dark (&:is(.dark *));
+@custom-variant dpad-pointer (&:where(html[data-dpad-input="pointer"] *));
+@custom-variant dpad-active (&[data-dpad-active="true"]);
+@custom-variant dpad-parent-pointer (&:where(html[data-dpad-input="pointer"] [data-dpad-focusable]:hover *));
+@custom-variant dpad-parent-active (&:where([data-dpad-active="true"] *));
 
 @theme inline {
   --color-background: var(--background);
@@ -144,6 +148,26 @@
 @layer components {
   .btn-primary {
     @apply cursor-pointer bg-radial-[at_52%_-52%] **:[text-shadow:0_1px_0_var(--primary)] border border-primary from-primary/70 to-primary/95 text-primary-foreground inset-shadow-2xs inset-shadow-white/25 dark:inset-shadow-white/25 dark:from-primary dark:to-primary/70 dark:hover:to-primary text-sm shadow-md shadow-zinc-950/30 ring-0 transition-[filter] duration-200 hover:bg-primary! hover:brightness-125 active:brightness-95 dark:border-0;
+  }
+
+  [data-dpad-focusable] {
+    @apply outline-none;
+  }
+
+  [data-dpad-focusable]:not(:has([data-dpad-card-frame])) {
+    @apply dpad-pointer:hover:!border-lime-500 dpad-pointer:hover:brightness-125 dpad-pointer:hover:shadow-md dpad-pointer:hover:shadow-zinc-950/30 dpad-active:!border-lime-500 dpad-active:brightness-125 dpad-active:shadow-md dpad-active:shadow-zinc-950/30;
+  }
+
+  [data-dpad-card-frame] {
+    @apply dpad-parent-pointer:!border-lime-500 dpad-parent-pointer:shadow-md dpad-parent-pointer:shadow-zinc-950/30 dpad-parent-active:!border-lime-500 dpad-parent-active:shadow-md dpad-parent-active:shadow-zinc-950/30;
+  }
+
+  [data-dpad-card-art] {
+    @apply dpad-parent-pointer:brightness-125 dpad-parent-active:brightness-125;
+  }
+
+  [data-dpad-card-overlay] {
+    @apply dpad-parent-pointer:opacity-100 dpad-parent-active:opacity-100;
   }
 }
 

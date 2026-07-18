@@ -237,7 +237,8 @@ export function OneVidHeader({
         {searchResults.map((item) => (
           <li key={item.id}>
             <button
-              className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-accent"
+              className="flex w-full items-center gap-3 rounded-md border border-transparent px-3 py-2 text-left transition-colors"
+              data-dpad-focusable
               onClick={() => {
                 const resultType: CatalogType =
                   item.type === "series" ? "series" : "movie";
@@ -296,7 +297,7 @@ export function OneVidHeader({
         }}
         value={selectedType}
       >
-        <SelectTrigger className="w-full">
+        <SelectTrigger className="w-full" data-dpad-focusable>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -321,7 +322,7 @@ export function OneVidHeader({
         }}
         value={selectedCatalog}
       >
-        <SelectTrigger className="w-full">
+        <SelectTrigger className="w-full" data-dpad-focusable>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -360,7 +361,7 @@ export function OneVidHeader({
         }}
         value={selectedNetwork ? String(selectedNetwork.id) : "all"}
       >
-        <SelectTrigger className="w-full">
+        <SelectTrigger className="w-full" data-dpad-focusable>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -381,6 +382,7 @@ export function OneVidHeader({
               <SearchIcon className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 className="w-full pr-8 pl-9"
+                data-dpad-focusable
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onFocus={() => {
                   if (searchResults.length > 0) {
@@ -393,7 +395,8 @@ export function OneVidHeader({
               />
               {searchQuery && (
                 <button
-                  className="absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute top-1/2 right-3 rounded border border-transparent text-muted-foreground hover:text-foreground"
+                  data-dpad-focusable
                   onClick={clearSearch}
                   type="button"
                 >
@@ -418,11 +421,15 @@ export function OneVidHeader({
           <DropdownMenuTrigger
             aria-label={t("Configuración")}
             className={cn(buttonVariants({ size: "icon", variant: "outline" }))}
+            data-dpad-focusable
           >
             <BoltIcon className="size-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-52">
-            <DropdownMenuItem onClick={() => setConfigOpen(true)}>
+            <DropdownMenuItem
+              data-dpad-focusable
+              onClick={() => setConfigOpen(true)}
+            >
               <BoltIcon className="size-3.5" />
               {t("Configuración de onevid")}
             </DropdownMenuItem>
@@ -432,12 +439,13 @@ export function OneVidHeader({
                 sesión (sin duplicar una versión propia acá). El proxy
                 (src/proxy.ts) detecta que venimos de /home vía Referer y no
                 redirige de vuelta. */}
-            <DropdownMenuItem render={<Link href="/" />}>
+            <DropdownMenuItem data-dpad-focusable render={<Link href="/" />}>
               <UploadIcon className="size-3.5" />
               {t("Modo local")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
+              data-dpad-focusable
               disabled={signingOut}
               onClick={handleSignOut}
               variant="destructive"

@@ -45,6 +45,10 @@ export function sourcesQueryOptions(
         method: 'POST',
         body: JSON.stringify({ id: compoundId, type }),
       }),
+    // Las URLs de addons/debrid pueden caducar o cambiar. No conservar listas
+    // de streams entre pantallas ni reutilizar un prefetch antiguo en el player.
+    staleTime: 0,
+    gcTime: 0,
   };
 }
 
