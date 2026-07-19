@@ -381,6 +381,7 @@ export default function PlayerScreen() {
     name: title,
     background,
     poster,
+    logo,
   });
 
   // `rawUrl` es la URL cruda de la fuente que se está intentando reproducir. El
@@ -982,7 +983,13 @@ function Player({
   const [controlsVisible, setControlsVisible] = useState(true);
   // PiP solo se ofrece si el dispositivo lo soporta (los emuladores casi nunca
   // lo soportan), para no mostrar un botón muerto.
+  // Además, en Android 8-11 (API 26-30) el nativo de expo-libvlc-player llama
+  // setAutoEnterEnabled, que solo existe desde API 31 (S) — sin el rebuild que
+  // incluya el parche (patches/expo-libvlc-player@7.0.40.patch), esto crashea
+  // la app con NoSuchMethodError. Desactivamos PiP ahí hasta ese rebuild;
+  // quitar este check en cuanto el binario nuevo esté publicado.
   const [pipSupported] = useState(() => {
+    if (Platform.OS === 'android' && Platform.Version < 31) return false;
     try {
       return LibVlcPlayerModule.isPictureInPictureSupported();
     } catch {
@@ -1233,7 +1240,7 @@ function Player({
         ]}
         contentFit="contain"
         autoplay
-        pictureInPicture
+        pictureInPicture={pipSupported}
         tracks={{
           audio: audioId ?? undefined,
           subtitle: subtitleId ?? undefined,

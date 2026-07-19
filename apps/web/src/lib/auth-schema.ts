@@ -267,6 +267,7 @@ export const oneVidProfileProgress = pgTable(
     name: text("name"),
     poster: text("poster"),
     background: text("background"),
+    logo: text("logo"),
     year: text("year"),
     updatedAt: timestamp("updated_at")
       .defaultNow()

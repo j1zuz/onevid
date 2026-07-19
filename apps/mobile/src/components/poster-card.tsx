@@ -78,10 +78,6 @@ export function PosterCard({
       <Typography type="body-sm" weight="medium" truncate>
         {item.name}
       </Typography>
-      <Typography type="body-xs" color="muted">
-        {item.type === 'movie' ? 'Película' : 'Serie'}
-        {item.year ? ` · ${item.year}` : ''}
-      </Typography>
     </PressableFeedback>
   );
 }

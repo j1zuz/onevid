@@ -11,7 +11,12 @@ import {
 } from "@/lib/onevid-profile";
 import { getOneVidTmdb } from "@/lib/onevid-tmdb";
 import { getServerT } from "@/lib/server-t";
-import { fetchLocalizedTitle, getTmdbLocale } from "@/lib/tmdb";
+import {
+  fetchLocalizedTitle,
+  fetchMovieLogo,
+  fetchTvLogo,
+  getTmdbLocale,
+} from "@/lib/tmdb";
 
 const NUMERIC_ID_RE = /^\d+$/;
 
@@ -59,7 +64,11 @@ export async function GET(request: NextRequest) {
   // Los nombres se guardan al reproducir, así que quedan "congelados" en el
   // idioma de entonces. Refrescamos el título al idioma actual (cookie web o
   // header x-app-language del móvil) con una consulta ligera a TMDB por título.
-  // Es best-effort: si no hay token o TMDB falla, conservamos el nombre guardado.
+  // También rellenamos el logo si falta: filas guardadas antes de que
+  // trackeáramos `logo`, o cuya primera reproducción no lo trajo, se quedaban
+  // sin logo para siempre (reanudar solo reenvía lo ya guardado, nunca vuelve
+  // a pedir metadata) — así "Continuar viendo" cae al título en texto en vez
+  // del logo. Es best-effort: si no hay token o TMDB falla, conservamos lo guardado.
   try {
     const { effectiveToken: token } = await getOneVidTmdb(session.user.id);
     if (token && results.length > 0) {
@@ -76,11 +85,20 @@ export async function GET(request: NextRequest) {
           if (localized) {
             item.name = localized;
           }
+          if (!item.logo) {
+            const fetchLogo = item.type === "series" ? fetchTvLogo : fetchMovieLogo;
+            const logo = await fetchLogo(token, item.id, tmdbLocale).catch(
+              () => undefined
+            );
+            if (logo) {
+              item.logo = logo;
+            }
+          }
         })
       );
     }
   } catch {
-    /* enriquecimiento best-effort: mantenemos los nombres guardados */
+    /* enriquecimiento best-effort: mantenemos los datos guardados */
   }
 
   return NextResponse.json({ results });
@@ -105,6 +123,7 @@ export async function POST(request: Request) {
       name?: unknown;
       poster?: unknown;
       background?: unknown;
+      logo?: unknown;
       year?: unknown;
     };
     const mediaId =
@@ -139,6 +158,7 @@ export async function POST(request: Request) {
       poster: typeof body.poster === "string" ? body.poster : undefined,
       background:
         typeof body.background === "string" ? body.background : undefined,
+      logo: typeof body.logo === "string" ? body.logo : undefined,
       year: typeof body.year === "string" ? body.year : undefined,
     };
   } catch {

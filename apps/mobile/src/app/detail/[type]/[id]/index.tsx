@@ -11,7 +11,7 @@ import {
   Typography,
   useToast,
 } from 'heroui-native';
-import { ArrowLeft, Film } from 'lucide-react-native';
+import { ArrowLeft, CheckCircle2, Film } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -71,7 +71,7 @@ export default function DetailPage() {
   const lang = i18n.language;
   const { height } = useWindowDimensions();
   const queryClient = useQueryClient();
-  const { isTV, isLarge, posterWidth } = useResponsive();
+  const { isTV, isLarge, rowCardWidth } = useResponsive();
   const playFocus = useTvFocus();
   const watchFocus = useTvFocus();
   const favFocus = useTvFocus();
@@ -113,7 +113,6 @@ export default function DetailPage() {
     return detailQuery.data as MediaMeta;
   }, [detailQuery.data, type, id]);
 
-  const loading = detailQuery.isLoading;
   const error = detailQuery.isError
     ? detailQuery.error instanceof Error
       ? detailQuery.error.message
@@ -145,6 +144,11 @@ export default function DetailPage() {
     staleTime: 60 * 60 * 1000,
   });
   const trailerKey = trailerQuery.data?.trailer ?? null;
+  // Incluye trailerQuery: si solo esperamos detailQuery, el botón de Tráiler
+  // puede aparecer un instante después de que el skeleton ya desapareció,
+  // reacomodando la fila de botones (mismo problema de "cascada" que en los
+  // tabs — ver useAppSurface).
+  const loading = detailQuery.isLoading || trailerQuery.isLoading;
 
   useEffect(() => {
     if (!trailerQuery.isSuccess || trackedTrailerKey.current === trailerKey) {
@@ -189,6 +193,17 @@ export default function DetailPage() {
         // La Biblioteca lee de ['library']; invalidar hace que se refresque en
         // segundo plano (sin skeleton) la próxima vez que se muestre.
         queryClient.invalidateQueries({ queryKey: ['library'] });
+        toast.show({
+          variant: 'success',
+          label: next
+            ? isFav
+              ? t('Agregado a Favoritos')
+              : t('Agregado a Ver después')
+            : isFav
+              ? t('Eliminado de Favoritos')
+              : t('Eliminado de Ver después'),
+          icon: <CheckCircle2 size={20} color="#22c55e" />,
+        });
       } catch {
         writeSaved(current); // revertir
         toast.show({
@@ -331,6 +346,12 @@ export default function DetailPage() {
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+      <ScrollShadow
+        style={{ flex: 1 }}
+        size={28}
+        color={COLORS.background}
+        LinearGradientComponent={ExpoLinearGradient}
+      >
       <ScrollView contentContainerStyle={{ paddingBottom: 48 }}>
         {/* Hero */}
         <View style={{ height: heroHeight, width: '100%' }}>
@@ -399,7 +420,7 @@ export default function DetailPage() {
             isTV={isTV}
             sideBtnW={sideBtnW}
             type={type}
-            posterWidth={posterWidth}
+            rowCardWidth={rowCardWidth}
           />
         ) : (
           <>
@@ -422,12 +443,6 @@ export default function DetailPage() {
               {meta?.name ?? ''}
             </Typography>
           )}
-
-          {meta?.genres && meta.genres.length > 0 ? (
-            <Typography type="body-sm" color="muted" align="center">
-              {meta.genres.slice(0, 3).join(' · ')}
-            </Typography>
-          ) : null}
 
           <View style={{ flexDirection: 'row', gap: isTV ? 14 : 10 }}>
             <Button
@@ -657,7 +672,7 @@ export default function DetailPage() {
                 renderItem={({ item }) => (
                   <PosterCard
                     item={item}
-                    width={posterWidth}
+                    width={rowCardWidth}
                     onPress={() => handlePressRelated(item)}
                   />
                 )}
@@ -669,30 +684,37 @@ export default function DetailPage() {
           </>
         )}
       </ScrollView>
+      </ScrollShadow>
     </View>
   );
 }
 
 // Skeleton de la pantalla de detalle. Imita la UI real y se adapta:
 //  • al TIPO → serie muestra "Temporadas" + "Episodios"; película no.
-//  • al DISPOSITIVO → tamaños vía `isTV` (botones) y `posterWidth` (mismo código
-//    para TV y móvil), así el skeleton coincide con lo que se va a renderizar.
+//  • al DISPOSITIVO → tamaños vía `isTV` (botones) y `rowCardWidth` (mismo
+//    código para TV y móvil), así el skeleton coincide con lo que se va a
+//    renderizar.
 function DetailSkeleton({
   heroHeight,
   isTV,
   sideBtnW,
   type,
-  posterWidth,
+  rowCardWidth,
 }: {
   heroHeight: number;
   isTV: boolean;
   sideBtnW: number;
   type: DetailType;
-  posterWidth: number;
+  rowCardWidth: number;
 }) {
-  const btnH = isTV ? 56 : 44;
+  // En TV los botones fuerzan height:56 inline; en móvil no hay override y
+  // caen al tamaño "md" por defecto de HeroUI Button (h-12 = 48px) — el
+  // skeleton debe coincidir para no saltar al aparecer el contenido real.
+  const btnH = isTV ? 56 : 48;
   const sideW = isTV ? 120 : sideBtnW;
-  const posterH = Math.round((posterWidth * 9) / 16); // póster horizontal 16:9
+  // Mismo ancho (16:9) que las demás filas de catálogo (Tendencias, Populares,
+  // Continuar viendo), para que "Relacionados" no se vea más angosto.
+  const posterH = Math.round((rowCardWidth * 9) / 16);
   const sectionTitle = {
     height: 22,
     borderRadius: 8,
@@ -768,18 +790,20 @@ function DetailSkeleton({
         </>
       ) : null}
 
-      {/* Reparto (círculos) — películas y series */}
+      {/* Reparto (círculos) — películas y series. Contenedor de 100 (no 80) y
+          dos líneas de texto (nombre + personaje) para calzar con CastCard. */}
       <Skeleton style={{ ...sectionTitle, width: 110 }} />
       <View style={{ flexDirection: 'row', gap: 16, paddingHorizontal: 20 }}>
         {['p1', 'p2', 'p3', 'p4'].map((k) => (
-          <View key={k} style={{ width: 80, alignItems: 'center', gap: 6 }}>
+          <View key={k} style={{ width: 100, alignItems: 'center', gap: 6 }}>
             <Skeleton style={{ width: 80, height: 80, borderRadius: 40 }} />
-            <Skeleton style={{ width: 64, height: 10, borderRadius: 5 }} />
+            <Skeleton style={{ width: 70, height: 10, borderRadius: 5 }} />
+            <Skeleton style={{ width: 50, height: 10, borderRadius: 5 }} />
           </View>
         ))}
       </View>
 
-      {/* Relacionados (pósters 2:3) — películas y series */}
+      {/* Relacionados (16:9, mismo ancho que el resto de las filas) */}
       <Skeleton style={{ ...sectionTitle, width: 150 }} />
       <ScrollView
         horizontal
@@ -790,7 +814,7 @@ function DetailSkeleton({
         {['r1', 'r2', 'r3', 'r4'].map((k) => (
           <Skeleton
             key={k}
-            style={{ width: posterWidth, height: posterH, borderRadius: 12 }}
+            style={{ width: rowCardWidth, height: posterH, borderRadius: 12 }}
           />
         ))}
       </ScrollView>

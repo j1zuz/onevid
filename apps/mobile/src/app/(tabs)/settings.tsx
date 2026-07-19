@@ -54,6 +54,9 @@ export default function SettingsTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  // true una vez que `loadActiveProfile()` resolvió al menos una vez (perfil
+  // puede ser legítimamente null, así que no basta con chequear `profile`).
+  const [profileLoaded, setProfileLoaded] = useState(false);
   // Sesión + modo (local/stream), revalidados en cada focus. Mientras carga es
   // null; sin sesión mostramos el CTA de iniciar sesión; con sesión, la cuenta.
   const surface = useAppSurface();
@@ -70,7 +73,10 @@ export default function SettingsTab() {
         .then((p) => {
           if (!cancelled) setProfile(p);
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => {
+          if (!cancelled) setProfileLoaded(true);
+        });
       return () => {
         cancelled = true;
       };
@@ -123,6 +129,14 @@ export default function SettingsTab() {
     setLoginOpen(true);
   }, []);
 
+  // `surface`, `profile` y la sesión resuelven en ticks distintos vía
+  // SecureStore/fetch aunque no haya red lenta; sin este gate combinado cada
+  // bloque de abajo aparece por separado apenas resuelve, dando el efecto de
+  // "cascada" (texto primero, resto cayendo). Con `ready`, todo el contenido
+  // variable se pinta de una sola vez.
+  const sessionReady = authed !== true || !loading;
+  const ready = surface !== null && profileLoaded && sessionReady;
+
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: COLORS.background }}
@@ -136,39 +150,126 @@ export default function SettingsTab() {
           </Typography>
         </View>
 
-        {authed === false ? (
-          <Card>
-            <Card.Body className="gap-3">
-              <View className="flex-row items-center gap-3">
-                <View
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: '#27272a',
-                  }}
-                >
-                  <LogIn size={24} color="#e5e7eb" />
-                </View>
-                <View className="flex-1">
-                  <Typography type="h5">{t('Modo Stream')}</Typography>
-                  <Typography type="body-sm" color="muted">
-                    {t('Inicia sesión para el modo stream.')}
-                  </Typography>
-                </View>
-              </View>
-              <FocusButton onPress={handleLogin}>
-                {t('Iniciar sesión')}
-              </FocusButton>
-            </Card.Body>
-          </Card>
-        ) : null}
-
-        {authed === true && loading ? (
+        {ready ? (
           <>
-            {/* Tarjeta de perfil (avatar + Perfil/nombre + Cambiar) */}
+            {authed === false ? (
+              <Card>
+                <Card.Body className="gap-3">
+                  <View className="flex-row items-center gap-3">
+                    <View
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 12,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: '#27272a',
+                      }}
+                    >
+                      <LogIn size={24} color="#e5e7eb" />
+                    </View>
+                    <View className="flex-1">
+                      <Typography type="h5">{t('Modo Stream')}</Typography>
+                      <Typography type="body-sm" color="muted">
+                        {t('Inicia sesión para el modo stream.')}
+                      </Typography>
+                    </View>
+                  </View>
+                  <FocusButton onPress={handleLogin}>
+                    {t('Iniciar sesión')}
+                  </FocusButton>
+                </Card.Body>
+              </Card>
+            ) : null}
+
+            {authed === true && error ? (
+              <Card>
+                <Card.Body>
+                  <Typography type="body-sm" color="muted">
+                    {error}
+                  </Typography>
+                </Card.Body>
+              </Card>
+            ) : null}
+
+            {authed === true && profile ? (
+              <Card>
+                <Card.Body className="flex-row items-center gap-4">
+                  <Image
+                    source={avatarSource(profile.avatar)}
+                    style={{ width: 56, height: 56, borderRadius: 14 }}
+                    contentFit="cover"
+                  />
+                  <View className="flex-1 gap-0.5">
+                    <Typography type="body-xs" color="muted">
+                      {t('Perfil')}
+                    </Typography>
+                    <Typography type="h5">{profile.name}</Typography>
+                  </View>
+                  <Pressable
+                    onPress={handleSwitchProfile}
+                    style={(s) => [
+                      { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 999 },
+                      tvFocusRing((s as { focused?: boolean }).focused ?? false),
+                    ]}
+                  >
+                    <Typography
+                      type="body-sm"
+                      weight="medium"
+                      style={{ color: '#3b82f6' }}
+                    >
+                      {t('Cambiar')}
+                    </Typography>
+                  </Pressable>
+                </Card.Body>
+              </Card>
+            ) : null}
+
+            {user ? (
+              <ListGroup>
+                <ListGroup.Item>
+                  <ListGroup.ItemPrefix>
+                    <GlassIcon name="inbox" size={24} />
+                  </ListGroup.ItemPrefix>
+                  <ListGroup.ItemContent>
+                    <ListGroup.ItemTitle>{t('Email')}</ListGroup.ItemTitle>
+                    <ListGroup.ItemDescription>
+                      {user.email}
+                    </ListGroup.ItemDescription>
+                  </ListGroup.ItemContent>
+                </ListGroup.Item>
+                <Separator className="mx-4" />
+                <LanguageRow
+                  label={currentLanguageLabel}
+                  onPress={() => setLangOpen(true)}
+                />
+              </ListGroup>
+            ) : null}
+
+            {authed === true && !Platform.isTV ? (
+              <FocusButton
+                onPress={() =>
+                  handleSwitchMode(mode === 'local' ? 'stream' : 'local')
+                }
+                variant="secondary"
+              >
+                {mode === 'local'
+                  ? t('Cambiar a modo Stream')
+                  : t('Cambiar a modo Local')}
+              </FocusButton>
+            ) : null}
+
+            {authed === true ? (
+              <FocusButton onPress={handleLogout} variant="secondary">
+                {t('Cerrar sesión')}
+              </FocusButton>
+            ) : null}
+          </>
+        ) : (
+          <>
+            {/* Skeleton genérico de página completa: se pinta mientras
+                surface/perfil/sesión resuelven, para que el contenido real
+                aparezca todo de una vez en vez de bloque a bloque. */}
             <Card>
               <Card.Body className="flex-row items-center gap-4">
                 <Skeleton style={{ width: 56, height: 56, borderRadius: 14 }} />
@@ -180,7 +281,6 @@ export default function SettingsTab() {
               </Card.Body>
             </Card>
 
-            {/* Lista Email / Usuario (icono + título + descripción) */}
             <Card>
               <Card.Body className="gap-0">
                 <View
@@ -215,90 +315,7 @@ export default function SettingsTab() {
               </Card.Body>
             </Card>
           </>
-        ) : null}
-
-        {authed === true && error ? (
-          <Card>
-            <Card.Body>
-              <Typography type="body-sm" color="muted">
-                {error}
-              </Typography>
-            </Card.Body>
-          </Card>
-        ) : null}
-
-        {authed === true && profile && !loading ? (
-          <Card>
-            <Card.Body className="flex-row items-center gap-4">
-              <Image
-                source={avatarSource(profile.avatar)}
-                style={{ width: 56, height: 56, borderRadius: 14 }}
-                contentFit="cover"
-              />
-              <View className="flex-1 gap-0.5">
-                <Typography type="body-xs" color="muted">
-                  {t('Perfil')}
-                </Typography>
-                <Typography type="h5">{profile.name}</Typography>
-              </View>
-              <Pressable
-                onPress={handleSwitchProfile}
-                style={(s) => [
-                  { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 999 },
-                  tvFocusRing((s as { focused?: boolean }).focused ?? false),
-                ]}
-              >
-                <Typography
-                  type="body-sm"
-                  weight="medium"
-                  style={{ color: '#3b82f6' }}
-                >
-                  {t('Cambiar')}
-                </Typography>
-              </Pressable>
-            </Card.Body>
-          </Card>
-        ) : null}
-
-        {user && !loading ? (
-          <ListGroup>
-            <ListGroup.Item>
-              <ListGroup.ItemPrefix>
-                <GlassIcon name="inbox" size={24} />
-              </ListGroup.ItemPrefix>
-              <ListGroup.ItemContent>
-                <ListGroup.ItemTitle>{t('Email')}</ListGroup.ItemTitle>
-                <ListGroup.ItemDescription>
-                  {user.email}
-                </ListGroup.ItemDescription>
-              </ListGroup.ItemContent>
-            </ListGroup.Item>
-            <Separator className="mx-4" />
-            <LanguageRow
-              label={currentLanguageLabel}
-              onPress={() => setLangOpen(true)}
-            />
-          </ListGroup>
-        ) : null}
-
-        {authed === true && !Platform.isTV ? (
-          <FocusButton
-            onPress={() =>
-              handleSwitchMode(mode === 'local' ? 'stream' : 'local')
-            }
-            variant="secondary"
-          >
-            {mode === 'local'
-              ? t('Cambiar a modo Stream')
-              : t('Cambiar a modo Local')}
-          </FocusButton>
-        ) : null}
-
-        {authed === true ? (
-          <FocusButton onPress={handleLogout} variant="secondary">
-            {t('Cerrar sesión')}
-          </FocusButton>
-        ) : null}
+        )}
       </ScrollView>
 
       <StreamLoginSheet

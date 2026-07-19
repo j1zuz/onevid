@@ -159,6 +159,9 @@
     "@posthog/cli",
     "unrs-resolver",
   ],
+  "patchedDependencies": {
+    "expo-libvlc-player@7.0.40": "patches/expo-libvlc-player@7.0.40.patch",
+  },
   "overrides": {
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",

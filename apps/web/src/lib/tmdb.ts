@@ -1052,7 +1052,7 @@ export async function fetchTrailerKey(
   return pickTrailerKey(english.results);
 }
 
-async function fetchMovieLogo(
+export async function fetchMovieLogo(
   token: string,
   tmdbId: string,
   locale?: string
@@ -1068,7 +1068,7 @@ async function fetchMovieLogo(
   return pickLogo(data.logos, lang);
 }
 
-async function fetchTvLogo(
+export async function fetchTvLogo(
   token: string,
   tmdbId: string,
   locale?: string
