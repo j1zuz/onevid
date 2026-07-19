@@ -69,7 +69,11 @@ const withRing =
     tvFocusRing((state as { focused?: boolean }).focused ?? false),
   ];
 
-type ResolvedStream = { url: string; fileName?: string };
+type ResolvedStream = {
+  url: string;
+  fileName?: string;
+  redirect: RedirectResolution;
+};
 
 type ResolveState =
   | { kind: 'resolving' } // carga inicial de la fuente
@@ -114,7 +118,10 @@ async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
   // saneados. Sin esto, resolveRedirect haría un fetch GET (que falla con
   // file://) y se desperdiciaría un timeout.
   if (raw.startsWith('file://') || raw.startsWith('content://')) {
-    return { url: sanitizeUrlForVlc(raw) };
+    return {
+      url: sanitizeUrlForVlc(raw),
+      redirect: { url: null, timedOut: false, tookMs: 0 },
+    };
   }
   if (raw.startsWith('/api/')) {
     const sep = raw.includes('?') ? '&' : '?';
@@ -151,8 +158,12 @@ async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
   // primer fotograma, disparaba el fallback y REMONTABA el player (se veía la
   // carátula dos veces / "reinicio"). Seguimos la redirección aquí con `fetch` y
   // le entregamos a VLC la URL FINAL, así abre a la primera y sin doble arranque.
-  const final = await resolveRedirect(url);
-  return { url: final ? sanitizeUrlForVlc(final) : url, fileName };
+  const redirect = await resolveRedirect(url);
+  return {
+    url: redirect.url ? sanitizeUrlForVlc(redirect.url) : url,
+    fileName,
+    redirect,
+  };
 }
 
 // Contenidos cuyo primer fotograma ya se vio (clave estable por contenido).
@@ -176,6 +187,14 @@ const PLAYBACK_FIRST_FRAME_TIMEOUT_MS = 30_000;
 // Elección manual del usuario: le damos mucho más margen "sin pistas" antes de
 // saltar, porque pidió ESA fuente explícitamente (p. ej. torbox lento de arrancar).
 const PLAYBACK_MANUAL_TIMEOUT_MS = 35_000;
+// Timeout de resolveRedirect(). Antes 4000ms: telemetría de PostHog
+// (player_source_probe) mostró que ~17% de las fuentes que VLC descartaba como
+// "no se pudo abrir" en realidad respondían 206 con vídeo válido cuando la
+// sonda de diagnóstico las probaba con su timeout de 6000ms — es decir, la
+// redirección (302) de hosts debrid/torbox lentos no llegaba a resolverse a
+// tiempo y VLC recibía la URL sin resolver. Igualamos/superamos el margen de
+// la sonda para que la ruta real tenga, como mínimo, la misma oportunidad.
+const STREAM_REDIRECT_TIMEOUT_MS = 8_000;
 
 // User-Agent de navegador: evita 403 de hosts que rechazan el UA por defecto de
 // VLC. Se usa tanto en las opciones de libVLC como en la sonda de diagnóstico,
@@ -242,23 +261,34 @@ async function probeStreamForTelemetry(url: string): Promise<{
   }
 }
 
+type RedirectResolution = {
+  url: string | null;
+  timedOut: boolean;
+  tookMs: number;
+};
+
 // Algunos hosts entregan la URL final por redirección (302) y libVLC no siempre
 // la sigue, aunque `fetch` sí lo hace. Seguimos la redirección con el mismo UA y,
 // si el host responde OK con una URL distinta, devolvemos esa URL final para
 // dársela directamente a VLC. Best-effort: ante cualquier fallo devolvemos null.
-async function resolveRedirect(url: string): Promise<string | null> {
+// También reporta cuánto tardó y si expiró el timeout, para telemetría.
+async function resolveRedirect(url: string): Promise<RedirectResolution> {
+  const started = Date.now();
   try {
-    // Tope corto: si el host no responde rápido, no merece la pena esperar —
-    // saltamos a la siguiente fuente en vez de colgar el fallback.
     const res = await fetchWithTimeout(
       url,
       { method: 'GET', headers: { Range: 'bytes=0-1', 'User-Agent': STREAM_UA } },
-      4_000,
+      STREAM_REDIRECT_TIMEOUT_MS,
     );
-    if (res.ok && res.url && res.url !== url) return res.url;
-    return null;
-  } catch {
-    return null;
+    const tookMs = Date.now() - started;
+    if (res.ok && res.url && res.url !== url) {
+      return { url: res.url, timedOut: false, tookMs };
+    }
+    return { url: null, timedOut: false, tookMs };
+  } catch (e) {
+    const tookMs = Date.now() - started;
+    const timedOut = e instanceof Error && e.name === 'AbortError';
+    return { url: null, timedOut, tookMs };
   }
 }
 
@@ -610,8 +640,21 @@ export default function PlayerScreen() {
     // 'switching' (con su contador) y queremos conservarlo.
     let cancelled = false;
     resolveStreamUrl(rawUrl)
-      .then(({ url, fileName }) => {
+      .then(({ url, fileName, redirect }) => {
         if (cancelled) return;
+        // Telemetría para verificar el fix de STREAM_REDIRECT_TIMEOUT_MS
+        // (4000ms → 8000ms): compara, antes/después del cambio, cuántas
+        // redirecciones expiraban por timeout vs cuánto tardaban en
+        // resolverse de verdad, y si eso correlaciona con menos
+        // player_sources_exhausted.
+        track('player_redirect_resolve', {
+          mediaType,
+          mediaId,
+          hadRedirect: Boolean(redirect.url),
+          timedOut: redirect.timedOut,
+          tookMs: redirect.tookMs,
+          timeoutMs: STREAM_REDIRECT_TIMEOUT_MS,
+        });
         setState({ kind: 'ready', url, fileName });
       })
       .catch(() => {

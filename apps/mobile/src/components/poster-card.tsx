@@ -8,9 +8,9 @@ interface PosterCardProps {
   item: MediaMeta;
   width?: number;
   /**
-   * Tarjeta horizontal (16/9) con el backdrop en vez del póster vertical (2/3).
-   * Opt-in: solo las filas del Inicio en TV lo activan; las grids (discover) y
-   * detalle siguen verticales.
+   * Todas las tarjetas de contenido son horizontales (16/9) con el backdrop.
+   * Pasa `landscape={false}` explícitamente para el caso raro que necesite el
+   * póster vertical (2/3) original.
    */
   landscape?: boolean;
   /** Progreso de reproducción 0–1: dibuja una barra inferior ("Continuar viendo"). */
@@ -21,7 +21,7 @@ interface PosterCardProps {
 export function PosterCard({
   item,
   width,
-  landscape = false,
+  landscape = true,
   progress,
   onPress,
 }: PosterCardProps) {
