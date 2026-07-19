@@ -8,6 +8,7 @@ interface WatchProgressParams {
   background?: string;
   enabled?: boolean;
   episode?: number;
+  logo?: string;
   mediaId?: string;
   mediaType: 'movie' | 'series';
   name?: string;
@@ -74,6 +75,7 @@ export function useWatchProgress(params: WatchProgressParams) {
         name: p.name,
         poster: p.poster,
         background: p.background,
+        logo: p.logo,
         year: p.year,
       }),
     }).catch(() => {

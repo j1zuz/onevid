@@ -78,8 +78,11 @@ export default function HomeTab() {
 
   const movies = moviesQuery.data ?? [];
   const series = seriesQuery.data ?? [];
-  // Solo skeleton si aún no hay datos en cache (primera carga real).
-  const loading = moviesQuery.isLoading || seriesQuery.isLoading;
+  // Solo skeleton si aún no hay datos en cache (primera carga real). Incluye
+  // continueQuery para que todo el contenido aparezca en un solo bloque en vez
+  // de revelarse fila por fila conforme cada query resuelve (efecto cascada).
+  const loading =
+    moviesQuery.isLoading || seriesQuery.isLoading || continueQuery.isLoading;
   const error =
     moviesQuery.isError && seriesQuery.isError
       ? t('No pudimos cargar el catálogo. Reintenta en un momento.')
@@ -104,6 +107,7 @@ export default function HomeTab() {
         title: item.name,
         background: item.background,
         poster: item.poster,
+        logo: item.logo,
         type: item.type,
         id: item.id,
         ...(item.type === 'series' && item.season && item.episode

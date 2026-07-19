@@ -89,6 +89,8 @@ export default function DiscoverTab() {
       ).then((r) => r.results ?? []),
     enabled: catalogEnabled && !isSearching,
   });
+  // Ambas filas de "Descubrir" aparecen juntas en vez de una a la vez.
+  const catalogLoading = moviesQuery.isLoading || seriesQuery.isLoading;
 
   // Búsqueda: cubre películas y series, intercaladas.
   const searchMoviesQuery = useQuery({
@@ -244,26 +246,27 @@ export default function DiscoverTab() {
               </View>
 
               {/* La cadena (network de TMDB) aplica a series; muchas no tienen
-                  películas asociadas. Ocultamos cada fila si no hay resultados. */}
-              {moviesQuery.isLoading || (moviesQuery.data?.length ?? 0) > 0 ? (
+                  películas asociadas. Ocultamos cada fila si no hay resultados.
+                  Ambas filas comparten `catalogLoading` para que aparezcan en el
+                  mismo instante en vez de una fila a la vez (efecto cascada). */}
+              {catalogLoading || (moviesQuery.data?.length ?? 0) > 0 ? (
                 <PosterRow
                   title={t('Películas populares')}
                   items={moviesQuery.data ?? []}
-                  loading={moviesQuery.isLoading}
+                  loading={catalogLoading}
                   onPressItem={handlePressItem}
                 />
               ) : null}
-              {seriesQuery.isLoading || (seriesQuery.data?.length ?? 0) > 0 ? (
+              {catalogLoading || (seriesQuery.data?.length ?? 0) > 0 ? (
                 <PosterRow
                   title={t('Series populares')}
                   items={seriesQuery.data ?? []}
-                  loading={seriesQuery.isLoading}
+                  loading={catalogLoading}
                   onPressItem={handlePressItem}
                 />
               ) : null}
 
-              {!moviesQuery.isLoading &&
-              !seriesQuery.isLoading &&
+              {!catalogLoading &&
               (moviesQuery.data?.length ?? 0) === 0 &&
               (seriesQuery.data?.length ?? 0) === 0 ? (
                 <Typography

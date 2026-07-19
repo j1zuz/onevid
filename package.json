@@ -46,5 +46,8 @@
   "devDependencies": {
     "react-scan": "^0.5.7",
     "web": "workspace:*"
+  },
+  "patchedDependencies": {
+    "expo-libvlc-player@7.0.40": "patches/expo-libvlc-player@7.0.40.patch"
   }
 }

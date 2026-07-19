@@ -20,5 +20,12 @@ export function useResponsive() {
   // Ancho de póster en las filas horizontales (Inicio). En TV son más grandes.
   const posterWidth = isLarge ? 200 : 140;
 
-  return { width, isTV, isLarge, posterColumns, posterWidth };
+  // Ancho de tarjeta horizontal (16:9) para TODAS las filas de catálogo
+  // (Continuar viendo, Tendencias, Populares, Biblioteca) — deben verse del
+  // mismo tamaño entre sí. Es la fórmula que ya usaba "Continuar viendo".
+  const rowCardWidth = isTV
+    ? Math.min(320, Math.max(180, Math.round((width - 32) / 5.3)))
+    : Math.min(320, Math.max(200, Math.round((width - 32) / 2.4)));
+
+  return { width, isTV, isLarge, posterColumns, posterWidth, rowCardWidth };
 }

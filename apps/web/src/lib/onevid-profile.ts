@@ -367,6 +367,7 @@ export interface ProgressInput {
   background?: string;
   durationSec?: number;
   episode?: number;
+  logo?: string;
   mediaId: string;
   mediaType: SavedMediaType;
   name?: string;
@@ -381,6 +382,7 @@ export interface ContinueWatchingItem {
   durationSec: number;
   episode: number;
   id: string;
+  logo?: string;
   name: string;
   poster?: string;
   positionSec: number;
@@ -439,6 +441,7 @@ export async function setProfileProgress(
       name: input.name ?? null,
       poster: input.poster ?? null,
       background: input.background ?? null,
+      logo: input.logo ?? null,
       year: input.year ?? null,
       updatedAt: new Date(),
       createdAt: new Date(),
@@ -458,6 +461,7 @@ export async function setProfileProgress(
         name: input.name ?? null,
         poster: input.poster ?? null,
         background: input.background ?? null,
+        logo: input.logo ?? null,
         year: input.year ?? null,
         updatedAt: new Date(),
       },
@@ -482,6 +486,7 @@ export async function listProfileProgress(
       name: oneVidProfileProgress.name,
       poster: oneVidProfileProgress.poster,
       background: oneVidProfileProgress.background,
+      logo: oneVidProfileProgress.logo,
       year: oneVidProfileProgress.year,
     })
     .from(oneVidProfileProgress)
@@ -510,6 +515,7 @@ export async function listProfileProgress(
       name: r.name ?? "",
       poster: r.poster ?? undefined,
       background: r.background ?? undefined,
+      logo: r.logo ?? undefined,
       year: r.year ?? undefined,
     });
   }
