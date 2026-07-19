@@ -14,17 +14,17 @@ interface PosterRowProps {
 }
 
 export function PosterRow({ title, items, loading, onPressItem }: PosterRowProps) {
-  // En TV las tarjetas del Inicio son horizontales (16/9); en móvil verticales
-  // (2/3). En TV el ancho se calcula desde el ancho real de la pantalla para que
-  // entren ~5 tarjetas por fila (con un pequeño asomo de la 6ª que invita a
-  // desplazar), en vez de un ancho fijo que solo mostraba 3. Se acota para que no
-  // queden ni gigantes ni diminutas en TVs de distinta densidad.
+  // Tarjetas horizontales (16/9) en todas las plataformas. En TV el ancho se
+  // calcula desde el ancho real de la pantalla para que entren ~5 tarjetas por
+  // fila (con un pequeño asomo de la 6ª que invita a desplazar), en vez de un
+  // ancho fijo que solo mostraba 3. Se acota para que no queden ni gigantes ni
+  // diminutas en TVs de distinta densidad.
   const { posterWidth, isTV, width } = useResponsive();
   // No mostramos una fila vacía: si no está cargando y no hay items, ocultamos
   // el título por completo (evita ver "Películas/Series en tendencia" sueltos,
   // sin tarjetas, en el instante en que la app abre y el catálogo aún no llega).
   if (!loading && items.length === 0) return null;
-  const cardAspectRatio = isTV ? 16 / 9 : 2 / 3;
+  const cardAspectRatio = 16 / 9;
   // (ancho útil − paddings 16×2) entre 4.7 ≈ tarjetas horizontales más grandes
   // con asomo de la siguiente para mantener la pista de scroll.
   const CARD_WIDTH = isTV
@@ -67,7 +67,6 @@ export function PosterRow({ title, items, loading, onPressItem }: PosterRowProps
               <PosterCard
                 item={item}
                 width={CARD_WIDTH}
-                landscape={isTV}
                 onPress={() => onPressItem?.(item)}
               />
             )}

@@ -340,7 +340,7 @@ function SkeletonGrid({ columns = 2 }: { columns?: number }) {
         // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder
         <View key={i} style={{ width: itemWidth, gap: 6 }}>
           <Skeleton
-            style={{ width: '100%', aspectRatio: 2 / 3, borderRadius: 12 }}
+            style={{ width: '100%', aspectRatio: 16 / 9, borderRadius: 12 }}
           />
           <Skeleton style={{ height: 14, borderRadius: 4 }} />
           <Skeleton style={{ height: 10, width: '60%', borderRadius: 4 }} />

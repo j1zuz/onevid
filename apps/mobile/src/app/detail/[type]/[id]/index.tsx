@@ -273,15 +273,26 @@ export default function DetailPage() {
 
   const handleTrailer = useCallback(async () => {
     if (!trailerKey) return;
-    const url = `https://www.youtube.com/watch?v=${encodeURIComponent(trailerKey)}`;
+    // Embed (no watch): en Android, youtube.com/watch está registrado como App
+    // Link verificado de la app de YouTube, así que el sistema la intercepta y
+    // abre la app nativa aunque uses un navegador in-app. /embed no tiene ese
+    // App Link, se queda dentro de la app, y además trae mucha menos interfaz
+    // de YouTube (sin sidebar/comentarios/cabecera) — mismos parámetros que ya
+    // usa la web (`explore-movie-dialog.tsx`).
+    const url = `https://www.youtube.com/embed/${encodeURIComponent(trailerKey)}?autoplay=1&rel=0&playsinline=1`;
     track('detail_trailer_open', {
       mediaType: type,
       mediaId: id,
       trailerKey,
-      opener: 'web_browser',
+      opener: 'web_browser_embed',
     });
     try {
-      await WebBrowser.openBrowserAsync(url);
+      await WebBrowser.openBrowserAsync(url, {
+        toolbarColor: '#000000',
+        controlsColor: '#ffffff',
+        showTitle: false,
+        enableBarCollapsing: true,
+      });
     } catch {
       track('detail_trailer_open_fallback', {
         mediaType: type,
@@ -681,7 +692,7 @@ function DetailSkeleton({
 }) {
   const btnH = isTV ? 56 : 44;
   const sideW = isTV ? 120 : sideBtnW;
-  const posterH = Math.round(posterWidth * 1.5); // póster 2:3
+  const posterH = Math.round((posterWidth * 9) / 16); // póster horizontal 16:9
   const sectionTitle = {
     height: 22,
     borderRadius: 8,
