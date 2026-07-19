@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Platform, View } from 'react-native';
 import { TabIcon, type TabIconName } from '@/components/tab-icon';
 import { TvSidebar } from '@/components/tv-sidebar';
-import { getAccessToken } from '@/lib/auth';
+import { useAppSurface } from '@/hooks/use-app-surface';
 import { avatarSource } from '@/lib/avatars';
 import { loadActiveProfile } from '@/lib/profiles';
 import { COLORS } from '@/lib/theme';
@@ -40,26 +40,28 @@ export default function TabsLayout() {
   const { t } = useTranslation();
   // Avatar del tab Perfil: SOLO refleja el perfil cuando hay sesión. Sin sesión
   // (modo local) mostramos siempre el avatar negro por defecto — aunque quede un
-  // perfil guardado de una sesión anterior en SecureStore. Revalidamos en cada
-  // focus para reaccionar a login/logout.
+  // perfil guardado de una sesión anterior en SecureStore. `authed` viene del
+  // AppSurface compartido (ya revalida en cada focus); el perfil se relee aparte
+  // porque no es parte de AppSurface.
+  const surface = useAppSurface();
+  const authed = surface?.authed ?? false;
   const [avatar, setAvatar] = useState<string | undefined>(undefined);
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      (async () => {
-        const token = await getAccessToken();
-        if (cancelled) return;
-        if (!token) {
-          setAvatar(undefined); // sin sesión → avatarSource(undefined) = black.jpg
-          return;
-        }
-        const p = await loadActiveProfile().catch(() => null);
-        if (!cancelled) setAvatar(p?.avatar);
-      })();
+      if (!authed) {
+        setAvatar(undefined); // sin sesión → avatarSource(undefined) = black.jpg
+        return;
+      }
+      loadActiveProfile()
+        .catch(() => null)
+        .then((p) => {
+          if (!cancelled) setAvatar(p?.avatar);
+        });
       return () => {
         cancelled = true;
       };
-    }, []),
+    }, [authed]),
   );
 
   return (

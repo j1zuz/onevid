@@ -7,7 +7,7 @@ import { Search } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Platform, Pressable, ScrollView, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
 import { PosterCard } from '@/components/poster-card';
 import { PosterRow } from '@/components/home/poster-row';
@@ -48,6 +48,11 @@ export default function DiscoverTab() {
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [network, setNetwork] = useState<Network>(NETWORKS[0]);
   const { posterColumns, isTV } = useResponsive();
+  // `insets.top` viene de `initialWindowMetrics` (sembrado sincrónicamente por
+  // SafeAreaProvider en _layout.tsx): a diferencia de `<SafeAreaView>` (nativo,
+  // mide en un frame posterior al primer render), esto evita el salto donde el
+  // contenido aparece pegado arriba y luego "baja" a su padding correcto.
+  const insets = useSafeAreaInsets();
 
   // Buscar es parte del modo Stream: en modo local mostramos un empty state y no
   // pedimos catálogo. `surface` se revalida en cada focus.
@@ -137,9 +142,12 @@ export default function DiscoverTab() {
   // Modo local, o stream sin sesión (TV): empty state pidiendo iniciar sesión.
   if (surface.showLocal || !surface.authed)
     return (
-      <SafeAreaView
-        style={{ flex: 1, backgroundColor: COLORS.background }}
-        edges={['top']}
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: COLORS.background,
+          paddingTop: insets.top,
+        }}
       >
         <EmptyState
           icon={<Search size={32} color="#9ca3af" />}
@@ -150,14 +158,17 @@ export default function DiscoverTab() {
               : t('Inicia sesión para buscar tu contenido.')
           }
         />
-      </SafeAreaView>
+      </View>
     );
   if (status && !status.setupCompleted) return <SetupPrompt />;
 
   return (
-    <SafeAreaView
-      style={{ flex: 1, backgroundColor: COLORS.background }}
-      edges={['top']}
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: COLORS.background,
+        paddingTop: insets.top,
+      }}
     >
       <ScrollShadow
         style={{ flex: 1 }}
@@ -282,7 +293,7 @@ export default function DiscoverTab() {
           )}
         </ScrollView>
       </ScrollShadow>
-    </SafeAreaView>
+    </View>
   );
 }
 

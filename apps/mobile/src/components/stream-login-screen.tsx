@@ -12,7 +12,7 @@ import { setAppMode } from '@/lib/app-mode';
 import { COLORS } from '@/lib/theme';
 
 interface StreamLoginScreenProps {
-  /** Revalida `useAppSurface` tras "Continuar sin cuenta" (ver use-app-surface.ts). */
+  /** Revalida `useAppSurface` tras "Continuar sin cuenta" (ver use-app-surface.tsx). */
   onContinueWithoutAccount: () => void;
 }
 

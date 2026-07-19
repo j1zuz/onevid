@@ -12,11 +12,17 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
 import { useEffect, useState } from 'react';
 import { Platform, StatusBar as RNStatusBar } from 'react-native';
+import {
+  initialWindowMetrics,
+  SafeAreaProvider,
+} from 'react-native-safe-area-context';
 import { Uniwind } from 'uniwind';
 import { AnimatedSplash } from '@/components/animated-splash';
+import { AppSurfaceProvider } from '@/hooks/use-app-surface';
 import i18next from '@/lib/i18n';
 import { useLanguageOverride } from '@/lib/i18n/language-preference';
 import { useDeviceLocale } from '@/lib/i18n/use-device-locale';
+import { type AppMode, loadAppMode } from '@/lib/app-mode';
 import { validateSession } from '@/lib/auth';
 import { loadActiveProfile } from '@/lib/profiles';
 import { queryClient } from '@/lib/query';
@@ -56,6 +62,7 @@ export default function RootLayout() {
   const [authReady, setAuthReady] = useState(false);
   const [hasToken, setHasToken] = useState(false);
   const [hasProfile, setHasProfile] = useState(false);
+  const [appMode, setMode] = useState<AppMode>('stream');
   const [splashDone, setSplashDone] = useState(false);
 
   // Idioma efectivo: si el usuario eligió uno en Perfil (override) manda ése; si
@@ -85,11 +92,12 @@ export default function RootLayout() {
       // comprobar que exista un token: si la sesión expiró o se revocó,
       // validateSession limpia el token y caemos al login limpiamente en lugar
       // de entrar a la app con un token muerto.
-      const valid = await validateSession();
+      const [valid, mode] = await Promise.all([validateSession(), loadAppMode()]);
       const profile = valid ? await loadActiveProfile() : null;
       if (cancelled) return;
       setHasToken(valid);
       setHasProfile(Boolean(profile));
+      setMode(mode);
       setAuthReady(true);
       // El splash nativo lo oculta AnimatedSplash.onLayoutReady, no aquí, para
       // evitar un hueco negro antes de que el overlay se pinte.
@@ -119,24 +127,32 @@ export default function RootLayout() {
       <GestureHandlerRootView
         style={{ flex: 1, backgroundColor: COLORS.background }}
       >
-        <QueryClientProvider client={queryClient}>
-          <HeroUINativeProvider>
-            <Stack
-              initialRouteName={initialRoute}
-              screenOptions={{
-                headerShown: false,
-                contentStyle: { backgroundColor: COLORS.background },
-                animation: 'none',
-              }}
-            />
-            {!splashDone ? (
-              <AnimatedSplash
-                onLayoutReady={handleSplashLayoutReady}
-                onFinish={() => setSplashDone(true)}
-              />
-            ) : null}
-          </HeroUINativeProvider>
-        </QueryClientProvider>
+        {/* `initialMetrics` sembra los insets sincrónicamente (constante nativa,
+            sin round-trip) para que `useSafeAreaInsets()` tenga el valor correcto
+            desde el primer render — evita el salto de <SafeAreaView> nativo, que
+            mide un frame después y causa que el contenido "baje" a su padding. */}
+        <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+          <QueryClientProvider client={queryClient}>
+            <HeroUINativeProvider>
+              <AppSurfaceProvider initial={{ authed: hasToken, mode: appMode }}>
+                <Stack
+                  initialRouteName={initialRoute}
+                  screenOptions={{
+                    headerShown: false,
+                    contentStyle: { backgroundColor: COLORS.background },
+                    animation: 'none',
+                  }}
+                />
+              </AppSurfaceProvider>
+              {!splashDone ? (
+                <AnimatedSplash
+                  onLayoutReady={handleSplashLayoutReady}
+                  onFinish={() => setSplashDone(true)}
+                />
+              ) : null}
+            </HeroUINativeProvider>
+          </QueryClientProvider>
+        </SafeAreaProvider>
       </GestureHandlerRootView>
     </PostHogProvider>
   );
