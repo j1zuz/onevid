@@ -15,7 +15,7 @@ import {
 import { type ComponentProps, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Platform, Pressable, ScrollView, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StreamLoginSheet } from '@/components/stream-login-sheet';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { type AppMode, setAppMode } from '@/lib/app-mode';
@@ -136,11 +136,19 @@ export default function SettingsTab() {
   // variable se pinta de una sola vez.
   const sessionReady = authed !== true || !loading;
   const ready = surface !== null && profileLoaded && sessionReady;
+  // `insets.top` viene de `initialWindowMetrics` (sembrado sincrónicamente por
+  // SafeAreaProvider en _layout.tsx): a diferencia de `<SafeAreaView>` (nativo,
+  // mide en un frame posterior al primer render), esto evita el salto donde el
+  // contenido aparece pegado arriba y luego "baja" a su padding correcto.
+  const insets = useSafeAreaInsets();
 
   return (
-    <SafeAreaView
-      style={{ flex: 1, backgroundColor: COLORS.background }}
-      edges={['top']}
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: COLORS.background,
+        paddingTop: insets.top,
+      }}
     >
       <ScrollView contentContainerClassName="gap-6 px-4 py-6">
         <View className="gap-1">
@@ -323,7 +331,7 @@ export default function SettingsTab() {
         onClose={() => setLoginOpen(false)}
       />
       <LanguageSheet visible={langOpen} onClose={() => setLangOpen(false)} />
-    </SafeAreaView>
+    </View>
   );
 }
 

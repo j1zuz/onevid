@@ -17,6 +17,7 @@ import { SetupPrompt, useSetupStatus } from '@/components/setup-prompt';
 import { StreamLoginScreen } from '@/components/stream-login-screen';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { apiFetch, type MediaMeta } from '@/lib/api';
+import { navigateToDetail } from '@/lib/detail-nav';
 import { COLORS } from '@/lib/theme';
 
 const HERO_TAKE = 8;
@@ -90,12 +91,12 @@ export default function HomeTab() {
 
   const heroItems = interleave(movies, series).slice(0, HERO_TAKE);
 
-  const handlePressItem = useCallback((item: MediaMeta) => {
-    router.push({
-      pathname: '/detail/[type]/[id]',
-      params: { type: item.type, id: item.id },
-    });
-  }, []);
+  const handlePressItem = useCallback(
+    (item: MediaMeta) => {
+      navigateToDetail(queryClient, item, lang);
+    },
+    [queryClient, lang],
+  );
 
   // Reproducir directo desde "Continuar viendo" (sin `url` → el player toma la
   // 1ª fuente y salta a la posición guardada). Para series pasamos temporada/

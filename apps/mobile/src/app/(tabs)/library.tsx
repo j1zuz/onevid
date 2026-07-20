@@ -1,24 +1,33 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
 import { ScrollShadow, Typography } from 'heroui-native';
 import { Bookmark } from 'lucide-react-native';
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ScrollView, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
 import { PosterRow } from '@/components/home/poster-row';
 import { SetupPrompt, useSetupStatus } from '@/components/setup-prompt';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import type { MediaMeta } from '@/lib/api';
+import { navigateToDetail } from '@/lib/detail-nav';
 import { getFavorites, getWatchlistItems } from '@/lib/saved';
 import { COLORS } from '@/lib/theme';
 
 export default function LibraryTab() {
+  const { i18n } = useTranslation();
+  const lang = i18n.language;
+  const queryClient = useQueryClient();
   // La biblioteca es parte del modo Stream: en modo local mostramos un empty
   // state y no pedimos nada. `surface` se revalida en cada focus.
   const surface = useAppSurface();
   const streamMode = surface?.showLocal === false;
+  // `insets.top` viene de `initialWindowMetrics` (sembrado sincrónicamente por
+  // SafeAreaProvider en _layout.tsx): a diferencia de `<SafeAreaView>` (nativo,
+  // mide en un frame posterior al primer render), esto evita el salto donde el
+  // contenido aparece pegado arriba y luego "baja" a su padding correcto.
+  const insets = useSafeAreaInsets();
 
   // Cacheado bajo ['library']: ya no recarga skeleton cada vez que entras a la
   // pestaña. La pantalla de detalle invalida esta key al guardar/quitar, así
@@ -44,12 +53,12 @@ export default function LibraryTab() {
   const watchlist = libraryQuery.data?.watchlist ?? [];
   const loading = libraryQuery.isLoading;
 
-  const handlePressItem = useCallback((item: MediaMeta) => {
-    router.push({
-      pathname: '/detail/[type]/[id]',
-      params: { type: item.type, id: item.id },
-    });
-  }, []);
+  const handlePressItem = useCallback(
+    (item: MediaMeta) => {
+      navigateToDetail(queryClient, item, lang);
+    },
+    [queryClient, lang],
+  );
 
   const { data: status } = useSetupStatus(streamMode);
 
@@ -58,9 +67,12 @@ export default function LibraryTab() {
   // Modo local, o stream sin sesión (TV): empty state pidiendo iniciar sesión.
   if (surface.showLocal || !surface.authed)
     return (
-      <SafeAreaView
-        style={{ flex: 1, backgroundColor: COLORS.background }}
-        edges={['top']}
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: COLORS.background,
+          paddingTop: insets.top,
+        }}
       >
         <EmptyState
           icon={<Bookmark size={32} color="#9ca3af" />}
@@ -71,14 +83,17 @@ export default function LibraryTab() {
               : 'Inicia sesión para guardar tu contenido.'
           }
         />
-      </SafeAreaView>
+      </View>
     );
   if (status && !status.setupCompleted) return <SetupPrompt />;
 
   return (
-    <SafeAreaView
-      style={{ flex: 1, backgroundColor: COLORS.background }}
-      edges={['top']}
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: COLORS.background,
+        paddingTop: insets.top,
+      }}
     >
       <ScrollShadow
         style={{ flex: 1 }}
@@ -109,7 +124,7 @@ export default function LibraryTab() {
           />
         </ScrollView>
       </ScrollShadow>
-    </SafeAreaView>
+    </View>
   );
 }
 

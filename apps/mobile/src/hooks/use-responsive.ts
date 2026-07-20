@@ -23,8 +23,11 @@ export function useResponsive() {
   // Ancho de tarjeta horizontal (16:9) para TODAS las filas de catálogo
   // (Continuar viendo, Tendencias, Populares, Biblioteca) — deben verse del
   // mismo tamaño entre sí. Es la fórmula que ya usaba "Continuar viendo".
+  // En TV el divisor 5.3 forzaba ~5 tarjetas visibles sin importar el ancho
+  // real (escala proporcional, no el tamaño absoluto): se baja a 4 para que
+  // se vean menos tarjetas pero más grandes, y se sube el tope acorde.
   const rowCardWidth = isTV
-    ? Math.min(320, Math.max(180, Math.round((width - 32) / 5.3)))
+    ? Math.min(560, Math.max(220, Math.round((width - 32) / 4)))
     : Math.min(320, Math.max(200, Math.round((width - 32) / 2.4)));
 
   return { width, isTV, isLarge, posterColumns, posterWidth, rowCardWidth };
