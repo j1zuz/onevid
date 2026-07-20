@@ -1,9 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
 import { ScrollShadow, Typography } from 'heroui-native';
 import { Bookmark } from 'lucide-react-native';
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
@@ -11,10 +11,14 @@ import { PosterRow } from '@/components/home/poster-row';
 import { SetupPrompt, useSetupStatus } from '@/components/setup-prompt';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import type { MediaMeta } from '@/lib/api';
+import { navigateToDetail } from '@/lib/detail-nav';
 import { getFavorites, getWatchlistItems } from '@/lib/saved';
 import { COLORS } from '@/lib/theme';
 
 export default function LibraryTab() {
+  const { i18n } = useTranslation();
+  const lang = i18n.language;
+  const queryClient = useQueryClient();
   // La biblioteca es parte del modo Stream: en modo local mostramos un empty
   // state y no pedimos nada. `surface` se revalida en cada focus.
   const surface = useAppSurface();
@@ -49,12 +53,12 @@ export default function LibraryTab() {
   const watchlist = libraryQuery.data?.watchlist ?? [];
   const loading = libraryQuery.isLoading;
 
-  const handlePressItem = useCallback((item: MediaMeta) => {
-    router.push({
-      pathname: '/detail/[type]/[id]',
-      params: { type: item.type, id: item.id },
-    });
-  }, []);
+  const handlePressItem = useCallback(
+    (item: MediaMeta) => {
+      navigateToDetail(queryClient, item, lang);
+    },
+    [queryClient, lang],
+  );
 
   const { data: status } = useSetupStatus(streamMode);
 

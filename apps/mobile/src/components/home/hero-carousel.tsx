@@ -1,6 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
 import { Button, Typography } from 'heroui-native';
 import { GlassIcon } from '@/components/glass-icon';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -16,6 +15,7 @@ import {
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { apiFetch, type MediaMeta, tmdbImage } from '@/lib/api';
+import { navigateToDetail } from '@/lib/detail-nav';
 import { COLORS } from '@/lib/theme';
 
 const AUTOPLAY_MS = 5000;
@@ -28,6 +28,9 @@ interface HeroCarouselProps {
 export function HeroCarousel({ items }: HeroCarouselProps) {
   const { width, height: windowHeight } = useWindowDimensions();
   const slideHeight = Math.round(windowHeight * HERO_HEIGHT_RATIO);
+  const { i18n } = useTranslation();
+  const lang = i18n.language;
+  const queryClient = useQueryClient();
   const listRef = useRef<FlatList<MediaMeta>>(null);
   const [index, setIndex] = useState(0);
   const indexRef = useRef(0);
@@ -93,12 +96,7 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
             item={item}
             width={width}
             height={slideHeight}
-            onPressPlay={() =>
-              router.push({
-                pathname: '/detail/[type]/[id]',
-                params: { type: item.type, id: item.id },
-              })
-            }
+            onPressPlay={() => navigateToDetail(queryClient, item, lang)}
           />
         )}
       />

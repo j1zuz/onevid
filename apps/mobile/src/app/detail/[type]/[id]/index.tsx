@@ -42,6 +42,7 @@ import {
   setWatchlist,
 } from '@/lib/saved';
 import { track } from '@/lib/analytics';
+import { navigateToDetail } from '@/lib/detail-nav';
 import { COLORS } from '@/lib/theme';
 
 interface EpisodeItem {
@@ -193,15 +194,18 @@ export default function DetailPage() {
         // La Biblioteca lee de ['library']; invalidar hace que se refresque en
         // segundo plano (sin skeleton) la próxima vez que se muestre.
         queryClient.invalidateQueries({ queryKey: ['library'] });
+        // Ver después vive en la tab Biblioteca, así que su toast referencia
+        // "biblioteca" en vez de "Ver después". Favoritos mantiene su propio
+        // mensaje.
         toast.show({
           variant: 'success',
           label: next
             ? isFav
               ? t('Agregado a Favoritos')
-              : t('Agregado a Ver después')
+              : t('Agregado a tu biblioteca')
             : isFav
               ? t('Eliminado de Favoritos')
-              : t('Eliminado de Ver después'),
+              : t('Eliminado de tu biblioteca'),
           icon: <CheckCircle2 size={20} color="#22c55e" />,
         });
       } catch {
@@ -220,7 +224,7 @@ export default function DetailPage() {
 
   const seasonEpisodes = useMemo(
     () =>
-      series?.episodes.filter((e) => e.season === selectedSeason) ?? [],
+      series?.episodes?.filter((e) => e.season === selectedSeason) ?? [],
     [series, selectedSeason],
   );
 
@@ -329,12 +333,12 @@ export default function DetailPage() {
     }
   }, [trailerKey, type, id, toast, t]);
 
-  const handlePressRelated = useCallback((item: MediaMeta) => {
-    router.push({
-      pathname: '/detail/[type]/[id]',
-      params: { type: item.type, id: item.id },
-    });
-  }, []);
+  const handlePressRelated = useCallback(
+    (item: MediaMeta) => {
+      navigateToDetail(queryClient, item, lang);
+    },
+    [queryClient, lang],
+  );
 
   const playLabel =
     type === 'series' && seasonEpisodes[0]
@@ -444,116 +448,210 @@ export default function DetailPage() {
             </Typography>
           )}
 
-          <View style={{ flexDirection: 'row', gap: isTV ? 14 : 10 }}>
-            <Button
-              variant="primary"
-              onPress={handlePlay}
-              {...playFocus.focusProps}
-              style={[
-                {
-                  flex: 1,
-                  backgroundColor: '#fff',
-                  flexDirection: 'row',
-                  gap: 8,
-                  paddingHorizontal: isTV ? 20 : 12,
-                  ...(isTV ? { height: 56 } : null),
-                },
-                tvFocusRing(playFocus.focused),
-              ]}
-            >
-              <GlassIcon name="circle-arrow-right" size={actionIconSize} />
-              <Typography
-                type={isTV ? 'body' : 'body-sm'}
-                weight="semibold"
-                numberOfLines={1}
-                style={{ color: '#000', flexShrink: 1 }}
-              >
-                {playLabel}
-              </Typography>
-            </Button>
-            <Button
-              variant="secondary"
-              onPress={() => toggleSaved('watchlist')}
-              isDisabled={savingWatch}
-              {...watchFocus.focusProps}
-              style={[
-                {
-                  // En TV hay espacio: botón con texto. En móvil, solo icono.
-                  ...(isTV
-                    ? { height: 56, paddingHorizontal: 18, gap: 8 }
-                    : { width: sideBtnW }),
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                },
-                tvFocusRing(watchFocus.focused),
-              ]}
-            >
-              <GlassIcon
-                name="doc-folder"
-                size={actionIconSize}
-                opacity={watchlist ? 1 : 0.6}
-              />
-              {isTV ? (
-                <Typography type="body" weight="semibold" numberOfLines={1}>
-                  {t('Ver después')}
-                </Typography>
-              ) : null}
-            </Button>
-            <Button
-              variant="secondary"
-              onPress={() => toggleSaved('favorite')}
-              isDisabled={savingFav}
-              {...favFocus.focusProps}
-              style={[
-                {
-                  ...(isTV
-                    ? { height: 56, paddingHorizontal: 18, gap: 8 }
-                    : { width: sideBtnW }),
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                },
-                tvFocusRing(favFocus.focused),
-              ]}
-            >
-              <GlassIcon
-                name="heart"
-                size={actionIconSize}
-                opacity={favorite ? 1 : 0.6}
-              />
-              {isTV ? (
-                <Typography type="body" weight="semibold" numberOfLines={1}>
-                  {t('Favoritos')}
-                </Typography>
-              ) : null}
-            </Button>
-            {trailerKey ? (
+          {isTV ? (
+            <View style={{ flexDirection: 'row', gap: 14 }}>
               <Button
-                variant="secondary"
-                onPress={handleTrailer}
-                {...trailerFocus.focusProps}
+                variant="primary"
+                onPress={handlePlay}
+                {...playFocus.focusProps}
                 style={[
                   {
-                    ...(isTV
-                      ? { height: 56, paddingHorizontal: 18, gap: 8 }
-                      : { width: sideBtnW }),
+                    flex: 1,
+                    backgroundColor: '#fff',
+                    flexDirection: 'row',
+                    gap: 8,
+                    paddingHorizontal: 20,
+                    height: 56,
+                  },
+                  tvFocusRing(playFocus.focused),
+                ]}
+              >
+                <GlassIcon name="circle-arrow-right" size={actionIconSize} />
+                <Typography
+                  type="body"
+                  weight="semibold"
+                  numberOfLines={1}
+                  style={{ color: '#000', flexShrink: 1 }}
+                >
+                  {playLabel}
+                </Typography>
+              </Button>
+              <Button
+                variant="secondary"
+                onPress={() => toggleSaved('watchlist')}
+                isDisabled={savingWatch}
+                {...watchFocus.focusProps}
+                style={[
+                  {
+                    height: 56,
+                    paddingHorizontal: 18,
+                    gap: 8,
                     flexDirection: 'row',
                     alignItems: 'center',
                     justifyContent: 'center',
                   },
-                  tvFocusRing(trailerFocus.focused),
+                  tvFocusRing(watchFocus.focused),
                 ]}
               >
-                <Film size={actionIconSize} color="#fff" opacity={0.75} />
-                {isTV ? (
+                <GlassIcon
+                  name="doc-folder"
+                  size={actionIconSize}
+                  opacity={watchlist ? 1 : 0.6}
+                />
+                <Typography type="body" weight="semibold" numberOfLines={1}>
+                  {t('Ver después')}
+                </Typography>
+              </Button>
+              <Button
+                variant="secondary"
+                onPress={() => toggleSaved('favorite')}
+                isDisabled={savingFav}
+                {...favFocus.focusProps}
+                style={[
+                  {
+                    height: 56,
+                    paddingHorizontal: 18,
+                    gap: 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  },
+                  tvFocusRing(favFocus.focused),
+                ]}
+              >
+                <GlassIcon
+                  name="heart"
+                  size={actionIconSize}
+                  opacity={favorite ? 1 : 0.6}
+                />
+                <Typography type="body" weight="semibold" numberOfLines={1}>
+                  {t('Favoritos')}
+                </Typography>
+              </Button>
+              {trailerKey ? (
+                <Button
+                  variant="secondary"
+                  onPress={handleTrailer}
+                  {...trailerFocus.focusProps}
+                  style={[
+                    {
+                      height: 56,
+                      paddingHorizontal: 18,
+                      gap: 8,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    },
+                    tvFocusRing(trailerFocus.focused),
+                  ]}
+                >
+                  <Film size={actionIconSize} color="#fff" opacity={0.75} />
                   <Typography type="body" weight="semibold" numberOfLines={1}>
                     {t('Tráiler')}
                   </Typography>
-                ) : null}
+                </Button>
+              ) : null}
+            </View>
+          ) : (
+            // Móvil: "Reproducir" en su propia fila (ancho completo, foco
+            // principal), y debajo las acciones secundarias (Ver después,
+            // Favoritos, Tráiler) agrupadas al centro, solo ícono.
+            <View style={{ gap: 10 }}>
+              <Button
+                variant="primary"
+                onPress={handlePlay}
+                {...playFocus.focusProps}
+                style={[
+                  {
+                    backgroundColor: '#fff',
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    gap: 8,
+                    paddingHorizontal: 12,
+                  },
+                  tvFocusRing(playFocus.focused),
+                ]}
+              >
+                <GlassIcon name="circle-arrow-right" size={actionIconSize} />
+                <Typography
+                  type="body-sm"
+                  weight="semibold"
+                  numberOfLines={1}
+                  style={{ color: '#000', flexShrink: 1 }}
+                >
+                  {playLabel}
+                </Typography>
               </Button>
-            ) : null}
-          </View>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  gap: 10,
+                  justifyContent: 'center',
+                }}
+              >
+                <Button
+                  variant="secondary"
+                  onPress={() => toggleSaved('watchlist')}
+                  isDisabled={savingWatch}
+                  {...watchFocus.focusProps}
+                  style={[
+                    {
+                      width: sideBtnW,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    },
+                    tvFocusRing(watchFocus.focused),
+                  ]}
+                >
+                  <GlassIcon
+                    name="doc-folder"
+                    size={actionIconSize}
+                    opacity={watchlist ? 1 : 0.6}
+                  />
+                </Button>
+                <Button
+                  variant="secondary"
+                  onPress={() => toggleSaved('favorite')}
+                  isDisabled={savingFav}
+                  {...favFocus.focusProps}
+                  style={[
+                    {
+                      width: sideBtnW,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    },
+                    tvFocusRing(favFocus.focused),
+                  ]}
+                >
+                  <GlassIcon
+                    name="heart"
+                    size={actionIconSize}
+                    opacity={favorite ? 1 : 0.6}
+                  />
+                </Button>
+                {trailerKey ? (
+                  <Button
+                    variant="secondary"
+                    onPress={handleTrailer}
+                    {...trailerFocus.focusProps}
+                    style={[
+                      {
+                        width: sideBtnW,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      },
+                      tvFocusRing(trailerFocus.focused),
+                    ]}
+                  >
+                    <Film size={actionIconSize} color="#fff" opacity={0.75} />
+                  </Button>
+                ) : null}
+              </View>
+            </View>
+          )}
 
           {meta?.description ? (
             <Typography type="body-sm" color="default">
@@ -573,17 +671,17 @@ export default function DetailPage() {
         </View>
 
         {/* Seasons (series only) */}
-        {type === 'series' && series && series.seasons.length > 0 ? (
+        {type === 'series' && series && (series.seasons?.length ?? 0) > 0 ? (
           <SectionTitle title={t('Temporadas')} />
         ) : null}
-        {type === 'series' && series ? (
+        {type === 'series' && series && (series.seasons?.length ?? 0) > 0 ? (
           <ScrollShadow size={28} LinearGradientComponent={ExpoLinearGradient}>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}
             >
-              {series.seasons.map((n) => (
+              {series.seasons?.map((n) => (
                 <SeasonTab
                   key={`s${n}`}
                   seasonNumber={n}
@@ -744,11 +842,26 @@ function DetailSkeleton({
             alignSelf: 'center',
           }}
         />
-        <View style={{ flexDirection: 'row', gap: isTV ? 14 : 10 }}>
-          <Skeleton style={{ flex: 1, height: btnH, borderRadius: 14 }} />
-          <Skeleton style={{ width: sideW, height: btnH, borderRadius: 14 }} />
-          <Skeleton style={{ width: sideW, height: btnH, borderRadius: 14 }} />
-        </View>
+        {isTV ? (
+          <View style={{ flexDirection: 'row', gap: 14 }}>
+            <Skeleton style={{ flex: 1, height: btnH, borderRadius: 14 }} />
+            <Skeleton style={{ width: sideW, height: btnH, borderRadius: 14 }} />
+            <Skeleton style={{ width: sideW, height: btnH, borderRadius: 14 }} />
+          </View>
+        ) : (
+          // Móvil: barra de "Reproducir" (ancho completo) + fila centrada de
+          // 3 cuadrados debajo, calzando con el layout real de los botones.
+          <View style={{ gap: 10 }}>
+            <Skeleton style={{ width: '100%', height: btnH, borderRadius: 14 }} />
+            <View
+              style={{ flexDirection: 'row', gap: 10, justifyContent: 'center' }}
+            >
+              <Skeleton style={{ width: sideW, height: btnH, borderRadius: 14 }} />
+              <Skeleton style={{ width: sideW, height: btnH, borderRadius: 14 }} />
+              <Skeleton style={{ width: sideW, height: btnH, borderRadius: 14 }} />
+            </View>
+          </View>
+        )}
         <View style={{ gap: 8 }}>
           <Skeleton style={{ width: '100%', height: 12, borderRadius: 6 }} />
           <Skeleton style={{ width: '92%', height: 12, borderRadius: 6 }} />
