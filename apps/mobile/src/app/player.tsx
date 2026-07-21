@@ -935,6 +935,14 @@ function Player({
   const firedUnplayable = useRef(false);
   const firstFrameRef = useRef(false);
   const esAddedRef = useRef(false); // pistas detectadas → fuente válida
+  // Resumen de audio de la fuente (para telemetría en player_first_frame): nº de
+  // pistas, sus nombres (suelen traer el códec: "AC3", "EAC3 5.1"…) y la elegida.
+  // Diagnostica casos de "vídeo sin audio" en TV filtrando por is_tv en PostHog.
+  const audioInfoRef = useRef<{
+    count: number;
+    names: string[];
+    selectedId: number | null;
+  }>({ count: 0, names: [], selectedId: null });
   // Marca de arranque de ESTA fuente (el Player se remonta por fuente con
   // key={url}) para medir el tiempo hasta el primer fotograma. Se fija en un
   // effect de montaje (no en render: Date.now() es impuro). `rebufferingRef`
@@ -1020,6 +1028,11 @@ function Player({
         timeToFirstFrameMs: startedAtRef.current
           ? Date.now() - startedAtRef.current
           : undefined,
+        // Audio de la fuente: diagnostica "vídeo sin audio" (p. ej. TVs que
+        // rechazan el passthrough AC3/EAC3/DTS). Los nombres suelen traer el códec.
+        audioTrackCount: audioInfoRef.current.count,
+        audioTrackNames: audioInfoRef.current.names,
+        audioTrackSelectedId: audioInfoRef.current.selectedId,
       });
       onReveal?.();
     }
@@ -1237,6 +1250,11 @@ function Player({
           ':file-caching=3000',
           ':http-reconnect',
           `:http-user-agent=${STREAM_UA}`,
+          // Audio: desactiva el passthrough (bitstream) S/PDIF/HDMI y fuerza que
+          // libVLC decodifique a PCM por software. En TVs Android baratos (KTC y
+          // similares) el firmware descarta en silencio el bitstream AC3/EAC3/DTS
+          // no certificado → vídeo sí, audio mudo. PCM estéreo es universal.
+          ':no-spdif',
         ]}
         contentFit="contain"
         autoplay
@@ -1326,7 +1344,15 @@ function Player({
             subtitle: media.subtitle.filter((t) => t.id >= 0),
           };
           setTracks(clean);
-          setAudioId((prev) => prev ?? pickDefaultAudio(clean.audio));
+          setAudioId((prev) => {
+            const selected = prev ?? pickDefaultAudio(clean.audio);
+            audioInfoRef.current = {
+              count: clean.audio.length,
+              names: clean.audio.map((t) => t.name ?? ''),
+              selectedId: selected,
+            };
+            return selected;
+          });
           // Primera detección de pistas: la fuente es VÁLIDA (abrió el
           // contenedor), solo está buffering. Rearmamos el watchdog con mucho
           // más margen para el primer fotograma en vez de matarla a los 20 s.
