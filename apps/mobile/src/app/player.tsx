@@ -1250,12 +1250,13 @@ function Player({
           ':file-caching=3000',
           ':http-reconnect',
           `:http-user-agent=${STREAM_UA}`,
-          // Audio: desactiva el passthrough (bitstream) S/PDIF/HDMI y fuerza que
-          // libVLC decodifique a PCM por software. En TVs Android baratos (KTC y
-          // similares) el firmware descarta en silencio el bitstream AC3/EAC3/DTS
-          // no certificado → vídeo sí, audio mudo. PCM estéreo es universal.
-          ':no-spdif',
         ]}
+        // En TV forzamos AudioTrack como salida de audio. El default de libVLC 3.7
+        // (AAudio) falla EN SILENCIO en algunos Android TV baratos (KTC): vídeo y
+        // pista de audio OK pero sin sonido, sin error. Es el mismo remedio que el
+        // VLC oficial aplica vía setAudioOutput/ajuste "Salida de audio". Requiere
+        // build nativo (prop añadido en patches/expo-libvlc-player@7.0.40.patch).
+        audioOutput={Platform.isTV ? 'audiotrack' : undefined}
         contentFit="contain"
         autoplay
         pictureInPicture={pipSupported}

@@ -200,11 +200,17 @@ export default function SettingsTab() {
               </Card>
             ) : null}
 
-            {authed === true && profile ? (
+            {/* Con sesión mostramos SIEMPRE la Card de perfil, tenga o no un
+                perfil activo. Sin este caso `!profile`, un usuario autenticado
+                sin perfil elegido (p. ej. cerró la app durante /profiles, o se
+                perdió el perfil guardado) quedaba sin ninguna entrada a /profiles
+                fuera del arranque (_layout solo enruta ahí con hasToken&&!profile
+                al boot) → no podía elegir/cambiar de perfil, sobre todo en móvil. */}
+            {authed === true ? (
               <Card>
                 <Card.Body className="flex-row items-center gap-4">
                   <Image
-                    source={avatarSource(profile.avatar)}
+                    source={avatarSource(profile?.avatar)}
                     style={{ width: 56, height: 56, borderRadius: 14 }}
                     contentFit="cover"
                   />
@@ -212,7 +218,9 @@ export default function SettingsTab() {
                     <Typography type="body-xs" color="muted">
                       {t('Perfil')}
                     </Typography>
-                    <Typography type="h5">{profile.name}</Typography>
+                    <Typography type="h5">
+                      {profile ? profile.name : t('Sin perfil')}
+                    </Typography>
                   </View>
                   <Pressable
                     onPress={handleSwitchProfile}
@@ -226,7 +234,7 @@ export default function SettingsTab() {
                       weight="medium"
                       style={{ color: '#3b82f6' }}
                     >
-                      {t('Cambiar')}
+                      {profile ? t('Cambiar') : t('Elegir perfil')}
                     </Typography>
                   </Pressable>
                 </Card.Body>

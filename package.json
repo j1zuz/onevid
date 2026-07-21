@@ -48,6 +48,6 @@
     "web": "workspace:*"
   },
   "patchedDependencies": {
-    "expo-libvlc-player@7.0.40": "patches/expo-libvlc-player@7.0.40.patch"
+    "expo-libvlc-player@7.1.6": "patches/expo-libvlc-player@7.1.6.patch"
   }
 }

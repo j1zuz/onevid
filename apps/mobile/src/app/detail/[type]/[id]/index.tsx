@@ -1,7 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
-import * as WebBrowser from 'expo-web-browser';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   Button,
@@ -16,7 +15,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   FlatList,
-  Linking,
   Pressable,
   ScrollView,
   useWindowDimensions,
@@ -26,6 +24,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { GlassIcon } from '@/components/glass-icon';
 import { PosterCard } from '@/components/poster-card';
+import { TrailerOverlay } from '@/components/trailer-overlay';
 import { useResponsive } from '@/hooks/use-responsive';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import {
@@ -87,6 +86,7 @@ export default function DetailPage() {
   const [seasonOverride, setSeasonOverride] = useState<number | null>(null);
   const [savingFav, setSavingFav] = useState(false);
   const [savingWatch, setSavingWatch] = useState(false);
+  const [trailerOpen, setTrailerOpen] = useState(false);
   const trackedTrailerKey = useRef<string | null | undefined>(undefined);
   const { toast } = useToast();
 
@@ -290,48 +290,20 @@ export default function DetailPage() {
     [id, type, meta?.name, artParams],
   );
 
-  const handleTrailer = useCallback(async () => {
+  const handleTrailer = useCallback(() => {
     if (!trailerKey) return;
-    // Embed (no watch): en Android, youtube.com/watch está registrado como App
-    // Link verificado de la app de YouTube, así que el sistema la intercepta y
-    // abre la app nativa aunque uses un navegador in-app. /embed no tiene ese
-    // App Link, se queda dentro de la app, y además trae mucha menos interfaz
-    // de YouTube (sin sidebar/comentarios/cabecera) — mismos parámetros que ya
-    // usa la web (`explore-movie-dialog.tsx`).
-    const url = `https://www.youtube.com/embed/${encodeURIComponent(trailerKey)}?autoplay=1&rel=0&playsinline=1`;
+    // Reproducimos el tráiler DENTRO de la app (WebView con el embed de YouTube,
+    // ver TrailerOverlay) en vez de saltar a un navegador/app externa. Antes se
+    // usaba WebBrowser.openBrowserAsync, que abría una vista del sistema fuera de
+    // la app (y en Android podía caer en la app de YouTube).
     track('detail_trailer_open', {
       mediaType: type,
       mediaId: id,
       trailerKey,
-      opener: 'web_browser_embed',
+      opener: 'in_app_webview',
     });
-    try {
-      await WebBrowser.openBrowserAsync(url, {
-        toolbarColor: '#000000',
-        controlsColor: '#ffffff',
-        showTitle: false,
-        enableBarCollapsing: true,
-      });
-    } catch {
-      track('detail_trailer_open_fallback', {
-        mediaType: type,
-        mediaId: id,
-        trailerKey,
-      });
-      Linking.openURL(url).catch(() => {
-        track('detail_trailer_open_error', {
-          mediaType: type,
-          mediaId: id,
-          trailerKey,
-        });
-        toast.show({
-          variant: 'danger',
-          label: t('No se pudo abrir el tráiler'),
-          description: t('Intenta de nuevo más tarde.'),
-        });
-      });
-    }
-  }, [trailerKey, type, id, toast, t]);
+    setTrailerOpen(true);
+  }, [trailerKey, type, id]);
 
   const handlePressRelated = useCallback(
     (item: MediaMeta) => {
@@ -783,6 +755,11 @@ export default function DetailPage() {
         )}
       </ScrollView>
       </ScrollShadow>
+      <TrailerOverlay
+        trailerKey={trailerKey}
+        visible={trailerOpen}
+        onClose={() => setTrailerOpen(false)}
+      />
     </View>
   );
 }
