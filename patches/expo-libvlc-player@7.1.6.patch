@@ -1,0 +1,138 @@
+diff --git a/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerModule.kt b/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerModule.kt
+index e1e196c7b5a260537dc9af88da0142a06ce2c5ef..152ae1a41f2ede5dfd454036c762643fe9e7e9c7 100644
+--- a/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerModule.kt
++++ b/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerModule.kt
+@@ -74,6 +74,10 @@ class LibVlcPlayerModule : Module() {
+                     view.options = options
+                 }
+ 
++                Prop("audioOutput") { view: LibVlcPlayerView, audioOutput: String? ->
++                    view.audioOutput = audioOutput
++                }
++
+                 Prop("tracks") { view: LibVlcPlayerView, tracks: Tracks? ->
+                     view.tracks = tracks
+                 }
+diff --git a/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerView.kt b/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerView.kt
+index 63828cb98a627db3fae7af6916e6959a70f475e2..deb3f64d55cc92d28c688ad6314bc7b40b184a72 100644
+--- a/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerView.kt
++++ b/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerView.kt
+@@ -182,6 +182,11 @@ class LibVlcPlayerView(
+         setDialogCallbacks(libVLC!!)
+ 
+         mediaPlayer = MediaPlayer(libVLC!!)
++        // Igual que el VLC-Android oficial (PlayerController): el módulo de salida
++        // de audio debe fijarse justo tras crear el MediaPlayer y antes de play().
++        // El default de libVLC 3.7 (AAudio) falla EN SILENCIO (vídeo sin audio, sin
++        // error) en algunos Android TV baratos; "audiotrack"/"opensles" lo evitan.
++        audioOutput?.let { aout -> mediaPlayer!!.setAudioOutput(aout) }
+         attachPlayerLayout(playerLayout)
+         setPlayerListener(mediaPlayer!!)
+         addPlayerSlaves(slaves)
+@@ -426,6 +431,16 @@ class LibVlcPlayerView(
+             shouldInit = true
+         }
+ 
++    // Módulo de salida de audio de libVLC ("aaudio" | "audiotrack" | "opensles").
++    // null = default de libVLC (AAudio en 3.7). Se aplica en createPlayer() vía
++    // MediaPlayer.setAudioOutput —solo tiene efecto antes de crear el aout, por
++    // eso cambiarlo reinicia el player (shouldInit), igual que `options`.
++    var audioOutput: String? = null
++        set(value) {
++            field = value
++            shouldInit = true
++        }
++
+     var tracks: Tracks? = null
+         set(value) {
+             field = value
+diff --git a/android/src/main/java/expo/modules/libvlcplayer/managers/PictureInPictureManager.kt b/android/src/main/java/expo/modules/libvlcplayer/managers/PictureInPictureManager.kt
+index 0a28df790c314dd3660a9b2e18266e0276f3b1e6..c9dab1b90377faeedb6b196c5a3e5ef22d39bd5a 100644
+--- a/android/src/main/java/expo/modules/libvlcplayer/managers/PictureInPictureManager.kt
++++ b/android/src/main/java/expo/modules/libvlcplayer/managers/PictureInPictureManager.kt
+@@ -177,7 +177,13 @@ class PictureInPictureManager(
+                 .Builder()
+                 .apply { safeRatio?.let { ratio -> setAspectRatio(ratio) } }
+                 .setSourceRectHint(hint)
+-                .setAutoEnterEnabled(pictureInPicture)
++                // setAutoEnterEnabled solo existe desde API 31 (S); en API 26-30
++                // esto lanzaba NoSuchMethodError en tiempo de ejecución.
++                .apply {
++                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
++                        setAutoEnterEnabled(pictureInPicture)
++                    }
++                }
+                 .build()
+ 
+         activity.setPictureInPictureParams(params)
+@@ -256,7 +262,13 @@ class PictureInPictureManager(
+             PictureInPictureParams
+                 .Builder()
+                 .setActions(actions)
+-                .setAutoEnterEnabled(pictureInPicture && isPlaying)
++                // setAutoEnterEnabled solo existe desde API 31 (S); en API 26-30
++                // esto lanzaba NoSuchMethodError en tiempo de ejecución.
++                .apply {
++                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
++                        setAutoEnterEnabled(pictureInPicture && isPlaying)
++                    }
++                }
+                 .build()
+ 
+         activity.setPictureInPictureParams(params)
+diff --git a/build/LibVlcPlayer.types.d.ts b/build/LibVlcPlayer.types.d.ts
+index 1c74fec288ed6219cf46b64d8c082c58911b44d1..f1f25103b70fbca6f7af704b47872459d2dd6988 100644
+--- a/build/LibVlcPlayer.types.d.ts
++++ b/build/LibVlcPlayer.types.d.ts
+@@ -216,10 +216,12 @@ type PictureInPictureStopListener = () => void;
+ /**
+  * @hidden
+  */
++export type AudioOutputModule = "aaudio" | "audiotrack" | "opensles";
+ export interface LibVlcPlayerViewNativeProps extends ViewProps {
+     ref?: React.Ref<LibVlcPlayerViewRef>;
+     source?: LibVlcSource;
+     options?: string[];
++    audioOutput?: AudioOutputModule;
+     tracks?: Tracks;
+     slaves?: Slave[];
+     scale?: number;
+@@ -291,6 +293,7 @@ export interface LibVlcPlayerViewProps extends ViewProps {
+      * @default []
+      */
+     options?: string[];
++    audioOutput?: AudioOutputModule;
+     /**
+      * Sets the player audio, video and subtitle tracks
+      *
+diff --git a/src/LibVlcPlayer.types.ts b/src/LibVlcPlayer.types.ts
+index 8c1e33b0c22610ca8c85947240710ad0c500f5c9..c6b4e221b5fb60954a7ee4d52c1e827a947f6d82 100644
+--- a/src/LibVlcPlayer.types.ts
++++ b/src/LibVlcPlayer.types.ts
+@@ -256,10 +256,13 @@ type PictureInPictureStopListener = () => void;
+ /**
+  * @hidden
+  */
++export type AudioOutputModule = "aaudio" | "audiotrack" | "opensles";
++
+ export interface LibVlcPlayerViewNativeProps extends ViewProps {
+   ref?: React.Ref<LibVlcPlayerViewRef>;
+   source?: LibVlcSource;
+   options?: string[];
++  audioOutput?: AudioOutputModule;
+   tracks?: Tracks;
+   slaves?: Slave[];
+   scale?: number;
+@@ -332,6 +335,12 @@ export interface LibVlcPlayerViewProps extends ViewProps {
+    * @default []
+    */
+   options?: string[];
++  /**
++   * Android only. Módulo de salida de audio de libVLC. `undefined` usa el
++   * default (AAudio en libVLC 3.7), que falla en silencio en algunos Android TV;
++   * usar `"audiotrack"` u `"opensles"` en esos dispositivos.
++   */
++  audioOutput?: AudioOutputModule;
+   /**
+    * Sets the player audio, video and subtitle tracks
+    *

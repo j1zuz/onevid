@@ -8,6 +8,7 @@ import {
   requestDeviceCode,
   saveAccessToken,
 } from '@/lib/auth';
+import { setAppMode } from '@/lib/app-mode';
 
 export type LoginPhase = 'loading' | 'waiting' | 'denied' | 'expired' | 'error';
 
@@ -93,6 +94,11 @@ export function useDeviceLogin(
       if (cancelled) return;
       if (outcome.kind === 'approved') {
         await saveAccessToken(outcome.token.access_token);
+        // Al iniciar sesión pasamos SIEMPRE a modo stream: si el usuario venía de
+        // "Continuar sin cuenta", quedó persistido mode:'local', y en TV showLocal
+        // depende solo del modo (no de authed), así que sin esto se quedaría en la
+        // experiencia local pese a haber iniciado sesión.
+        await setAppMode('stream');
         onApprovedRef.current();
         return;
       }
