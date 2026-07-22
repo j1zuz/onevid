@@ -7,6 +7,7 @@ import {
   clearAccessToken,
   getAccessToken,
 } from './auth';
+import { fetchWithTimeout } from './http';
 
 // Rewrite TMDB image URLs to higher resolution. Backend defaults to smaller
 // sizes (w300 for stills, w780 for backdrops) which are blurry on HiDPI mobile
@@ -92,7 +93,10 @@ export async function apiFetch<T = unknown>(
   const startedAt = Date.now();
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, { ...init, headers });
+    // Con timeout (AbortController): una petición colgada en red móvil inestable
+    // no debe dejar la UI esperando para siempre. Al vencer, `fetch` rechaza con
+    // AbortError, que el clasificador de abajo etiqueta como errorKind 'timeout'.
+    res = await fetchWithTimeout(`${API_URL}${path}`, { ...init, headers });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     track('api_error', {

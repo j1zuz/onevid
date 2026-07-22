@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import { fetchWithTimeout } from './http';
 
 export const API_URL =
   process.env.EXPO_PUBLIC_API_URL ?? 'https://onevid.hackw.tech';
@@ -187,7 +188,10 @@ export async function validateSession(): Promise<boolean> {
   const token = await getAccessToken();
   if (!token) return false;
   try {
-    const res = await fetch(`${API_URL}/api/onevid-setup-complete`, {
+    // Con timeout: es el primer fetch del arranque. Sin él, una petición colgada
+    // deja a RootLayout esperando para siempre (splash negro). Si vence, aborta y
+    // caemos al catch, que conserva el token y deja pasar (igual que sin red).
+    const res = await fetchWithTimeout(`${API_URL}/api/onevid-setup-complete`, {
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${token}`,

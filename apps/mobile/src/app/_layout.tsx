@@ -18,6 +18,7 @@ import {
 } from 'react-native-safe-area-context';
 import { Uniwind } from 'uniwind';
 import { AnimatedSplash } from '@/components/animated-splash';
+import { BootGate } from '@/components/boot-gate';
 import { AppSurfaceProvider } from '@/hooks/use-app-surface';
 import i18next from '@/lib/i18n';
 import { useLanguageOverride } from '@/lib/i18n/language-preference';
@@ -60,6 +61,8 @@ if (Platform.OS === 'android') {
 
 export default function RootLayout() {
   const [authReady, setAuthReady] = useState(false);
+  const [bootError, setBootError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const [hasToken, setHasToken] = useState(false);
   const [hasProfile, setHasProfile] = useState(false);
   const [appMode, setMode] = useState<AppMode>('stream');
@@ -87,25 +90,37 @@ export default function RootLayout() {
 
   useEffect(() => {
     let cancelled = false;
+    setBootError(false);
     (async () => {
       // Validamos la sesión contra el backend (Better Auth) en vez de sólo
       // comprobar que exista un token: si la sesión expiró o se revocó,
       // validateSession limpia el token y caemos al login limpiamente en lugar
       // de entrar a la app con un token muerto.
-      const [valid, mode] = await Promise.all([validateSession(), loadAppMode()]);
-      const profile = valid ? await loadActiveProfile() : null;
-      if (cancelled) return;
-      setHasToken(valid);
-      setHasProfile(Boolean(profile));
-      setMode(mode);
-      setAuthReady(true);
-      // El splash nativo lo oculta AnimatedSplash.onLayoutReady, no aquí, para
-      // evitar un hueco negro antes de que el overlay se pinte.
+      try {
+        const [valid, mode] = await Promise.all([
+          validateSession(),
+          loadAppMode(),
+        ]);
+        const profile = valid ? await loadActiveProfile() : null;
+        if (cancelled) return;
+        setHasToken(valid);
+        setHasProfile(Boolean(profile));
+        setMode(mode);
+        setAuthReady(true);
+        // El splash nativo lo oculta AnimatedSplash.onLayoutReady, no aquí, para
+        // evitar un hueco negro antes de que el overlay se pinte.
+      } catch {
+        // Si el arranque falla de forma inesperada (validateSession ya tolera
+        // timeouts y falta de red por sí mismo), mostramos error + reintentar en
+        // vez de quedarnos en el splash negro sin salida.
+        if (cancelled) return;
+        setBootError(true);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryKey]);
 
   const handleSplashLayoutReady = () => {
     // El overlay ya está pintado (negro + banda de video + logo), así que es
@@ -115,7 +130,14 @@ export default function RootLayout() {
     });
   };
 
-  if (!authReady) return null;
+  // Mientras validamos la sesión (o si falló) mostramos un gate visible con
+  // spinner y, ante error, mensaje + reintentar. Antes era `return null`: solo
+  // quedaba el splash negro nativo, sin salida si el arranque se colgaba.
+  if (!authReady) {
+    return (
+      <BootGate error={bootError} onRetry={() => setRetryKey((k) => k + 1)} />
+    );
+  }
 
   // La app abre SIEMPRE en los tabs (sin muro de QR). El tab Inicio muestra
   // "Reproducir video" cuando no hay sesión, o el catálogo cuando la hay. Único

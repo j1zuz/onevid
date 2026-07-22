@@ -4,16 +4,46 @@ import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
   BackHandler,
+  Linking,
   Modal,
+  NativeModules,
   Platform,
   Pressable,
   StyleSheet,
+  TurboModuleRegistry,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
 import { tvFocusRing, useTvFocus } from '@/hooks/use-tv-focus';
 import { COLORS } from '@/lib/theme';
+
+// `react-native-webview` trae un módulo nativo (RNCWebView). Si un update OTA se
+// sirve sobre un binario que NO lo incluye —p. ej. al añadir la dependencia sin
+// subir el runtime version—, montar el WebView lanza
+// "Invariant Violation: RNCWebViewModule could not be found" y tumba TODA la app.
+// Lo cargamos con guarda y comprobamos que el módulo nativo exista; si falta,
+// degradamos abriendo el tráiler en YouTube fuera de la app (el comportamiento
+// previo a la reproducción in-app) en vez de crashear.
+let WebViewComponent: typeof import('react-native-webview').WebView | null = null;
+try {
+  WebViewComponent = require('react-native-webview').WebView;
+} catch {
+  WebViewComponent = null;
+}
+
+function isWebViewModuleAvailable(): boolean {
+  try {
+    if (NativeModules.RNCWebViewModule != null) return true;
+    // Nueva arquitectura: el módulo es un TurboModule. `get` (no `getEnforcing`)
+    // devuelve null si el binario no lo trae, sin lanzar el invariant.
+    return TurboModuleRegistry.get('RNCWebViewModule') != null;
+  } catch {
+    return false;
+  }
+}
+
+const WEB_VIEW_AVAILABLE =
+  WebViewComponent != null && isWebViewModuleAvailable();
 
 /**
  * Reproduce el tráiler de YouTube DENTRO de la app (embed en un WebView a
@@ -45,6 +75,20 @@ export function TrailerOverlay({
     return () => sub.remove();
   }, [visible, onClose]);
 
+  // Degradación cuando el WebView nativo no está disponible: al pedir el tráiler
+  // lo abrimos en YouTube fuera de la app y cerramos el overlay. Así el usuario
+  // sigue viendo el tráiler y la app nunca crashea por el módulo faltante.
+  useEffect(() => {
+    if (visible && !WEB_VIEW_AVAILABLE && trailerKey) {
+      Linking.openURL(
+        `https://www.youtube.com/watch?v=${encodeURIComponent(trailerKey)}`,
+      ).catch(() => {
+        /* ignore */
+      });
+      onClose();
+    }
+  }, [visible, trailerKey, onClose]);
+
   const renderLoading = useCallback(
     () => (
       <View style={styles.loading}>
@@ -55,6 +99,10 @@ export function TrailerOverlay({
   );
 
   if (!trailerKey) return null;
+  // Sin WebView no renderizamos el modal: el efecto de arriba ya abrió el tráiler
+  // fuera de la app.
+  const WebView = WebViewComponent;
+  if (!(WEB_VIEW_AVAILABLE && WebView)) return null;
 
   // playsinline evita que iOS entre en su reproductor nativo a pantalla completa
   // apenas arranca; autoplay=1 + mediaPlaybackRequiresUserAction=false para que
