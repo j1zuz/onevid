@@ -184,6 +184,15 @@ const CONTROLS_HIDE_MS = 4_000;
 //    abrían (detectaban pistas) pero tardaban 12-15 s en dar imagen.
 const PLAYBACK_START_TIMEOUT_MS = 20_000;
 const PLAYBACK_FIRST_FRAME_TIMEOUT_MS = 30_000;
+// Prórrogas del watchdog de arranque cuando la descarga PROGRESA. Medido en
+// PostHog (build 27): el p50 de time-to-first-frame en TV es ~20.7 s, o sea la
+// mitad de los arranques legítimos moría justo en el corte de 20 s y el player
+// "saltaba los medios" en vez de reproducirlos. Solo prorrogamos si onBuffering
+// reportó progreso real hace poco (fuente viva en red lenta); una fuente muerta
+// (403/DNS/host colgado) no progresa y sigue saltando a los 20 s como siempre.
+const START_EXTENSION_MS = 20_000; // duración de cada prórroga
+const START_EXTENSION_WINDOW_MS = 12_000; // "hace poco" = progreso en esta ventana
+const MAX_START_EXTENSIONS = 2; // tope: 20 s + 2×20 s = 60 s máx por fuente
 // Elección manual del usuario: le damos mucho más margen "sin pistas" antes de
 // saltar, porque pidió ESA fuente explícitamente (p. ej. torbox lento de arrancar).
 const PLAYBACK_MANUAL_TIMEOUT_MS = 35_000;
@@ -935,6 +944,12 @@ function Player({
   const firedUnplayable = useRef(false);
   const firstFrameRef = useRef(false);
   const esAddedRef = useRef(false); // pistas detectadas → fuente válida
+  // Últimos datos de progreso de buffering (payload {progress} de onBuffering,
+  // disponible desde expo-libvlc-player 7.1.x). El watchdog los usa para
+  // distinguir "fuente viva pero lenta" (prórroga) de "fuente muerta" (salto).
+  const lastBufferProgressRef = useRef(0);
+  const bufferGrowthAtRef = useRef(0); // Date.now() del último avance real
+  const startExtensionsRef = useRef(0); // prórrogas ya concedidas a esta fuente
   // Resumen de audio de la fuente (para telemetría en player_first_frame): nº de
   // pistas, sus nombres (suelen traer el códec: "AC3", "EAC3 5.1"…) y la elegida.
   // Diagnostica casos de "vídeo sin audio" en TV filtrando por is_tv en PostHog.
@@ -1033,6 +1048,9 @@ function Player({
         audioTrackCount: audioInfoRef.current.count,
         audioTrackNames: audioInfoRef.current.names,
         audioTrackSelectedId: audioInfoRef.current.selectedId,
+        // Prórrogas del watchdog que necesitó esta fuente para arrancar: > 0 =
+        // el timeout fijo de 20 s la habría saltado (mide el acierto del fix).
+        startExtensions: startExtensionsRef.current,
       });
       onReveal?.();
     }
@@ -1058,6 +1076,19 @@ function Player({
   // buena. No-op si no hay manejador (sin fallback posible).
   const reportUnplayable = useCallback(() => {
     if (firedUnplayable.current || firstFrameRef.current) return;
+    // Prórroga: si la descarga progresó hace poco, la fuente está VIVA (red
+    // lenta, típico en TV) — matarla ahora sería saltarse un medio reproducible.
+    // Ver constantes START_EXTENSION_* para la evidencia medida en PostHog.
+    if (
+      startExtensionsRef.current < MAX_START_EXTENSIONS &&
+      bufferGrowthAtRef.current > 0 &&
+      Date.now() - bufferGrowthAtRef.current < START_EXTENSION_WINDOW_MS
+    ) {
+      startExtensionsRef.current += 1;
+      clearTimeout(startTimer.current);
+      startTimer.current = setTimeout(reportUnplayable, START_EXTENSION_MS);
+      return;
+    }
     firedUnplayable.current = true;
     clearTimeout(startTimer.current);
     // Diagnóstico (fire-and-forget, no bloquea el fallback): sondeamos la MISMA
@@ -1073,6 +1104,7 @@ function Player({
           // Ciclo de vida nativo de VLC hasta el fallo — dice DÓNDE murió:
           esAdded: esAddedRef.current, // ¿detectó pistas? (abrió el contenedor)
           sawBuffering: sawBufferingRef.current, // ¿llegó a bufferear? (leyó datos)
+          startExtensions: startExtensionsRef.current, // prórrogas gastadas antes de saltar
           sawStopped: sawStoppedRef.current, // ¿VLC se detuvo solo?
           dialogType: dialogTypeRef.current, // ¿diálogo oculto? (ssl/login/error)
           ...probe,
@@ -1264,9 +1296,17 @@ function Player({
           audio: audioId ?? undefined,
           subtitle: subtitleId ?? undefined,
         }}
-        onBuffering={() => {
+        onBuffering={({ progress }) => {
           setBuffering(true);
           sawBufferingRef.current = true; // diagnóstico: VLC llegó a leer datos
+          // Avance real de descarga (progress cambia y no es 0) → sella el
+          // momento; el watchdog lo usa para prorrogar fuentes vivas-pero-lentas.
+          // VLC reinicia progress a 0 en cada episodio de buffering, por eso
+          // "cambió y > 0" en vez de "creció".
+          if (progress > 0 && progress !== lastBufferProgressRef.current) {
+            lastBufferProgressRef.current = progress;
+            bufferGrowthAtRef.current = Date.now();
+          }
           // Rebuffer = corte DESPUÉS del primer fotograma. Capturamos una vez
           // por episodio (VLC repite onBuffering) para medir micro-cortes.
           if (firstFrameRef.current && !rebufferingRef.current) {

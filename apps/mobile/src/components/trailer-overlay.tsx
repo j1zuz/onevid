@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { tvFocusRing, useTvFocus } from '@/hooks/use-tv-focus';
+import { API_URL } from '@/lib/auth';
 import { COLORS } from '@/lib/theme';
 
 /**
@@ -59,9 +60,25 @@ export function TrailerOverlay({
   // playsinline evita que iOS entre en su reproductor nativo a pantalla completa
   // apenas arranca; autoplay=1 + mediaPlaybackRequiresUserAction=false para que
   // suene sin tap (el WebView lo permite al venir de una acción del usuario).
-  const uri = `https://www.youtube.com/embed/${encodeURIComponent(
+  const embedUrl = `https://www.youtube.com/embed/${encodeURIComponent(
     trailerKey,
   )}?autoplay=1&rel=0&playsinline=1&modestbranding=1`;
+
+  // YouTube ahora RECHAZA embeds sin header Referer ("Error 153 - Video player
+  // configuration error"), y el WebView no lo manda al cargar la URI del embed
+  // directamente. Cargamos un HTML propio con `baseUrl` de nuestro dominio (le
+  // da un origen real al documento) y el iframe con referrerpolicy, de modo que
+  // la petición del embed sí lleve referer. Mismo fix documentado en
+  // react-native-webview#3889.
+  const html = `<!doctype html><html><head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<style>html,body{margin:0;height:100%;background:${COLORS.background}}
+iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
+</head><body>
+<iframe src="${embedUrl}" referrerpolicy="strict-origin-when-cross-origin"
+allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+</body></html>`;
 
   return (
     <Modal
@@ -73,7 +90,12 @@ export function TrailerOverlay({
     >
       <View style={styles.root}>
         <WebView
-          source={{ uri }}
+          // baseUrl = nuestro dominio real: sin él el documento no tiene origen
+          // y el referer va vacío → Error 153 de YouTube (ver `html` arriba).
+          source={{ html, baseUrl: API_URL }}
+          // Requerido con `html` custom para que el WebView navegue/cargue el
+          // iframe de youtube.com (origen distinto al baseUrl).
+          originWhitelist={['*']}
           style={styles.web}
           containerStyle={{ backgroundColor: COLORS.background }}
           allowsInlineMediaPlayback
