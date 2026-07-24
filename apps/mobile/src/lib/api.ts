@@ -58,6 +58,16 @@ export interface MediaMeta {
   related?: MediaMeta[];
 }
 
+// Sin esto, un fetch que se cuelga (wifi con paquetes perdidos, típico en TV
+// baratas) nunca resuelve NI rechaza: la queryFn de React Query queda pendiente
+// para siempre, isLoading nunca baja a false, y cualquier pantalla que
+// condicione su skeleton a esa query se queda pegada aunque el resto de la
+// data ya haya llegado (visto en el detalle: el fondo carga desde cache pero
+// el título/sinopsis dependen también de /api/tmdb-trailer, que colgaba sin
+// límite). Con el abort, el fetch SIEMPRE falla en un tiempo acotado, lo que
+// permite que el retry/estado de error de React Query actúen con normalidad.
+const API_TIMEOUT_MS = 15_000;
+
 export async function apiFetch<T = unknown>(
   path: string,
   init?: RequestInit,
@@ -90,9 +100,18 @@ export async function apiFetch<T = unknown>(
   // ruta (sin query) como propiedad para no inflar la cardinalidad en PostHog.
   const route = path.split('?')[0];
   const startedAt = Date.now();
+  const timeoutController = new AbortController();
+  const timeoutTimer = setTimeout(
+    () => timeoutController.abort(),
+    API_TIMEOUT_MS,
+  );
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, { ...init, headers });
+    res = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers,
+      signal: init?.signal ?? timeoutController.signal,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     track('api_error', {
@@ -100,8 +119,9 @@ export async function apiFetch<T = unknown>(
       reason: 'network',
       message,
       // Clasificación del TIPO de fallo de red para poder filtrarlo en PostHog
-      // sin asumir la causa: 'dns' (no resuelve el host), 'timeout' (abortado),
-      // u 'other'. Nos deja ver QUÉ errores pasan y con qué frecuencia real.
+      // sin asumir la causa: 'dns' (no resuelve el host), 'timeout' (abortado,
+      // incluye los que nosotros mismos cortamos a los API_TIMEOUT_MS), u
+      // 'other'. Nos deja ver QUÉ errores pasan y con qué frecuencia real.
       errorKind: /UnknownHost|Unable to resolve|ENOTFOUND/i.test(message)
         ? 'dns'
         : /abort|timeout|timed out/i.test(message)
@@ -109,6 +129,8 @@ export async function apiFetch<T = unknown>(
           : 'other',
     });
     throw e;
+  } finally {
+    clearTimeout(timeoutTimer);
   }
   const latencyMs = Date.now() - startedAt;
   // Solo un 401 de un endpoint de AUTH (p. ej. /api/auth/get-session) significa
