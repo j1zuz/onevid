@@ -16,13 +16,6 @@ import {
   DrawerTitle,
 } from "@workspace/ui/components/drawer";
 import { Input } from "@workspace/ui/components/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@workspace/ui/components/select";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
 import { BoltIcon, LogOutIcon, SearchIcon, UploadIcon, XIcon } from "lucide-react";
@@ -37,15 +30,10 @@ import {
 import { authClient } from "@/lib/auth-client";
 import { OneVidProfileSwitcher } from "@/components/stream/onevid-profile-switcher";
 import { useTranslation } from "@/lib/onevid-i18n-context";
-import type { NetworkOption } from "@/lib/tmdb";
+import type { OneVidFeedRow } from "@/lib/onevid-feed";
+import type { MediaMeta } from "@/lib/tmdb";
 
 type CatalogType = "movie" | "series";
-
-interface CatalogOption {
-  id: string;
-  name: string;
-  type: CatalogType;
-}
 
 interface SearchMeta {
   background?: string;
@@ -59,66 +47,19 @@ interface SearchMeta {
 
 interface OneVidHeaderProps {
   addons: OneVidAddonSummary[];
-  allNetworks: NetworkOption[];
-  catalogs: CatalogOption[];
-  catalogsByType: CatalogOption[];
+  feedConfigured: boolean;
+  feedRows: OneVidFeedRow[];
   hasTorboxKey: boolean;
   linked: boolean;
-  onMovieSelect?: (id: string, type: CatalogType) => void;
-  selectedCatalog: string;
-  selectedCatalogOption: CatalogOption | undefined;
-  selectedNetwork?: NetworkOption;
-  selectedType: CatalogType;
+  onMovieSelect?: (movie: MediaMeta) => void;
   setupCompleted: boolean;
-  typeOptions: CatalogType[];
-}
-
-function getCatalogDisplayLabel(
-  catalog: CatalogOption,
-  t: (key: string) => string
-): string {
-  const normalizedId = catalog.id.trim().toLowerCase();
-  if (normalizedId === "top") {
-    return t("Populares");
-  }
-  if (normalizedId === "year") {
-    return t("Estrenos");
-  }
-  if (normalizedId === "imdbrating") {
-    return t("Destacados");
-  }
-  return catalog.name;
-}
-
-function buildUrl({
-  type,
-  catalog,
-  network,
-}: {
-  type: CatalogType;
-  catalog: string;
-  network?: number;
-}): string {
-  const params = new URLSearchParams();
-  params.set("type", type);
-  params.set("catalog", catalog);
-  if (network) {
-    params.set("network", String(network));
-  }
-  return `/home?${params.toString()}`;
 }
 
 export function OneVidHeader({
-  typeOptions,
-  selectedType,
-  catalogs,
-  catalogsByType,
-  selectedCatalogOption: _selectedCatalogOption,
-  selectedCatalog,
-  allNetworks,
-  selectedNetwork,
   onMovieSelect,
   addons,
+  feedConfigured,
+  feedRows,
   hasTorboxKey,
   linked,
   setupCompleted,
@@ -240,9 +181,18 @@ export function OneVidHeader({
               className="flex w-full items-center gap-3 rounded-md border border-transparent px-3 py-2 text-left transition-colors"
               data-dpad-focusable
               onClick={() => {
-                const resultType: CatalogType =
-                  item.type === "series" ? "series" : "movie";
-                onMovieSelect?.(item.id, resultType);
+                // Pasamos el objeto completo del /api/search: así el diálogo
+                // abre con título y arte sin tener que buscar el item en una
+                // lista de la página (que con el feed ya no es única).
+                onMovieSelect?.({
+                  background: item.background,
+                  id: item.id,
+                  imdbRating: item.imdbRating,
+                  name: item.name,
+                  poster: item.poster,
+                  type: item.type === "series" ? "series" : "movie",
+                  year: item.year,
+                });
                 setShowResults(false);
                 setSearchQuery("");
               }}
@@ -283,102 +233,13 @@ export function OneVidHeader({
 
   return (
     <section
-      className="sticky top-0 z-20 -mx-4 mb-6 grid grid-cols-1 gap-3 border-border border-b border-dashed bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:-mx-6 md:grid-cols-[minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,1.5fr)] md:px-6"
+      className="sticky top-0 z-20 -mx-4 mb-6 flex items-center gap-3 border-border border-b border-dashed bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:-mx-6 md:px-6"
       data-dpad-focus-subtle
     >
-      {/* Type selector */}
-      <Select
-        items={typeOptions.map((type) => ({
-          value: type,
-          label: type === "movie" ? t("Películas") : t("Series"),
-        }))}
-        onValueChange={(val) => {
-          const type = val as CatalogType;
-          const firstCatalog =
-            catalogs.find((c) => c.type === type)?.id ?? "top";
-          push(buildUrl({ type, catalog: firstCatalog }));
-        }}
-        value={selectedType}
-      >
-        <SelectTrigger className="w-full" data-dpad-focusable>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {typeOptions.map((type) => (
-            <SelectItem key={type} value={type}>
-              {type === "movie" ? t("Películas") : t("Series")}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      {/* Catalog selector */}
-      <Select
-        items={catalogsByType.map((catalog) => ({
-          value: catalog.id,
-          label: getCatalogDisplayLabel(catalog, t),
-        }))}
-        onValueChange={(val) => {
-          if (val) {
-            push(buildUrl({ type: selectedType, catalog: val }));
-          }
-        }}
-        value={selectedCatalog}
-      >
-        <SelectTrigger className="w-full" data-dpad-focusable>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {catalogsByType.map((catalog) => (
-            <SelectItem
-              key={`${catalog.type}:${catalog.id}`}
-              value={catalog.id}
-            >
-              {getCatalogDisplayLabel(catalog, t)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      {/* Network selector */}
-      <Select
-        items={[
-          { value: "all", label: t("Todas las cadenas") },
-          ...allNetworks.map((n) => ({
-            value: String(n.id),
-            label: n.name,
-          })),
-        ]}
-        onValueChange={(val) => {
-          if (val === "all") {
-            push(buildUrl({ type: selectedType, catalog: selectedCatalog }));
-          } else {
-            push(
-              buildUrl({
-                type: selectedType,
-                catalog: selectedCatalog,
-                network: Number(val),
-              })
-            );
-          }
-        }}
-        value={selectedNetwork ? String(selectedNetwork.id) : "all"}
-      >
-        <SelectTrigger className="w-full" data-dpad-focusable>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">{t("Todas las cadenas")}</SelectItem>
-          {allNetworks.map((network) => (
-            <SelectItem key={network.id} value={String(network.id)}>
-              {network.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      {/* Search + Config */}
-      <div className="flex items-center gap-2">
+      {/* Búsqueda + perfil + configuración. Los selectores de tipo / catálogo /
+          cadena que vivían aquí ahora son el paso 2 del stepper ("Configurar
+          feed"): el usuario arma su inicio una vez y /home lo respeta. */}
+      <div className="flex flex-1 items-center gap-2">
         <div className="relative flex-1" ref={searchRef}>
           <form onSubmit={handleSearchSubmit}>
             <div className="relative">
@@ -476,6 +337,8 @@ export function OneVidHeader({
             </DrawerHeader>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
               <SetupStepper
+                feedConfigured={feedConfigured}
+                feedRows={feedRows}
                 hasTorboxKey={hasTorboxKey}
                 initialAddons={addons}
                 linked={linked}

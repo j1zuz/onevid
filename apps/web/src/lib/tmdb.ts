@@ -133,20 +133,15 @@ export interface SeriesMetaResponse {
   year?: string;
 }
 
-export interface CatalogOption {
-  id: string;
-  name: string;
-  type: "movie" | "series";
-}
-
-export interface NetworkOption {
-  // Movie production company ids (TMDB `with_companies`). Used only as a
-  // fallback when `with_watch_providers` returns nothing for the region.
-  companyIds: number[];
-  id: number;
-  name: string;
-  providerId: number;
-}
+// Las listas estáticas de catálogos y cadenas viven en `onevid-feed.ts` (módulo
+// puro, importable desde el cliente) y se re-exportan aquí para no romper a los
+// consumidores que ya las importaban desde tmdb.
+export {
+  type CatalogOption,
+  getCatalogOptions,
+  type NetworkOption,
+  getNetworkOptions,
+} from "@/lib/onevid-feed";
 
 // ─── Caches ──────────────────────────────────────────────────────────
 
@@ -337,40 +332,8 @@ export async function fetchTvGenres(
 }
 
 // ─── Catalog options (static) ────────────────────────────────────────
-
-export function getCatalogOptions(): CatalogOption[] {
-  return [
-    { id: "trending", type: "movie", name: "Tendencias" },
-    { id: "year", type: "movie", name: "Estrenos" },
-    { id: "imdbrating", type: "movie", name: "Destacados" },
-    { id: "trending", type: "series", name: "Tendencias" },
-    { id: "year", type: "series", name: "Estrenos" },
-    { id: "imdbrating", type: "series", name: "Destacados" },
-  ];
-}
-
-export function getNetworkOptions(): NetworkOption[] {
-  return [
-    { id: 213, name: "Netflix", providerId: 8, companyIds: [178_464] },
-    { id: 2739, name: "Disney+", providerId: 337, companyIds: [3475, 2] },
-    { id: 49, name: "HBO", providerId: 1899, companyIds: [3268] },
-    {
-      id: 1024,
-      name: "Amazon",
-      providerId: 119,
-      companyIds: [20_580, 210_099],
-    },
-    {
-      id: 2552,
-      name: "Apple TV+",
-      providerId: 350,
-      companyIds: [194_232, 152_726],
-    },
-    { id: 4330, name: "Paramount+", providerId: 531, companyIds: [4] },
-    { id: 453, name: "Hulu", providerId: 15, companyIds: [] },
-    { id: 6171, name: "Max", providerId: 1899, companyIds: [3268] },
-  ];
-}
+// getCatalogOptions() / getNetworkOptions() se re-exportan arriba desde
+// `onevid-feed.ts`.
 
 export function catalogToSortBy(catalogId: string): string {
   switch (catalogId) {

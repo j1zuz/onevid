@@ -13,17 +13,24 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { SetupStepper } from "@/components/stepper-onevid";
+import type { FeedSection } from "@/components/stream/feed-row";
 import { OneVidHeader } from "@/components/stream/onevid-header";
 import { OneVidPageClient } from "@/components/stream/onevid-page-client";
 import { OneVidProfileProvider } from "@/components/stream/onevid-profile-context";
 import { auth } from "@/lib/auth";
 import { oneVid, oneVidAddon, oneVidProfile } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
+import {
+  buildFeedRowHref,
+  buildFeedRowId,
+  DEFAULT_FEED_ROWS,
+  FEED_ROW_ITEM_LIMIT,
+  type FeedCatalogId,
+  getFeedRowShortTitle,
+  parseFeedRows,
+} from "@/lib/onevid-feed";
 import { getServerT } from "@/lib/server-t";
 import {
-  catalogToSortBy,
-  discoverMovies,
-  discoverTv,
   getCatalogOptions,
   getNetworkOptions,
   getTmdbLocale,
@@ -32,9 +39,12 @@ import {
   type NetworkOption,
   TmdbAuthError,
   TmdbNetworkError,
-  trendingMovies,
-  trendingTv,
 } from "@/lib/tmdb";
+import {
+  fetchCatalogResults,
+  fetchCatalogResultsAtLeast,
+  VIEW_ALL_MIN_ITEMS,
+} from "@/lib/tmdb-catalog";
 
 export const metadata: Metadata = {
   title: "Catálogo",
@@ -60,7 +70,7 @@ export default async function OneVidPage({
     redirect("/");
   }
 
-  const { locale: appLocale } = await getServerT();
+  const { locale: appLocale, t } = await getServerT();
 
   const [params, oneVidRow, addonRows, profileRows] = await Promise.all([
     searchParams,
@@ -70,6 +80,7 @@ export default async function OneVidPage({
         tmdbReadAccessToken: oneVid.tmdbReadAccessToken,
         torboxApiKey: oneVid.torboxApiKey,
         setupCompleted: oneVid.setupCompleted,
+        feedRows: oneVid.feedRows,
       })
       .from(oneVid)
       .where(eq(oneVid.userId, session.user.id))
@@ -107,6 +118,11 @@ export default async function OneVidPage({
   const tmdbLinked = Boolean(oneVidRow[0]?.tmdbUserAccessToken);
   const torboxKey = oneVidRow[0]?.torboxApiKey ?? null;
   const setupCompleted = oneVidRow[0]?.setupCompleted ?? false;
+  // `null` = nunca configuró el feed (columna NULL): el paso 2 sale sin
+  // completar y /home usa el preset por defecto.
+  const parsedFeedRows = parseFeedRows(oneVidRow[0]?.feedRows);
+  const feedConfigured = parsedFeedRows !== null;
+  const feedRows = parsedFeedRows?.length ? parsedFeedRows : DEFAULT_FEED_ROWS;
   // Expose only a boolean lock flag per profile; never the hash.
   const profiles = profileRows.map(({ pinHash, ...p }) => ({
     ...p,
@@ -119,10 +135,14 @@ export default async function OneVidPage({
   );
   const oneVidSvg = await fs.readFile(oneVidSvgPath, "utf8");
 
-  // Listas de catálogos/redes son estáticas (no dependen del token TMDB), así
-  // que se calculan siempre: el header se muestra incluso sin setup completo.
+  // Con cualquiera de estos params estamos en la vista "Ver todo" (la grilla
+  // completa de una fila); sin ellos, /home es el feed configurado.
+  const viewAll = Boolean(params.type || params.catalog || params.network);
+
+  // Listas de catálogos/redes son estáticas (no dependen del token TMDB).
   const allCatalogs = getCatalogOptions();
   const allNetworks = getNetworkOptions();
+  const networksById = new Map(allNetworks.map((n) => [n.id, n]));
 
   const typeOptions: CatalogType[] = Array.from(
     new Set(allCatalogs.map((c) => c.type))
@@ -158,17 +178,11 @@ export default async function OneVidPage({
 
   const headerProps = {
     addons: addonRows,
-    allNetworks,
-    catalogs: allCatalogs,
-    catalogsByType,
+    feedConfigured,
+    feedRows,
     hasTorboxKey: Boolean(torboxKey),
     linked: tmdbLinked,
-    selectedCatalog,
-    selectedCatalogOption,
-    selectedNetwork,
-    selectedType,
     setupCompleted,
-    typeOptions,
   };
 
   // TMDB is "configured" only when the account is connected via OAuth v4.
@@ -197,11 +211,13 @@ export default async function OneVidPage({
                 </EmptyMedia>
                 <EmptyTitle>Configura onevid para empezar</EmptyTitle>
                 <EmptyDescription>
-                  Completa los pasos para empezar a ver contenido.
+                  Completa los pasos para empezar a ver tu contenido.
                 </EmptyDescription>
               </EmptyHeader>
               <EmptyContent>
                 <SetupStepper
+                  feedConfigured={feedConfigured}
+                  feedRows={feedRows}
                   hasTorboxKey={Boolean(torboxKey)}
                   initialAddons={addonRows}
                   linked={tmdbLinked}
@@ -218,105 +234,172 @@ export default async function OneVidPage({
   const token: string = tmdbToken;
   const tmdbLocale = getTmdbLocale(appLocale);
   const tmdbRegion = getTmdbRegion(appLocale);
-  const sortBy = catalogToSortBy(selectedCatalog);
 
-  // Fetch catalog items
-  let posters: MediaMeta[];
-  try {
-    if (selectedCatalog === "trending") {
-      // Trending no admite filtro de red en TMDB; se ignora selectedNetwork.
-      posters =
-        selectedType === "movie"
-          ? await trendingMovies(token, undefined, tmdbLocale)
-          : await trendingTv(token, undefined, tmdbLocale);
+  // Modo "Ver todo": una grilla; modo feed: N filas en paralelo.
+  let posters: MediaMeta[] | undefined;
+  let viewAllTitle: string | undefined;
+  let feedSections: FeedSection[] | undefined;
+  let loadError: "auth" | "network" | null = null;
+
+  if (viewAll) {
+    try {
+      posters = await fetchCatalogResultsAtLeast(
+        {
+          catalog: selectedCatalog,
+          network: selectedNetwork,
+          tmdbLocale,
+          tmdbRegion,
+          token,
+          type: selectedType,
+        },
+        VIEW_ALL_MIN_ITEMS
+      );
+      viewAllTitle = getFeedRowShortTitle(
+        {
+          catalog: selectedCatalog as FeedCatalogId,
+          networkId: selectedNetwork?.id,
+          type: selectedType,
+        },
+        t,
+        selectedNetwork?.name
+      );
+    } catch (error) {
+      if (error instanceof TmdbAuthError) {
+        loadError = "auth";
+      } else if (error instanceof TmdbNetworkError) {
+        loadError = "network";
+      } else {
+        throw error;
+      }
+    }
+  } else {
+    const settled = await Promise.allSettled(
+      feedRows.map((row) =>
+        fetchCatalogResults({
+          catalog: row.catalog,
+          network: row.networkId ? networksById.get(row.networkId) : undefined,
+          tmdbLocale,
+          tmdbRegion,
+          token,
+          type: row.type,
+        })
+      )
+    );
+
+    // El token muerto se detecta ANTES de descartar filas: si falla la auth hay
+    // que volver a mostrar el stepper, no un feed a medias.
+    if (
+      settled.some(
+        (result) =>
+          result.status === "rejected" && result.reason instanceof TmdbAuthError
+      )
+    ) {
+      loadError = "auth";
     } else {
-      posters =
-        selectedType === "movie"
-          ? await discoverMovies(
-              token,
-              sortBy,
-              undefined,
-              tmdbLocale,
-              selectedNetwork?.providerId,
-              tmdbRegion,
-              selectedNetwork?.companyIds
-            )
-          : await discoverTv(
-              token,
-              selectedNetwork?.id,
-              sortBy,
-              undefined,
-              tmdbLocale
-            );
+      feedSections = settled.flatMap((result, index) => {
+        const row = feedRows[index];
+        if (!row) {
+          return [];
+        }
+        if (result.status === "rejected") {
+          // Una fila caída (red/timeout) desaparece sin tumbar la página.
+          console.warn(
+            `[onevid] fila del feed fallida ${buildFeedRowId(row)}:`,
+            result.reason
+          );
+          return [];
+        }
+        if (result.value.length === 0) {
+          return [];
+        }
+        return [
+          {
+            href: buildFeedRowHref(row),
+            id: buildFeedRowId(row),
+            items: result.value.slice(0, FEED_ROW_ITEM_LIMIT),
+            title: getFeedRowShortTitle(
+              row,
+              t,
+              row.networkId ? networksById.get(row.networkId)?.name : undefined
+            ),
+          },
+        ];
+      });
+      // Solo es error de red si TODAS las filas fallaron; si simplemente no
+      // devolvieron resultados, el cliente muestra el estado vacío.
+      const rejected = settled.filter(
+        (result) => result.status === "rejected"
+      ).length;
+      if (settled.length > 0 && rejected === settled.length) {
+        loadError = "network";
+      }
     }
-  } catch (error) {
-    if (error instanceof TmdbAuthError) {
-      return (
-        <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
-          <OneVidProfileProvider initialProfiles={profiles}>
-            <OneVidHeader {...headerProps} linked={false} />
-            <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
-              <Empty className="min-h-0 border-0 p-0">
-                <EmptyHeader>
-                  <EmptyTitle>Token TMDB inválido</EmptyTitle>
-                  <EmptyDescription>
-                    Tu token ha expirado o no es válido. Configúralo de nuevo.
-                  </EmptyDescription>
-                </EmptyHeader>
-                <EmptyContent>
-                  <SetupStepper
-                    hasTorboxKey={Boolean(torboxKey)}
-                    initialAddons={addonRows}
-                    linked={false}
-                    setupCompleted={false}
-                  />
-                </EmptyContent>
-              </Empty>
-            </section>
-          </OneVidProfileProvider>
-        </main>
-      );
-    }
-    if (error instanceof TmdbNetworkError) {
-      return (
-        <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
-          <OneVidProfileProvider initialProfiles={profiles}>
-            <OneVidHeader {...headerProps} />
-            <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
-              <Empty className="min-h-0 border-0 p-0">
-                <EmptyHeader>
-                  <EmptyTitle>No pudimos cargar el catálogo</EmptyTitle>
-                  <EmptyDescription>
-                    Hubo un problema al conectar con TMDB. Vuelve a intentarlo
-                    en unos momentos.
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            </section>
-          </OneVidProfileProvider>
-        </main>
-      );
-    }
-    throw error;
+  }
+
+  if (loadError === "auth") {
+    return (
+      <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
+        <OneVidProfileProvider initialProfiles={profiles}>
+          <OneVidHeader {...headerProps} linked={false} />
+          <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
+            <Empty className="min-h-0 border-0 p-0">
+              <EmptyHeader>
+                <EmptyTitle>Token TMDB inválido</EmptyTitle>
+                <EmptyDescription>
+                  Tu token ha expirado o no es válido. Configúralo de nuevo.
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <SetupStepper
+                  feedConfigured={feedConfigured}
+                  feedRows={feedRows}
+                  hasTorboxKey={Boolean(torboxKey)}
+                  initialAddons={addonRows}
+                  linked={false}
+                  setupCompleted={false}
+                />
+              </EmptyContent>
+            </Empty>
+          </section>
+        </OneVidProfileProvider>
+      </main>
+    );
+  }
+
+  if (loadError === "network") {
+    return (
+      <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
+        <OneVidProfileProvider initialProfiles={profiles}>
+          <OneVidHeader {...headerProps} />
+          <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
+            <Empty className="min-h-0 border-0 p-0">
+              <EmptyHeader>
+                <EmptyTitle>No pudimos cargar el catálogo</EmptyTitle>
+                <EmptyDescription>
+                  Hubo un problema al conectar con TMDB. Vuelve a intentarlo en
+                  unos momentos.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          </section>
+        </OneVidProfileProvider>
+      </main>
+    );
   }
 
   return (
     <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
       <OneVidPageClient
         addons={addonRows}
-        allNetworks={allNetworks}
-        catalogs={allCatalogs}
-        catalogsByType={catalogsByType}
+        feedConfigured={feedConfigured}
+        feedRows={feedRows}
+        feedSections={feedSections}
         hasTorboxKey={Boolean(torboxKey)}
         initialProfiles={profiles}
         linked={tmdbLinked}
         posters={posters}
-        selectedCatalog={selectedCatalog}
-        selectedCatalogOption={selectedCatalogOption}
-        selectedNetwork={selectedNetwork}
-        selectedType={selectedType}
         setupCompleted={setupCompleted}
-        typeOptions={typeOptions}
+        viewAllTitle={viewAllTitle}
       />
     </main>
   );
