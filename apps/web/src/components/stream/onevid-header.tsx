@@ -282,7 +282,10 @@ export function OneVidHeader({
   }
 
   return (
-    <section className="sticky top-0 z-20 -mx-4 mb-6 grid grid-cols-1 gap-3 border-border border-b border-dashed bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:-mx-6 md:grid-cols-[minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,1.5fr)] md:px-6">
+    <section
+      className="sticky top-0 z-20 -mx-4 mb-6 grid grid-cols-1 gap-3 border-border border-b border-dashed bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:-mx-6 md:grid-cols-[minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,1.5fr)] md:px-6"
+      data-dpad-focus-subtle
+    >
       {/* Type selector */}
       <Select
         items={typeOptions.map((type) => ({
@@ -395,7 +398,7 @@ export function OneVidHeader({
               />
               {searchQuery && (
                 <button
-                  className="absolute top-1/2 right-3 rounded border border-transparent text-muted-foreground hover:text-foreground"
+                  className="-translate-y-1/2 absolute top-1/2 right-3 rounded border border-transparent text-muted-foreground hover:text-foreground"
                   data-dpad-focusable
                   onClick={clearSearch}
                   type="button"
