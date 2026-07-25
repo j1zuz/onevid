@@ -21,7 +21,7 @@ import {
   StepperTrigger,
 } from "@workspace/ui/components/stepper";
 import {
-  CheckIcon,
+  CircleCheck,
   EllipsisVerticalIcon,
   LoaderIcon,
   PencilIcon,
@@ -373,7 +373,9 @@ export function SetupStepper({
     <Stepper
       className="w-full max-w-md"
       indicators={{
-        completed: <CheckIcon className="size-3" />,
+        completed: (
+          <CircleCheck className="size-5 fill-primary text-primary-foreground" />
+        ),
         loading: <LoaderIcon className="size-3 animate-spin" />,
       }}
       onValueChange={setActiveStep}
@@ -382,11 +384,11 @@ export function SetupStepper({
       <StepperNav className="mb-5">
         <StepperItem completed={tokenSaved} loading={connecting} step={1}>
           <StepperTrigger>
-            <StepperIndicator className="size-5 rounded-full border-2 text-[0.6rem] data-[state=active]:border-primary data-[state=completed]:border-green-500 data-[state=inactive]:border-muted data-[state=active]:bg-primary data-[state=completed]:bg-green-500 data-[state=active]:text-primary-foreground data-[state=completed]:text-white">
+            <StepperIndicator className="size-5 rounded-full border-2 text-[0.6rem] data-[state=active]:border-primary data-[state=completed]:border-transparent data-[state=inactive]:border-muted data-[state=active]:bg-primary data-[state=completed]:bg-transparent data-[state=active]:text-primary-foreground data-[state=completed]:text-primary-foreground">
               1
             </StepperIndicator>
           </StepperTrigger>
-          <StepperSeparator className="group-data-[state=completed]/step:bg-green-500" />
+          <StepperSeparator className="group-data-[state=completed]/step:bg-primary" />
         </StepperItem>
 
         <StepperItem
@@ -396,11 +398,11 @@ export function SetupStepper({
           step={2}
         >
           <StepperTrigger>
-            <StepperIndicator className="size-5 rounded-full border-2 text-[0.6rem] data-[state=active]:border-primary data-[state=completed]:border-green-500 data-[state=inactive]:border-muted data-[state=active]:bg-primary data-[state=completed]:bg-green-500 data-[state=active]:text-primary-foreground data-[state=completed]:text-white">
+            <StepperIndicator className="size-5 rounded-full border-2 text-[0.6rem] data-[state=active]:border-primary data-[state=completed]:border-transparent data-[state=inactive]:border-muted data-[state=active]:bg-primary data-[state=completed]:bg-transparent data-[state=active]:text-primary-foreground data-[state=completed]:text-primary-foreground">
               2
             </StepperIndicator>
           </StepperTrigger>
-          <StepperSeparator className="group-data-[state=completed]/step:bg-green-500" />
+          <StepperSeparator className="group-data-[state=completed]/step:bg-primary" />
         </StepperItem>
 
         <StepperItem
@@ -410,7 +412,7 @@ export function SetupStepper({
           step={3}
         >
           <StepperTrigger>
-            <StepperIndicator className="size-5 rounded-full border-2 text-[0.6rem] data-[state=active]:border-primary data-[state=completed]:border-green-500 data-[state=inactive]:border-muted data-[state=active]:bg-primary data-[state=completed]:bg-green-500 data-[state=active]:text-primary-foreground data-[state=completed]:text-white">
+            <StepperIndicator className="size-5 rounded-full border-2 text-[0.6rem] data-[state=active]:border-primary data-[state=completed]:border-transparent data-[state=inactive]:border-muted data-[state=active]:bg-primary data-[state=completed]:bg-transparent data-[state=active]:text-primary-foreground data-[state=completed]:text-primary-foreground">
               3
             </StepperIndicator>
           </StepperTrigger>
@@ -423,7 +425,7 @@ export function SetupStepper({
             {tokenSaved ? (
               <div className="flex items-center justify-between gap-2 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
                 <div className="flex items-center gap-2">
-                  <CheckIcon className="size-3.5 text-green-500" />
+                  <CircleCheck className="size-3.5 fill-primary text-primary-foreground" />
                   <span className="font-medium text-xs">
                     Cuenta de TMDB conectada
                   </span>
@@ -498,7 +500,7 @@ export function SetupStepper({
           {addons.length > 0 && !addonsEditMode ? (
             <div className="flex items-center justify-between gap-2 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
               <div className="flex items-center gap-2">
-                <CheckIcon className="size-3.5 text-green-500" />
+                <CircleCheck className="size-3.5 fill-primary text-primary-foreground" />
                 <span className="font-medium text-xs">
                   {addons.length === 1
                     ? "1 complemento configurado"
@@ -551,7 +553,7 @@ export function SetupStepper({
                     className="btn-primary shrink-0"
                     disabled={!addonUrl.trim() || addingAddon}
                     onClick={handleAddAddon}
-                    size="lg"
+                    size="sm"
                   >
                     {addingAddon ? (
                       <LoaderIcon className="size-3 animate-spin" />
@@ -615,7 +617,7 @@ export function SetupStepper({
             {torboxSaved ? (
               <div className="flex items-center justify-between gap-2 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
                 <div className="flex items-center gap-2">
-                  <CheckIcon className="size-3.5 text-green-500" />
+                  <CircleCheck className="size-3.5 fill-primary text-primary-foreground" />
                   <span className="font-medium text-xs">
                     TorBox API configurada
                   </span>
@@ -670,7 +672,7 @@ export function SetupStepper({
                     className="btn-primary shrink-0"
                     disabled={!torboxKeyValue.trim() || torboxSaving}
                     onClick={handleSaveTorboxKey}
-                    size="lg"
+                    size="sm"
                   >
                     {torboxSaving && (
                       <LoaderIcon className="size-3 animate-spin" />

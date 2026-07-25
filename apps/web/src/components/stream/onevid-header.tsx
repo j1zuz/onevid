@@ -471,7 +471,7 @@ export function OneVidHeader({
             <DrawerHeader>
               <DrawerTitle>{t("Configuración de onevid")}</DrawerTitle>
               <DrawerDescription>
-                {t("Gestiona tu token de TMDB y los complementos OneVLP.")}
+                {t("Gestiona tu configuración.")}
               </DrawerDescription>
             </DrawerHeader>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
