@@ -46,6 +46,26 @@ import {
   VIEW_ALL_MIN_ITEMS,
 } from "@/lib/tmdb-catalog";
 
+// Hero de arriba de /home: mismo origen de datos que el carrusel de la app
+// móvil (trending película/serie intercalados), tomando hasta HERO_TAKE.
+const HERO_TAKE = 8;
+
+function interleaveMediaMeta(a: MediaMeta[], b: MediaMeta[]): MediaMeta[] {
+  const out: MediaMeta[] = [];
+  const max = Math.max(a.length, b.length);
+  for (let i = 0; i < max; i++) {
+    const fromA = a[i];
+    const fromB = b[i];
+    if (fromA) {
+      out.push(fromA);
+    }
+    if (fromB) {
+      out.push(fromB);
+    }
+  }
+  return out;
+}
+
 export const metadata: Metadata = {
   title: "Catálogo",
 };
@@ -239,6 +259,7 @@ export default async function OneVidPage({
   let posters: MediaMeta[] | undefined;
   let viewAllTitle: string | undefined;
   let feedSections: FeedSection[] | undefined;
+  let heroItems: MediaMeta[] = [];
   let loadError: "auth" | "network" | null = null;
 
   if (viewAll) {
@@ -273,17 +294,50 @@ export default async function OneVidPage({
       }
     }
   } else {
-    const settled = await Promise.allSettled(
-      feedRows.map((row) =>
-        fetchCatalogResults({
-          catalog: row.catalog,
-          network: row.networkId ? networksById.get(row.networkId) : undefined,
-          tmdbLocale,
-          tmdbRegion,
-          token,
-          type: row.type,
-        })
-      )
+    const [settled, heroMovies, heroSeries] = await Promise.all([
+      Promise.allSettled(
+        feedRows.map((row) =>
+          fetchCatalogResults({
+            catalog: row.catalog,
+            network: row.networkId
+              ? networksById.get(row.networkId)
+              : undefined,
+            tmdbLocale,
+            tmdbRegion,
+            token,
+            type: row.type,
+          })
+        )
+      ),
+      // Trending película/serie intercalados para el hero, igual origen que
+      // en la app móvil. Independiente de las filas configuradas por el
+      // usuario (que pueden no incluir "Tendencias"); si falla, el hero
+      // simplemente no se muestra — el fallo real de auth ya lo detecta
+      // `settled` más abajo con las filas del feed.
+      fetchCatalogResults({
+        catalog: "trending",
+        tmdbLocale,
+        tmdbRegion,
+        token,
+        type: "movie",
+      }).catch((error) => {
+        console.warn("[onevid] hero (trending movie) falló:", error);
+        return [];
+      }),
+      fetchCatalogResults({
+        catalog: "trending",
+        tmdbLocale,
+        tmdbRegion,
+        token,
+        type: "series",
+      }).catch((error) => {
+        console.warn("[onevid] hero (trending series) falló:", error);
+        return [];
+      }),
+    ]);
+    heroItems = interleaveMediaMeta(heroMovies, heroSeries).slice(
+      0,
+      HERO_TAKE
     );
 
     // El token muerto se detecta ANTES de descartar filas: si falla la auth hay
@@ -395,6 +449,7 @@ export default async function OneVidPage({
         feedRows={feedRows}
         feedSections={feedSections}
         hasTorboxKey={Boolean(torboxKey)}
+        heroItems={heroItems}
         initialProfiles={profiles}
         linked={tmdbLinked}
         posters={posters}

@@ -18,6 +18,7 @@ import { ExploreMovieGrid } from "@/components/explore-movie-grid";
 import type { OneVidAddonSummary } from "@/components/stepper-onevid";
 import { ContinueWatchingRow } from "@/components/stream/continue-watching-row";
 import { type FeedSection, FeedRow } from "@/components/stream/feed-row";
+import { HeroCarousel } from "@/components/stream/hero-carousel";
 import { OneVidHeader } from "@/components/stream/onevid-header";
 import {
   type OneVidProfile,
@@ -112,6 +113,8 @@ interface OneVidPageClientProps {
   /** Modo feed: filas ya resueltas por el server. */
   feedSections?: FeedSection[];
   hasTorboxKey: boolean;
+  /** Hero destacado (trending película/serie), solo modo feed. */
+  heroItems: MediaMeta[];
   initialProfiles: OneVidProfile[];
   linked: boolean;
   /** Modo "Ver todo": grilla completa de una sola fila. */
@@ -126,6 +129,7 @@ export function OneVidPageClient({
   feedRows,
   feedSections,
   hasTorboxKey,
+  heroItems,
   initialProfiles,
   linked,
   posters,
@@ -253,6 +257,14 @@ export function OneVidPageClient({
               </>
             ) : (
               <>
+                {heroItems.length > 0 && (
+                  // -mt-4 para acercarlo al header: cancela el padding
+                  // superior del contenedor con scroll (py-4) sin tocar el
+                  // espaciado del resto de las filas.
+                  <div className="-mt-4">
+                    <HeroCarousel items={heroItems} />
+                  </div>
+                )}
                 <ContinueWatchingRow />
                 {mainContent}
               </>

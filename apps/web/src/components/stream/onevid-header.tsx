@@ -236,11 +236,29 @@ export function OneVidHeader({
       className="sticky top-0 z-20 -mx-4 mb-6 flex items-center gap-3 border-border border-b border-dashed bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:-mx-6 md:px-6"
       data-dpad-focus-subtle
     >
+      {/* Logo: lleva de vuelta a /home. */}
+      <Link
+        className="flex shrink-0 items-center rounded border border-transparent"
+        data-dpad-focusable
+        href="/home"
+      >
+        {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
+        <img
+          alt="onevid"
+          className="size-8 rounded-md border border-border/70 bg-card p-1"
+          height={32}
+          src="/onevid.svg"
+          width={32}
+        />
+      </Link>
+
       {/* Búsqueda + perfil + configuración. Los selectores de tipo / catálogo /
           cadena que vivían aquí ahora son el paso 2 del stepper ("Configurar
           feed"): el usuario arma su inicio una vez y /home lo respeta. */}
-      <div className="flex flex-1 items-center gap-2">
-        <div className="relative flex-1" ref={searchRef}>
+      <div className="flex flex-1 items-center justify-end gap-2">
+        {/* max-w para que la búsqueda no ocupe todo el espacio entre el logo y
+            los controles de la derecha. */}
+        <div className="relative w-full max-w-xs" ref={searchRef}>
           <form onSubmit={handleSearchSubmit}>
             <div className="relative">
               <SearchIcon className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />

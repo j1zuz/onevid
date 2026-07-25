@@ -87,12 +87,18 @@ export function ContinueWatchingRow({
           </h2>
         )}
         <div className={HORIZONTAL_POSTER_GRID_CLASS}>
-          {["a", "b", "c", "d", "e"].map((key) => (
-            <div className="space-y-1" key={key}>
-              <div className="aspect-video w-full animate-pulse rounded-(--radius) bg-muted/40" />
-              <div className="mx-auto h-4 w-3/4 animate-pulse rounded bg-muted/40" />
-            </div>
-          ))}
+          {/* Mismo tope que la grilla real (FEED_ROW_ITEM_LIMIT): antes
+              mostraba 5 placeholders contra un máximo de 4 columnas y el
+              skeleton se veía en 2 filas mientras el contenido real quedaba
+              en 1 sola. */}
+          {Array.from({ length: FEED_ROW_ITEM_LIMIT }, (_, i) => i).map(
+            (key) => (
+              <div className="space-y-1" key={key}>
+                <div className="aspect-video w-full animate-pulse rounded-(--radius) bg-muted/40" />
+                <div className="mx-auto h-4 w-3/4 animate-pulse rounded bg-muted/40" />
+              </div>
+            )
+          )}
         </div>
       </section>
     );

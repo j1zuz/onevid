@@ -3,6 +3,22 @@ import { fetchJustWatchLinks } from "@/lib/justwatch";
 const TMDB_BASE = "https://api.themoviedb.org";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
 
+// El backend mapea poster/background a tamaños chicos (w500/w780), pensados
+// para tarjetas. Para piezas grandes (el hero de /home) hace falta pedir una
+// versión de mayor resolución — mismo approach que apps/mobile/src/lib/api.ts.
+const TMDB_IMAGE_SIZE_RE =
+  /image\.tmdb\.org\/t\/p\/(w92|w154|w185|w300|w342|w500|w780|w1280|original)\//;
+
+export function tmdbImage(
+  url: string | undefined,
+  targetSize: "w185" | "w300" | "w500" | "w780" | "w1280" | "original"
+): string | undefined {
+  if (!url) {
+    return url;
+  }
+  return url.replace(TMDB_IMAGE_SIZE_RE, `image.tmdb.org/t/p/${targetSize}/`);
+}
+
 const LOCALE_MAP: Record<string, string> = {
   "es-419": "es-MX",
   "es-ES": "es-ES",
