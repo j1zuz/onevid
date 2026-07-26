@@ -24,7 +24,15 @@ import {
   RotateCw,
   X,
 } from 'lucide-react-native';
-import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  type ComponentProps,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Platform,
   Pressable,
@@ -196,6 +204,17 @@ const MAX_START_EXTENSIONS = 2; // tope: 20 s + 2×20 s = 60 s máx por fuente
 // Elección manual del usuario: le damos mucho más margen "sin pistas" antes de
 // saltar, porque pidió ESA fuente explícitamente (p. ej. torbox lento de arrancar).
 const PLAYBACK_MANUAL_TIMEOUT_MS = 35_000;
+// Tipos de los payloads de los eventos de <LibVlcPlayerView>, derivados del propio
+// componente: así los handlers se pueden extraer a useCallback (identidad estable,
+// ver VLC_OPTIONS) sin duplicar a mano las formas de los eventos de la librería.
+type VlcProps = ComponentProps<typeof LibVlcPlayerView>;
+type VlcEvent<K extends keyof VlcProps> =
+  NonNullable<VlcProps[K]> extends (arg: infer A) => unknown ? A : never;
+
+// Por qué se declara una fuente no reproducible. Distingue "venció el watchdog"
+// (puede ser red lenta → merece prórroga) de "VLC dio error" (403/404/enlace
+// muerto → saltar ya). Viaja también a PostHog para poder separar ambos casos.
+type UnplayableReason = 'timeout' | 'error';
 // Timeout de resolveRedirect(). Antes 4000ms: telemetría de PostHog
 // (player_source_probe) mostró que ~17% de las fuentes que VLC descartaba como
 // "no se pudo abrir" en realidad respondían 206 con vídeo válido cuando la
@@ -210,6 +229,32 @@ const STREAM_REDIRECT_TIMEOUT_MS = 8_000;
 // para que ambos vean exactamente la misma respuesta del host.
 const STREAM_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+
+// Opciones de libVLC del medio. Va como CONSTANTE DE MÓDULO, no como literal
+// inline en el JSX, y esto es crítico: con New Architecture, Fabric reenvía
+// TODOS los props del nodo en cada update (SurfaceMountingManager.updateProps
+// pasa el mapa completo, no un diff), Expo invoca cada setter sin comparar
+// (ConcreteViewProp.set) y los setters nativos de `source`/`options` marcan
+// `shouldInit` → OnViewDidUpdateProps llama initPlayer() → destroyPlayer() +
+// createPlayer(). O sea: un array nuevo por render REINICIABA el stream desde
+// cero. En TV, donde el primer fotograma tarda ~20 s (p50 medido), esos
+// reinicios agotaban el watchdog de arranque y el player "saltaba" las fuentes.
+// network-caching = colchón (ms) que VLC mantiene leído por delante: es a la vez
+// el pre-buffer de ARRANQUE y la ventana que sostiene DURANTE todo el vídeo. Es
+// un buffer de tamaño fijo, NO crece con el tiempo, y VLC no puede ampliarlo en
+// caliente (cambiarlo obliga a reabrir el stream), por eso usamos un único valor
+// y no dos fases. 3000 ms da ~3 s de colchón → menos micro-cortes a mitad que
+// con 1500, a cambio de un arranque algo más lento (un corte tras el primer
+// fotograma lo recupera :http-reconnect y NO tira la fuente). El User-Agent de
+// navegador evita 403 de hosts que rechazan el UA por defecto de VLC.
+// Tunable: bajar a 2000-2500 si el arranque molesta; subir a ~5000 si aún hay
+// cortes en redes lentas.
+const VLC_OPTIONS = [
+  ':network-caching=3000',
+  ':file-caching=3000',
+  ':http-reconnect',
+  `:http-user-agent=${STREAM_UA}`,
+];
 
 // Diagnóstico: consulta la URL ya resuelta (1 byte) para ver qué devuelve el
 // host realmente (código HTTP, tipo de contenido, tamaño, redirección). Cuando
@@ -688,6 +733,16 @@ export default function PlayerScreen() {
     advanceToNextSource,
   ]);
 
+  // useCallback (y no una arrow inline) porque `Player` lo mete en las
+  // dependencias de sus handlers de <LibVlcPlayerView>: si cambiara de identidad,
+  // el elemento nativo se recrearía y el player reiniciaría (ver VLC_OPTIONS).
+  const readyUrl = state.kind === 'ready' ? state.url : null;
+  const handleReveal = useCallback(() => {
+    if (!readyUrl) return;
+    setRevealedUrl(readyUrl);
+    revealedContent.add(contentKey);
+  }, [readyUrl, contentKey]);
+
   return (
     <View style={styles.root}>
       {state.kind === 'ready' ? (
@@ -709,10 +764,7 @@ export default function PlayerScreen() {
           resumeMs={resumeMs}
           onProgress={onTime}
           onFlush={flush}
-          onReveal={() => {
-            setRevealedUrl(state.url);
-            revealedContent.add(contentKey);
-          }}
+          onReveal={handleReveal}
           onUnplayable={canFallback ? handleUnplayable : undefined}
           onChangeSource={canChangeSource ? () => setPickerOpen(true) : undefined}
           onChangeEpisode={
@@ -993,6 +1045,11 @@ function Player({
   const timeRef = useRef(0);
   const durationRef = useRef(0);
   const [scrubbing, setScrubbing] = useState(false);
+  // Espejo en ref de `scrubbing`: los callbacks de <LibVlcPlayerView> deben tener
+  // identidad ESTABLE (si cambian, Fabric reenvía los props y el nativo reinicia
+  // el player — ver VLC_OPTIONS), así que leen el valor del ref en vez de
+  // capturar el estado.
+  const scrubbingRef = useRef(false);
   const [scrubTime, setScrubTime] = useState(0);
 
   const [tracks, setTracks] = useState<MediaTracks>({
@@ -1008,7 +1065,7 @@ function Player({
   // lo soportan), para no mostrar un botón muerto.
   // Además, en Android 8-11 (API 26-30) el nativo de expo-libvlc-player llama
   // setAutoEnterEnabled, que solo existe desde API 31 (S) — sin el rebuild que
-  // incluya el parche (patches/expo-libvlc-player@7.0.40.patch), esto crashea
+  // incluya el parche (patches/expo-libvlc-player@7.1.6.patch), esto crashea
   // la app con NoSuchMethodError. Desactivamos PiP ahí hasta ese rebuild;
   // quitar este check en cuanto el binario nuevo esté publicado.
   const [pipSupported] = useState(() => {
@@ -1074,19 +1131,26 @@ function Player({
   // por fuente y solo si aún no se había visto imagen: un corte tras el primer
   // fotograma lo recupera VLC con http-reconnect, no queremos tirar una fuente
   // buena. No-op si no hay manejador (sin fallback posible).
-  const reportUnplayable = useCallback(() => {
+  const reportUnplayable = useCallback((reason: UnplayableReason = 'timeout') => {
     if (firedUnplayable.current || firstFrameRef.current) return;
     // Prórroga: si la descarga progresó hace poco, la fuente está VIVA (red
     // lenta, típico en TV) — matarla ahora sería saltarse un medio reproducible.
     // Ver constantes START_EXTENSION_* para la evidencia medida en PostHog.
+    // Solo aplica cuando venció el watchdog: si VLC ya reportó un error duro
+    // (403/404/enlace muerto) esperar no lo arregla, y prorrogar quemaba hasta
+    // 60 s por fuente muerta — con 4 fuentes, minutos de "va pasando los medios".
     if (
+      reason === 'timeout' &&
       startExtensionsRef.current < MAX_START_EXTENSIONS &&
       bufferGrowthAtRef.current > 0 &&
       Date.now() - bufferGrowthAtRef.current < START_EXTENSION_WINDOW_MS
     ) {
       startExtensionsRef.current += 1;
       clearTimeout(startTimer.current);
-      startTimer.current = setTimeout(reportUnplayable, START_EXTENSION_MS);
+      startTimer.current = setTimeout(
+        () => reportUnplayable('timeout'),
+        START_EXTENSION_MS,
+      );
       return;
     }
     firedUnplayable.current = true;
@@ -1101,6 +1165,7 @@ function Player({
         track('player_source_probe', {
           mediaType,
           mediaId,
+          reason, // 'timeout' (watchdog) vs 'error' (VLC falló explícitamente)
           // Ciclo de vida nativo de VLC hasta el fallo — dice DÓNDE murió:
           esAdded: esAddedRef.current, // ¿detectó pistas? (abrió el contenedor)
           sawBuffering: sawBufferingRef.current, // ¿llegó a bufferear? (leyó datos)
@@ -1118,7 +1183,10 @@ function Player({
   // la saltamos. Se reinicia por fuente gracias al remontaje (key={url}).
   useEffect(() => {
     if (!onUnplayable) return;
-    startTimer.current = setTimeout(reportUnplayable, startTimeoutMs);
+    startTimer.current = setTimeout(
+      () => reportUnplayable('timeout'),
+      startTimeoutMs,
+    );
     return () => clearTimeout(startTimer.current);
   }, [onUnplayable, reportUnplayable, startTimeoutMs]);
 
@@ -1231,6 +1299,7 @@ function Player({
   // (`onChangeEnd`) hacemos el seek. Así el tiempo en vivo no pelea con el dedo.
   const toTime = (v: number | number[]) => (Array.isArray(v) ? v[0] : v);
   const onSlide = (v: number | number[]) => {
+    scrubbingRef.current = true;
     setScrubbing(true);
     setScrubTime(toTime(v));
     showControls();
@@ -1242,6 +1311,7 @@ function Player({
       timeRef.current = t;
       setTime(t);
     }
+    scrubbingRef.current = false;
     setScrubbing(false);
     scheduleHide();
   };
@@ -1257,6 +1327,196 @@ function Player({
   const inPlayerLoading = !!loadingInline && showLoading;
   const controlsShown = !!errorMsg || controlsVisible || inPlayerLoading;
   const tracksInfo = errorMsg ? describeTracks(tracks) : undefined;
+  // Prop `tracks` memoizado: un objeto nuevo por render bastaba para que Fabric
+  // reenviara los props y el nativo reiniciara el player (ver VLC_OPTIONS). Así
+  // solo cambia de identidad cuando cambia de verdad la pista elegida.
+  const playerTracks = useMemo(
+    () => ({ audio: audioId ?? undefined, subtitle: subtitleId ?? undefined }),
+    [audioId, subtitleId],
+  );
+
+  // --- handlers de <LibVlcPlayerView> ---
+  // TODOS van en useCallback con dependencias estables y leen el estado mutable
+  // desde refs (`firstFrameRef`, `durationRef`, `scrubbingRef`) en vez de
+  // capturarlo. Motivo: si un handler cambia de identidad, el elemento se
+  // recrea, Fabric reenvía los props y el nativo destruye/recrea el player
+  // (ver VLC_OPTIONS). Antes `onTimeChanged` capturaba `firstFrame`, `duration` y
+  // `scrubbing`, así que el propio arranque (setDuration en onFirstPlay, el
+  // primer fotograma) reiniciaba el stream justo cuando estaba llenando el buffer.
+
+  const handleBuffering = useCallback(
+    ({ progress }: VlcEvent<'onBuffering'>) => {
+      setBuffering(true);
+      sawBufferingRef.current = true; // diagnóstico: VLC llegó a leer datos
+      // Avance real de descarga (progress cambia y no es 0) → sella el momento;
+      // el watchdog lo usa para prorrogar fuentes vivas-pero-lentas. VLC
+      // reinicia progress a 0 en cada episodio, por eso "cambió y > 0".
+      if (progress > 0 && progress !== lastBufferProgressRef.current) {
+        lastBufferProgressRef.current = progress;
+        bufferGrowthAtRef.current = Date.now();
+      }
+      // Rebuffer = corte DESPUÉS del primer fotograma. Capturamos una vez por
+      // episodio (VLC repite onBuffering) para medir micro-cortes.
+      if (firstFrameRef.current && !rebufferingRef.current) {
+        rebufferingRef.current = true;
+        track('player_rebuffer', { mediaType, mediaId });
+      }
+      clearTimeout(bufferTimer.current);
+      // VLC dispara Buffering repetidamente; lo limpiamos con un tope.
+      bufferTimer.current = setTimeout(() => {
+        setBuffering(false);
+        rebufferingRef.current = false; // fin del episodio de buffering.
+      }, 1_200);
+    },
+    [mediaType, mediaId],
+  );
+
+  const handlePlaying = useCallback(() => {
+    setBuffering(false);
+    setPlaying(true);
+    setHasPlayed(true);
+    setErrorMsg(null);
+    setRawError(null);
+    setProbe(null);
+  }, []);
+
+  const handlePaused = useCallback(() => {
+    setPlaying(false);
+    onFlush?.(); // guarda el progreso al pausar
+  }, [onFlush]);
+
+  const handleStopped = useCallback(() => {
+    setPlaying(false);
+    sawStoppedRef.current = true; // diagnóstico: VLC se detuvo solo
+    onFlush?.();
+  }, [onFlush]);
+
+  // Diagnóstico clave en TV: VLC muestra diálogos OCULTOS (certificado SSL no
+  // confiable, login del host, error) que sin manejar BLOQUEAN la reproducción en
+  // silencio → parece "no reproduce". Los registramos para saber la causa real y
+  // los descartamos para que no cuelguen el arranque.
+  const handleDialogDisplay = useCallback(
+    (d: VlcEvent<'onDialogDisplay'>) => {
+      dialogTypeRef.current = d.type;
+      track('player_dialog', {
+        mediaType,
+        mediaId,
+        dialogType: d.type,
+        title: d.title,
+        text: d.text,
+      });
+      playerRef.current?.dismiss().catch(() => {
+        /* ignore */
+      });
+    },
+    [mediaType, mediaId],
+  );
+
+  const handleFirstPlay = useCallback(
+    ({ length }: VlcEvent<'onFirstPlay'>) => {
+      durationRef.current = length;
+      setDuration(length);
+    },
+    [],
+  );
+
+  const handleTimeChanged = useCallback(
+    ({ value }: VlcEvent<'onTimeChanged'>) => {
+      // El tiempo avanza ⇒ hay fotogramas pintándose ⇒ ya podemos fundir la
+      // carátula al vídeo (sin pasar por negro ni spinner). Sellamos el ref en el
+      // acto para no re-disparar setFirstFrame en cada tick siguiente.
+      if (value > 0 && !firstFrameRef.current) {
+        firstFrameRef.current = true;
+        setFirstFrame(true);
+      }
+      // Guarda el progreso (el hook throttlea a cada 10 s). Ignoramos ticks
+      // previos al salto de reanudación para no sobrescribir con posición 0.
+      if (resumedRef.current) onProgress?.(value, durationRef.current);
+      if (!scrubbingRef.current) {
+        timeRef.current = value;
+        setTime(value);
+        // Si el tiempo avanza, NO está buffering: limpiamos el spinner ya (aunque
+        // VLC siga emitiendo onBuffering, así no se queda pegado el "cargando"
+        // mientras se ve la peli). setState(false) es no-op si ya estaba false.
+        setBuffering(false);
+      }
+    },
+    [onProgress],
+  );
+
+  const handleESAdded = useCallback(
+    (media: VlcEvent<'onESAdded'>) => {
+      // libVLC añade una pista sintética "Disable" (id -1) al inicio de cada
+      // lista; la quitamos para no mostrarla en los menús ni auto-elegirla
+      // (elegir la de audio dejaba el vídeo sin sonido — ver pickDefaultAudio).
+      const clean: MediaTracks = {
+        audio: media.audio.filter((t) => t.id >= 0),
+        video: media.video.filter((t) => t.id >= 0),
+        subtitle: media.subtitle.filter((t) => t.id >= 0),
+      };
+      setTracks(clean);
+      setAudioId((prev) => {
+        const picked = prev ?? pickDefaultAudio(clean.audio);
+        audioInfoRef.current = {
+          count: clean.audio.length,
+          names: clean.audio.map((t) => t.name ?? ''),
+          selectedId: picked,
+        };
+        // Solo FIJAMOS la pista si estamos sobreescribiendo el default de libVLC
+        // (que es la primera real). Cambiar `audioId` cambia el prop `tracks` →
+        // Fabric reenvía los props → el nativo reinicia el player (ver
+        // VLC_OPTIONS), y hacerlo justo al abrir el contenedor tiraba el buffer
+        // ya descargado: en TV eso agotaba el watchdog y la fuente se descartaba
+        // pese a ser válida. Con una sola pista de audio (el caso más común) el
+        // default ya es el correcto, así que no tocamos nada.
+        if (prev === null && picked === clean.audio[0]?.id) return null;
+        return picked;
+      });
+      // Primera detección de pistas: la fuente es VÁLIDA (abrió el contenedor),
+      // solo está buffering. Rearmamos el watchdog con mucho más margen para el
+      // primer fotograma en vez de matarla a los 20 s.
+      if (!esAddedRef.current && clean.video.length > 0) {
+        esAddedRef.current = true;
+        if (onUnplayable) {
+          clearTimeout(startTimer.current);
+          startTimer.current = setTimeout(
+            () => reportUnplayable('timeout'),
+            PLAYBACK_FIRST_FRAME_TIMEOUT_MS,
+          );
+        }
+      }
+    },
+    [onUnplayable, reportUnplayable],
+  );
+
+  const handleEncounteredError = useCallback(
+    ({ message }: VlcEvent<'onEncounteredError'>) => {
+      const hadFirstFrame = firstFrameRef.current;
+      track('player_error', {
+        mediaType,
+        mediaId,
+        message,
+        hadFirstFrame,
+        willFallback: Boolean(onUnplayable) && !hadFirstFrame,
+      });
+      // Con fallback y antes del primer fotograma, el padre prueba otra fuente
+      // automáticamente. Tras el primer fotograma (error fatal a mitad) o sin
+      // fallback, mostramos la tarjeta de error in-place con el diagnóstico y los
+      // controles (incluido "cambiar fuente"), como antes.
+      if (onUnplayable && !hadFirstFrame) {
+        reportUnplayable('error');
+        return;
+      }
+      setErrorMsg(humanizePlaybackError(message));
+      setRawError(message || 'EncounteredError (sin mensaje)');
+      // Funde la carátula única para que se vea esta tarjeta de error.
+      onReveal?.();
+      // Sonda del enlace: revela la causa real (403/HTML/caducado/redirección).
+      setProbe('Comprobando enlace…');
+      probeStreamUrl(url).then(setProbe);
+    },
+    [mediaType, mediaId, onUnplayable, reportUnplayable, onReveal, url],
+  );
 
   return (
     <>
@@ -1266,172 +1526,28 @@ function Player({
         // `null` libera el player (no crear media con URL vacía → evita el
         // error nativo "media could not be set").
         source={url?.trim() ? url : null}
-        // network-caching = colchón (ms) que VLC mantiene leído por delante: es a
-        // la vez el pre-buffer de ARRANQUE y la ventana que sostiene DURANTE todo
-        // el vídeo. Es un buffer de tamaño fijo, NO crece con el tiempo, y VLC no
-        // puede ampliarlo en caliente (cambiarlo obliga a reabrir el stream), por
-        // eso usamos un único valor y no dos fases. 3000 ms da ~3 s de colchón →
-        // menos micro-cortes a mitad que con 1500, a cambio de un arranque algo
-        // más lento (un corte tras el primer fotograma lo recupera :http-reconnect
-        // y NO tira la fuente). El User-Agent de navegador evita 403 de hosts que
-        // rechazan el UA por defecto de VLC.
-        // Tunable: bajar a 2000-2500 si el arranque molesta; subir a ~5000 si aún
-        // hay cortes en redes lentas.
-        options={[
-          ':network-caching=3000',
-          ':file-caching=3000',
-          ':http-reconnect',
-          `:http-user-agent=${STREAM_UA}`,
-        ]}
+        // Constante de módulo a propósito: ver VLC_OPTIONS (un array nuevo por
+        // render reinicia el player nativo).
+        options={VLC_OPTIONS}
         // En TV forzamos AudioTrack como salida de audio. El default de libVLC 3.7
         // (AAudio) falla EN SILENCIO en algunos Android TV baratos (KTC): vídeo y
         // pista de audio OK pero sin sonido, sin error. Es el mismo remedio que el
         // VLC oficial aplica vía setAudioOutput/ajuste "Salida de audio". Requiere
-        // build nativo (prop añadido en patches/expo-libvlc-player@7.0.40.patch).
+        // build nativo (prop añadido en patches/expo-libvlc-player@7.1.6.patch).
         audioOutput={Platform.isTV ? 'audiotrack' : undefined}
         contentFit="contain"
         autoplay
         pictureInPicture={pipSupported}
-        tracks={{
-          audio: audioId ?? undefined,
-          subtitle: subtitleId ?? undefined,
-        }}
-        onBuffering={({ progress }) => {
-          setBuffering(true);
-          sawBufferingRef.current = true; // diagnóstico: VLC llegó a leer datos
-          // Avance real de descarga (progress cambia y no es 0) → sella el
-          // momento; el watchdog lo usa para prorrogar fuentes vivas-pero-lentas.
-          // VLC reinicia progress a 0 en cada episodio de buffering, por eso
-          // "cambió y > 0" en vez de "creció".
-          if (progress > 0 && progress !== lastBufferProgressRef.current) {
-            lastBufferProgressRef.current = progress;
-            bufferGrowthAtRef.current = Date.now();
-          }
-          // Rebuffer = corte DESPUÉS del primer fotograma. Capturamos una vez
-          // por episodio (VLC repite onBuffering) para medir micro-cortes.
-          if (firstFrameRef.current && !rebufferingRef.current) {
-            rebufferingRef.current = true;
-            track('player_rebuffer', { mediaType, mediaId });
-          }
-          clearTimeout(bufferTimer.current);
-          // VLC dispara Buffering repetidamente; lo limpiamos con un tope.
-          bufferTimer.current = setTimeout(() => {
-            setBuffering(false);
-            rebufferingRef.current = false; // fin del episodio de buffering.
-          }, 1_200);
-        }}
-        onPlaying={() => {
-          setBuffering(false);
-          setPlaying(true);
-          setHasPlayed(true);
-          setErrorMsg(null);
-          setRawError(null);
-          setProbe(null);
-        }}
-        onPaused={() => {
-          setPlaying(false);
-          onFlush?.(); // guarda el progreso al pausar
-        }}
-        onStopped={() => {
-          setPlaying(false);
-          sawStoppedRef.current = true; // diagnóstico: VLC se detuvo solo
-          onFlush?.();
-        }}
-        // Diagnóstico clave en TV: VLC muestra diálogos OCULTOS (certificado SSL
-        // no confiable, login del host, error) que sin manejar BLOQUEAN la
-        // reproducción en silencio → parece "no reproduce". Los registramos para
-        // saber la causa real y los descartamos para que no cuelguen el arranque.
-        onDialogDisplay={(d) => {
-          dialogTypeRef.current = d.type;
-          track('player_dialog', {
-            mediaType,
-            mediaId,
-            dialogType: d.type,
-            title: d.title,
-            text: d.text,
-          });
-          playerRef.current?.dismiss().catch(() => {
-            /* ignore */
-          });
-        }}
-        onFirstPlay={({ length }) => {
-          durationRef.current = length;
-          setDuration(length);
-        }}
-        onTimeChanged={({ value }) => {
-          // El tiempo avanza ⇒ hay fotogramas pintándose ⇒ ya podemos fundir
-          // la carátula al vídeo (sin pasar por negro ni spinner).
-          if (value > 0 && !firstFrame) setFirstFrame(true);
-          // Guarda el progreso (el hook throttlea a cada 10 s). Ignoramos ticks
-          // previos al salto de reanudación para no sobrescribir con posición 0.
-          if (resumedRef.current) onProgress?.(value, duration);
-          if (!scrubbing) {
-            timeRef.current = value;
-            setTime(value);
-            // Si el tiempo avanza, NO está buffering: limpiamos el spinner ya
-            // (aunque VLC siga emitiendo onBuffering, así no se queda pegado el
-            // "cargando" mientras se ve la peli). setState(false) es no-op si ya
-            // estaba false → barato.
-            setBuffering(false);
-          }
-        }}
-        onESAdded={(media) => {
-          // libVLC añade una pista sintética "Disable" (id -1) al inicio de cada
-          // lista; la quitamos para no mostrarla en los menús ni auto-elegirla
-          // (elegir la de audio dejaba el vídeo sin sonido — ver pickDefaultAudio).
-          const clean: MediaTracks = {
-            audio: media.audio.filter((t) => t.id >= 0),
-            video: media.video.filter((t) => t.id >= 0),
-            subtitle: media.subtitle.filter((t) => t.id >= 0),
-          };
-          setTracks(clean);
-          setAudioId((prev) => {
-            const selected = prev ?? pickDefaultAudio(clean.audio);
-            audioInfoRef.current = {
-              count: clean.audio.length,
-              names: clean.audio.map((t) => t.name ?? ''),
-              selectedId: selected,
-            };
-            return selected;
-          });
-          // Primera detección de pistas: la fuente es VÁLIDA (abrió el
-          // contenedor), solo está buffering. Rearmamos el watchdog con mucho
-          // más margen para el primer fotograma en vez de matarla a los 20 s.
-          if (!esAddedRef.current && clean.video.length > 0) {
-            esAddedRef.current = true;
-            if (onUnplayable) {
-              clearTimeout(startTimer.current);
-              startTimer.current = setTimeout(
-                reportUnplayable,
-                PLAYBACK_FIRST_FRAME_TIMEOUT_MS,
-              );
-            }
-          }
-        }}
-        onEncounteredError={({ message }) => {
-          track('player_error', {
-            mediaType,
-            mediaId,
-            message,
-            hadFirstFrame: firstFrame,
-            willFallback: Boolean(onUnplayable) && !firstFrame,
-          });
-          // Con fallback y antes del primer fotograma, el padre prueba otra
-          // fuente automáticamente. Tras el primer fotograma (error fatal a
-          // mitad) o sin fallback, mostramos la tarjeta de error in-place con el
-          // diagnóstico y los controles (incluido "cambiar fuente"), como antes.
-          if (onUnplayable && !firstFrame) {
-            reportUnplayable();
-            return;
-          }
-          setErrorMsg(humanizePlaybackError(message));
-          setRawError(message || 'EncounteredError (sin mensaje)');
-          // Funde la carátula única para que se vea esta tarjeta de error.
-          onReveal?.();
-          // Sonda del enlace: revela la causa real (403/HTML/caducado/redirección).
-          setProbe('Comprobando enlace…');
-          probeStreamUrl(url).then(setProbe);
-        }}
+        tracks={playerTracks}
+        onBuffering={handleBuffering}
+        onPlaying={handlePlaying}
+        onPaused={handlePaused}
+        onStopped={handleStopped}
+        onDialogDisplay={handleDialogDisplay}
+        onFirstPlay={handleFirstPlay}
+        onTimeChanged={handleTimeChanged}
+        onESAdded={handleESAdded}
+        onEncounteredError={handleEncounteredError}
       />
 
       {/* Capa táctil para mostrar/ocultar controles (solo en reproducción
@@ -1664,7 +1780,14 @@ function Player({
         <TrackMenu
           kind={menu}
           tracks={menu === 'audio' ? tracks.audio : tracks.subtitle}
-          selectedId={menu === 'audio' ? audioId : subtitleId}
+          // `audioId` null = no hemos sobreescrito el default de libVLC (ver
+          // onESAdded), así que la activa es la primera real: la mostramos como
+          // seleccionada para que el menú no aparezca sin marcar ninguna.
+          selectedId={
+            menu === 'audio'
+              ? (audioId ?? tracks.audio[0]?.id ?? null)
+              : subtitleId
+          }
           allowOff={menu === 'subtitle'}
           onSelect={(id) => {
             if (menu === 'audio') setAudioId(id);
