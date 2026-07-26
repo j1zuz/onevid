@@ -394,7 +394,7 @@ export function SetupStepper({
 
   return (
     <Stepper
-      className="w-full max-w-md"
+      className="mx-auto w-full max-w-md"
       indicators={{
         completed: (
           <CircleCheck className="size-5 fill-primary text-primary-foreground" />

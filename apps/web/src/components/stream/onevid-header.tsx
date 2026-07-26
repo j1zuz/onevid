@@ -1,33 +1,11 @@
 "use client";
 
-import { buttonVariants } from "@workspace/ui/components/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@workspace/ui/components/dropdown-menu";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerHeader,
-  DrawerTitle,
-} from "@workspace/ui/components/drawer";
 import { Input } from "@workspace/ui/components/input";
 import { Skeleton } from "@workspace/ui/components/skeleton";
-import { cn } from "@workspace/ui/lib/utils";
-import { BoltIcon, LogOutIcon, SearchIcon, UploadIcon, XIcon } from "lucide-react";
+import { SearchIcon, XIcon } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { LanguageMenuItem } from "@/components/language-selector";
-import {
-  type OneVidAddonSummary,
-  SetupStepper,
-} from "@/components/stepper-onevid";
-import { authClient } from "@/lib/auth-client";
+import type { OneVidAddonSummary } from "@/components/stepper-onevid";
 import { OneVidProfileSwitcher } from "@/components/stream/onevid-profile-switcher";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { OneVidFeedRow } from "@/lib/onevid-feed";
@@ -45,6 +23,10 @@ interface SearchMeta {
   year?: string;
 }
 
+// feedConfigured/feedRows/hasTorboxKey/addons/linked/setupCompleted quedan en
+// la interfaz para no romper a los server components que ya arman este
+// objeto de props (home/page.tsx), pero el header ya no los usa: esa
+// configuración vive en la página /home/account.
 interface OneVidHeaderProps {
   addons: OneVidAddonSummary[];
   feedConfigured: boolean;
@@ -55,35 +37,9 @@ interface OneVidHeaderProps {
   setupCompleted: boolean;
 }
 
-export function OneVidHeader({
-  onMovieSelect,
-  addons,
-  feedConfigured,
-  feedRows,
-  hasTorboxKey,
-  linked,
-  setupCompleted,
-}: OneVidHeaderProps) {
-  const { push, refresh } = useRouter();
+export function OneVidHeader({ onMovieSelect }: OneVidHeaderProps) {
   const { t: rawT } = useTranslation();
   const t = (key: string) => rawT(key as never);
-  const [configOpen, setConfigOpen] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
-
-  const handleSignOut = useCallback(async () => {
-    setSigningOut(true);
-    await authClient.signOut({
-      fetchOptions: {
-        onSuccess: () => {
-          push("/");
-          refresh();
-        },
-        onError: () => {
-          setSigningOut(false);
-        },
-      },
-    });
-  }, [push, refresh]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchMeta[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -295,76 +251,10 @@ export function OneVidHeader({
           )}
         </div>
 
+        {/* Único trigger: el dropdown del avatar trae perfiles + Configuración
+            + Modo local + Cerrar sesión (onevid-profile-switcher.tsx). Ya no
+            hay un ícono de engranaje aparte. */}
         <OneVidProfileSwitcher />
-
-        <div aria-hidden className="h-6 w-px shrink-0 bg-border" />
-
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            aria-label={t("Configuración")}
-            className={cn(buttonVariants({ size: "icon", variant: "outline" }))}
-            data-dpad-focusable
-          >
-            <BoltIcon className="size-4" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-52">
-            <DropdownMenuItem
-              data-dpad-focusable
-              onClick={() => setConfigOpen(true)}
-            >
-              <BoltIcon className="size-3.5" />
-              {t("Configuración de onevid")}
-            </DropdownMenuItem>
-            <LanguageMenuItem />
-            <DropdownMenuSeparator />
-            {/* Navega a /: la MISMA pantalla de modo local que ve alguien sin
-                sesión (sin duplicar una versión propia acá). El proxy
-                (src/proxy.ts) detecta que venimos de /home vía Referer y no
-                redirige de vuelta. */}
-            <DropdownMenuItem data-dpad-focusable render={<Link href="/" />}>
-              <UploadIcon className="size-3.5" />
-              {t("Modo local")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              data-dpad-focusable
-              disabled={signingOut}
-              onClick={handleSignOut}
-              variant="destructive"
-            >
-              <LogOutIcon className="size-3.5" />
-              {t("Cerrar sesión")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {/* Drawer sobre @base-ui/react/drawer (NO vaul): misma librería que
-            DropdownMenu/Dialog en este proyecto, así que el menú de los 3
-            puntos anidado dentro funciona sin conflictos de foco/portal. */}
-        <Drawer
-          onOpenChange={setConfigOpen}
-          open={configOpen}
-          swipeDirection="right"
-        >
-          <DrawerContent>
-            <DrawerHeader>
-              <DrawerTitle>{t("Configuración de onevid")}</DrawerTitle>
-              <DrawerDescription>
-                {t("Gestiona tu configuración.")}
-              </DrawerDescription>
-            </DrawerHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-              <SetupStepper
-                feedConfigured={feedConfigured}
-                feedRows={feedRows}
-                hasTorboxKey={hasTorboxKey}
-                initialAddons={addons}
-                linked={linked}
-                setupCompleted={setupCompleted}
-              />
-            </div>
-          </DrawerContent>
-        </Drawer>
       </div>
     </section>
   );
