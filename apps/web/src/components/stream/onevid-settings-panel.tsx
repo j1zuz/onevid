@@ -54,6 +54,7 @@ export type SettingsView =
   | "profiles";
 
 interface OneVidSettingsPanelProps {
+  discoverRows: OneVidFeedRow[];
   feedConfigured: boolean;
   feedRows: OneVidFeedRow[];
   hasTorboxKey: boolean;
@@ -286,6 +287,7 @@ function ProfilesView() {
  * configuraciones que no caben en ese dropdown.
  */
 export function OneVidSettingsPanel({
+  discoverRows,
   feedConfigured,
   feedRows,
   hasTorboxKey,
@@ -352,6 +354,7 @@ export function OneVidSettingsPanel({
 
       {view === "catalog" && (
         <SetupStepper
+          discoverRows={discoverRows}
           feedConfigured={feedConfigured}
           feedRows={feedRows}
           hasTorboxKey={hasTorboxKey}

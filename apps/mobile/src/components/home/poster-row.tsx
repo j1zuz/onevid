@@ -25,9 +25,18 @@ export function PosterRow({ title, items, loading, onPressItem }: PosterRowProps
   const CARD_WIDTH = rowCardWidth;
   return (
     <View className="gap-3">
-      <Typography type="h4" weight="bold" style={{ paddingHorizontal: 16 }}>
-        {title}
-      </Typography>
+      {/* El inicio pinta filas de skeleton antes de saber cuántas filas tiene
+          el feed del usuario ni cómo se llaman, así que sin título va también
+          un skeleton en su lugar (un Typography vacío dejaría un hueco). */}
+      {title ? (
+        <Typography type="h4" weight="bold" style={{ paddingHorizontal: 16 }}>
+          {title}
+        </Typography>
+      ) : (
+        <Skeleton
+          style={{ width: 160, height: 20, borderRadius: 6, marginHorizontal: 16 }}
+        />
+      )}
       {loading ? (
         <View
           style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 16 }}

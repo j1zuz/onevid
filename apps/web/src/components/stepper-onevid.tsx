@@ -47,6 +47,8 @@ export interface OneVidAddonSummary {
 }
 
 interface SetupStepperProps {
+  /** Filas de Descubrir, o su preset por defecto. */
+  discoverRows: OneVidFeedRow[];
   /** True cuando el usuario ya guardó su feed alguna vez (columna no NULL). */
   feedConfigured: boolean;
   /** Filas guardadas, o el preset por defecto si aún no configuró nada. */
@@ -60,6 +62,7 @@ interface SetupStepperProps {
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: stepper bundles token + feed + addons + torbox UI with multiple async flows
 export function SetupStepper({
+  discoverRows,
   feedConfigured,
   feedRows,
   hasTorboxKey,
@@ -535,6 +538,7 @@ export function SetupStepper({
 
         <StepperContent value={2}>
           <SetupFeedStep
+            initialDiscoverRows={discoverRows}
             initialRows={feedRows}
             onSavedChange={setFeedSaved}
             onSavingChange={setFeedSaving}

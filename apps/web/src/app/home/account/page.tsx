@@ -12,7 +12,11 @@ import {
 import { auth } from "@/lib/auth";
 import { oneVid, oneVidAddon, oneVidProfile } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
-import { DEFAULT_FEED_ROWS, parseFeedRows } from "@/lib/onevid-feed";
+import {
+  DEFAULT_DISCOVER_ROWS,
+  DEFAULT_FEED_ROWS,
+  parseFeedRows,
+} from "@/lib/onevid-feed";
 
 export const metadata: Metadata = {
   title: "Configuración",
@@ -57,6 +61,7 @@ export default async function AccountPage({
         torboxApiKey: oneVid.torboxApiKey,
         setupCompleted: oneVid.setupCompleted,
         feedRows: oneVid.feedRows,
+        discoverRows: oneVid.discoverRows,
       })
       .from(oneVid)
       .where(eq(oneVid.userId, session.user.id))
@@ -92,6 +97,10 @@ export default async function AccountPage({
   const parsedFeedRows = parseFeedRows(oneVidRow[0]?.feedRows);
   const feedConfigured = parsedFeedRows !== null;
   const feedRows = parsedFeedRows?.length ? parsedFeedRows : DEFAULT_FEED_ROWS;
+  const parsedDiscoverRows = parseFeedRows(oneVidRow[0]?.discoverRows);
+  const discoverRows = parsedDiscoverRows?.length
+    ? parsedDiscoverRows
+    : DEFAULT_DISCOVER_ROWS;
   const profiles = profileRows.map(({ pinHash, ...p }) => ({
     ...p,
     hasPin: Boolean(pinHash),
@@ -130,6 +139,7 @@ export default async function AccountPage({
           <h1 className="mb-6 font-bold text-2xl">Configuración</h1>
 
           <OneVidSettingsPanel
+            discoverRows={discoverRows}
             feedConfigured={feedConfigured}
             feedRows={feedRows}
             hasTorboxKey={Boolean(torboxKey)}

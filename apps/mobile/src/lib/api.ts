@@ -58,6 +58,28 @@ export interface MediaMeta {
   related?: MediaMeta[];
 }
 
+/**
+ * Una fila del feed de inicio, tal como la devuelve
+ * `/api/onevid-feed/sections`: el usuario la configura en la web y la app pinta
+ * exactamente las mismas filas, con su título e items ya resueltos.
+ */
+export interface FeedSection {
+  /** Ruta de la vista "Ver todo" en la web; la app no la usa por ahora. */
+  href: string;
+  id: string;
+  items: MediaMeta[];
+  title: string;
+}
+
+export interface FeedSectionsResponse {
+  /** false = el usuario nunca guardó su feed y esto es el preset por defecto. */
+  configured: boolean;
+  /** "network" = todas las filas fallaron; el 401 de token muerto ya viene como error HTTP. */
+  error: 'network' | null;
+  hero: MediaMeta[];
+  sections: FeedSection[];
+}
+
 // Sin esto, un fetch que se cuelga (wifi con paquetes perdidos, típico en TV
 // baratas) nunca resuelve NI rechaza: la queryFn de React Query queda pendiente
 // para siempre, isLoading nunca baja a false, y cualquier pantalla que

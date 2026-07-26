@@ -21,14 +21,15 @@ import { auth } from "@/lib/auth";
 import { oneVid, oneVidAddon, oneVidProfile } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
 import {
-  buildFeedRowHref,
-  buildFeedRowId,
+  DEFAULT_DISCOVER_ROWS,
   DEFAULT_FEED_ROWS,
   FEED_ROW_ITEM_LIMIT,
   type FeedCatalogId,
-  getFeedRowShortTitle,
+  type FeedSurface,
+  getFeedRowTitle,
   parseFeedRows,
 } from "@/lib/onevid-feed";
+import { resolveFeed } from "@/lib/onevid-feed-sections";
 import { getServerT } from "@/lib/server-t";
 import {
   getCatalogOptions,
@@ -41,30 +42,9 @@ import {
   TmdbNetworkError,
 } from "@/lib/tmdb";
 import {
-  fetchCatalogResults,
   fetchCatalogResultsAtLeast,
   VIEW_ALL_MIN_ITEMS,
 } from "@/lib/tmdb-catalog";
-
-// Hero de arriba de /home: mismo origen de datos que el carrusel de la app
-// móvil (trending película/serie intercalados), tomando hasta HERO_TAKE.
-const HERO_TAKE = 8;
-
-function interleaveMediaMeta(a: MediaMeta[], b: MediaMeta[]): MediaMeta[] {
-  const out: MediaMeta[] = [];
-  const max = Math.max(a.length, b.length);
-  for (let i = 0; i < max; i++) {
-    const fromA = a[i];
-    const fromB = b[i];
-    if (fromA) {
-      out.push(fromA);
-    }
-    if (fromB) {
-      out.push(fromB);
-    }
-  }
-  return out;
-}
 
 export const metadata: Metadata = {
   title: "Catálogo",
@@ -76,6 +56,7 @@ type SearchParams = Promise<{
   type?: string;
   catalog?: string;
   network?: string;
+  surface?: string;
 }>;
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: catalog page with setup gating, token fallback and TMDB error handling
@@ -101,6 +82,7 @@ export default async function OneVidPage({
         torboxApiKey: oneVid.torboxApiKey,
         setupCompleted: oneVid.setupCompleted,
         feedRows: oneVid.feedRows,
+        discoverRows: oneVid.discoverRows,
       })
       .from(oneVid)
       .where(eq(oneVid.userId, session.user.id))
@@ -143,6 +125,17 @@ export default async function OneVidPage({
   const parsedFeedRows = parseFeedRows(oneVidRow[0]?.feedRows);
   const feedConfigured = parsedFeedRows !== null;
   const feedRows = parsedFeedRows?.length ? parsedFeedRows : DEFAULT_FEED_ROWS;
+  const parsedDiscoverRows = parseFeedRows(oneVidRow[0]?.discoverRows);
+  const discoverRows = parsedDiscoverRows?.length
+    ? parsedDiscoverRows
+    : DEFAULT_DISCOVER_ROWS;
+  // ?surface=discover pinta las filas de Descubrir en vez de las del inicio.
+  // Es un query param y no una ruta aparte porque el resto de la página (auth,
+  // perfiles, setup, hero, "Continuar viendo") es idéntico; ver el patrón de
+  // ?view=continuing.
+  const surface: FeedSurface =
+    params.surface === "discover" ? "discover" : "home";
+  const surfaceRows = surface === "discover" ? discoverRows : feedRows;
   // Expose only a boolean lock flag per profile; never the hash.
   const profiles = profileRows.map(({ pinHash, ...p }) => ({
     ...p,
@@ -198,11 +191,13 @@ export default async function OneVidPage({
 
   const headerProps = {
     addons: addonRows,
+    discoverRows,
     feedConfigured,
     feedRows,
     hasTorboxKey: Boolean(torboxKey),
     linked: tmdbLinked,
     setupCompleted,
+    surface,
   };
 
   // TMDB is "configured" only when the account is connected via OAuth v4.
@@ -236,6 +231,7 @@ export default async function OneVidPage({
               </EmptyHeader>
               <EmptyContent>
                 <SetupStepper
+                  discoverRows={discoverRows}
                   feedConfigured={feedConfigured}
                   feedRows={feedRows}
                   hasTorboxKey={Boolean(torboxKey)}
@@ -275,7 +271,7 @@ export default async function OneVidPage({
         },
         VIEW_ALL_MIN_ITEMS
       );
-      viewAllTitle = getFeedRowShortTitle(
+      viewAllTitle = getFeedRowTitle(
         {
           catalog: selectedCatalog as FeedCatalogId,
           networkId: selectedNetwork?.id,
@@ -294,100 +290,18 @@ export default async function OneVidPage({
       }
     }
   } else {
-    const [settled, heroMovies, heroSeries] = await Promise.all([
-      Promise.allSettled(
-        feedRows.map((row) =>
-          fetchCatalogResults({
-            catalog: row.catalog,
-            network: row.networkId
-              ? networksById.get(row.networkId)
-              : undefined,
-            tmdbLocale,
-            tmdbRegion,
-            token,
-            type: row.type,
-          })
-        )
-      ),
-      // Trending película/serie intercalados para el hero, igual origen que
-      // en la app móvil. Independiente de las filas configuradas por el
-      // usuario (que pueden no incluir "Tendencias"); si falla, el hero
-      // simplemente no se muestra — el fallo real de auth ya lo detecta
-      // `settled` más abajo con las filas del feed.
-      fetchCatalogResults({
-        catalog: "trending",
-        tmdbLocale,
-        tmdbRegion,
-        token,
-        type: "movie",
-      }).catch((error) => {
-        console.warn("[onevid] hero (trending movie) falló:", error);
-        return [];
-      }),
-      fetchCatalogResults({
-        catalog: "trending",
-        tmdbLocale,
-        tmdbRegion,
-        token,
-        type: "series",
-      }).catch((error) => {
-        console.warn("[onevid] hero (trending series) falló:", error);
-        return [];
-      }),
-    ]);
-    heroItems = interleaveMediaMeta(heroMovies, heroSeries).slice(
-      0,
-      HERO_TAKE
-    );
-
-    // El token muerto se detecta ANTES de descartar filas: si falla la auth hay
-    // que volver a mostrar el stepper, no un feed a medias.
-    if (
-      settled.some(
-        (result) =>
-          result.status === "rejected" && result.reason instanceof TmdbAuthError
-      )
-    ) {
-      loadError = "auth";
-    } else {
-      feedSections = settled.flatMap((result, index) => {
-        const row = feedRows[index];
-        if (!row) {
-          return [];
-        }
-        if (result.status === "rejected") {
-          // Una fila caída (red/timeout) desaparece sin tumbar la página.
-          console.warn(
-            `[onevid] fila del feed fallida ${buildFeedRowId(row)}:`,
-            result.reason
-          );
-          return [];
-        }
-        if (result.value.length === 0) {
-          return [];
-        }
-        return [
-          {
-            href: buildFeedRowHref(row),
-            id: buildFeedRowId(row),
-            items: result.value.slice(0, FEED_ROW_ITEM_LIMIT),
-            title: getFeedRowShortTitle(
-              row,
-              t,
-              row.networkId ? networksById.get(row.networkId)?.name : undefined
-            ),
-          },
-        ];
-      });
-      // Solo es error de red si TODAS las filas fallaron; si simplemente no
-      // devolvieron resultados, el cliente muestra el estado vacío.
-      const rejected = settled.filter(
-        (result) => result.status === "rejected"
-      ).length;
-      if (settled.length > 0 && rejected === settled.length) {
-        loadError = "network";
-      }
-    }
+    const feed = await resolveFeed({
+      itemsPerRow: FEED_ROW_ITEM_LIMIT,
+      networksById,
+      rows: surfaceRows,
+      t,
+      tmdbLocale,
+      tmdbRegion,
+      token,
+    });
+    feedSections = feed.sections;
+    heroItems = feed.hero;
+    loadError = feed.error;
   }
 
   if (loadError === "auth") {
@@ -405,6 +319,7 @@ export default async function OneVidPage({
               </EmptyHeader>
               <EmptyContent>
                 <SetupStepper
+                  discoverRows={discoverRows}
                   feedConfigured={feedConfigured}
                   feedRows={feedRows}
                   hasTorboxKey={Boolean(torboxKey)}
@@ -445,6 +360,7 @@ export default async function OneVidPage({
     <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
       <OneVidPageClient
         addons={addonRows}
+        discoverRows={discoverRows}
         feedConfigured={feedConfigured}
         feedRows={feedRows}
         feedSections={feedSections}
@@ -454,6 +370,7 @@ export default async function OneVidPage({
         linked={tmdbLinked}
         posters={posters}
         setupCompleted={setupCompleted}
+        surface={surface}
         viewAllTitle={viewAllTitle}
       />
     </main>

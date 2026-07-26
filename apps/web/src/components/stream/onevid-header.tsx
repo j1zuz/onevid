@@ -10,7 +10,7 @@ import type { OneVidAddonSummary } from "@/components/stepper-onevid";
 import { OneVidProfileSwitcher } from "@/components/stream/onevid-profile-switcher";
 import { useDebouncedSearch } from "@/hooks/use-debounced-search";
 import { useTranslation } from "@/lib/onevid-i18n-context";
-import type { OneVidFeedRow } from "@/lib/onevid-feed";
+import type { FeedSurface, OneVidFeedRow } from "@/lib/onevid-feed";
 import type { MediaMeta } from "@/lib/tmdb";
 
 type CatalogType = "movie" | "series";
@@ -24,6 +24,15 @@ interface SearchMeta {
   type?: CatalogType;
   year?: string;
 }
+
+const SURFACE_TABS: Array<{
+  href: string;
+  label: string;
+  surface: FeedSurface;
+}> = [
+  { href: "/home", label: "Inicio", surface: "home" },
+  { href: "/home?surface=discover", label: "Descubrir", surface: "discover" },
+];
 
 // El endpoint ya recorta a 20; en el dropdown solo caben unos pocos.
 const SEARCH_RESULT_LIMIT = 8;
@@ -44,15 +53,21 @@ function parseSearchResults(payload: unknown): SearchMeta[] {
 // configuración vive en la página /home/account.
 interface OneVidHeaderProps {
   addons: OneVidAddonSummary[];
+  discoverRows: OneVidFeedRow[];
   feedConfigured: boolean;
   feedRows: OneVidFeedRow[];
   hasTorboxKey: boolean;
   linked: boolean;
   onMovieSelect?: (movie: MediaMeta) => void;
   setupCompleted: boolean;
+  /** Pestaña activa; la elige `?surface=` en /home. */
+  surface?: FeedSurface;
 }
 
-export function OneVidHeader({ onMovieSelect }: OneVidHeaderProps) {
+export function OneVidHeader({
+  onMovieSelect,
+  surface = "home",
+}: OneVidHeaderProps) {
   const { t: rawT } = useTranslation();
   const t = (key: string) => rawT(key as never);
   const {
@@ -223,6 +238,28 @@ export function OneVidHeader({ onMovieSelect }: OneVidHeaderProps) {
           width={32}
         />
       </Link>
+
+      {/* Las dos superficies configurables. Son enlaces y no un control con
+          estado porque cada una es una carga distinta del Server Component; el
+          feed de cada pestaña lo arma el usuario en el paso 2 del stepper. */}
+      <nav className="flex shrink-0 items-center gap-1">
+        {SURFACE_TABS.map((tab) => (
+          <Link
+            aria-current={surface === tab.surface ? "page" : undefined}
+            className={cn(
+              "rounded-full border border-transparent px-3 py-1 font-medium text-sm transition-colors",
+              surface === tab.surface
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            data-dpad-focusable
+            href={tab.href}
+            key={tab.surface}
+          >
+            {t(tab.label)}
+          </Link>
+        ))}
+      </nav>
 
       {/* Búsqueda + perfil + configuración. Los selectores de tipo / catálogo /
           cadena que vivían aquí ahora son el paso 2 del stepper ("Configurar

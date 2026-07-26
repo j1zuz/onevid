@@ -11,6 +11,12 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select";
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@workspace/ui/components/tabs";
+import {
   ChevronDownIcon,
   ChevronUpIcon,
   GripVerticalIcon,
@@ -23,12 +29,9 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
   buildFeedRowId,
-  FEED_CATALOG_IDS,
   FEED_MAX_ROWS,
-  type FeedCatalogId,
   type FeedMediaType,
   type FeedRowWithId,
-  getFeedCatalogLabel,
   getFeedRowTitle,
   getNetworkOptions,
   type OneVidFeedRow,
@@ -37,6 +40,7 @@ import {
 import { useTranslation } from "@/lib/onevid-i18n-context";
 
 interface SetupFeedStepProps {
+  initialDiscoverRows: OneVidFeedRow[];
   initialRows: OneVidFeedRow[];
   /** Alimenta `completed` del StepperItem 2 (se apaga al haber cambios sin guardar). */
   onSavedChange: (saved: boolean) => void;
@@ -128,16 +132,21 @@ function FeedRowItem({
 }
 
 /**
- * Paso 2 del setup: elige qué filas verá el usuario en su inicio y en qué
- * orden. Sustituye a los tres dropdowns (tipo / catálogo / cadena) que antes
- * vivían en el header de /home.
+ * Editor de UNA superficie (inicio o Descubrir): añadir filas, reordenarlas y
+ * quitarlas. El guardado NO vive aquí: las dos superficies se persisten juntas
+ * desde `SetupFeedStep`, con un único botón.
  */
-export function SetupFeedStep({
-  initialRows,
-  onSavedChange,
-  onSavingChange,
-}: SetupFeedStepProps) {
-  const router = useRouter();
+function FeedSurfaceEditor({
+  emptyHint,
+  label,
+  onRowsChange,
+  rows,
+}: {
+  emptyHint: string;
+  label: string;
+  onRowsChange: (next: FeedRowWithId[]) => void;
+  rows: FeedRowWithId[];
+}) {
   const { t: rawT } = useTranslation();
   const t = (key: string) => rawT(key as never);
 
@@ -147,20 +156,9 @@ export function SetupFeedStep({
     [networks]
   );
 
-  const [rows, setRows] = useState<FeedRowWithId[]>(() =>
-    withFeedRowIds(initialRows)
-  );
   const [draftType, setDraftType] = useState<FeedMediaType>("movie");
-  const [draftCatalog, setDraftCatalog] = useState<FeedCatalogId>("trending");
   const [draftNetwork, setDraftNetwork] = useState("all");
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
-  function applyRows(next: FeedRowWithId[]) {
-    setRows(next);
-    // Hay cambios sin guardar: el paso deja de estar completado hasta el PUT.
-    onSavedChange(false);
-  }
 
   function move(from: number, to: number) {
     if (to < 0 || to >= rows.length) {
@@ -172,7 +170,7 @@ export function SetupFeedStep({
       return;
     }
     next.splice(to, 0, moved);
-    applyRows(next);
+    onRowsChange(next);
   }
 
   function handleAdd() {
@@ -183,53 +181,22 @@ export function SetupFeedStep({
     const networkId =
       draftNetwork !== "all" ? Number(draftNetwork) : undefined;
     const row: OneVidFeedRow = networkId
-      ? { type: draftType, catalog: draftCatalog, networkId }
-      : { type: draftType, catalog: draftCatalog };
+      ? { type: draftType, catalog: "trending", networkId }
+      : { type: draftType, catalog: "trending" };
     const id = buildFeedRowId(row);
     if (rows.some((r) => r.id === id)) {
-      setError("Esa fila ya está en tu inicio");
+      setError("Esa fila ya está en la lista");
       return;
     }
     setError("");
-    applyRows([...rows, { ...row, id }]);
-  }
-
-  async function handleSave() {
-    setSaving(true);
-    onSavingChange(true);
-    setError("");
-    try {
-      const res = await fetch("/api/onevid-feed", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rows: rows.map(({ id: _id, ...row }) => row),
-        }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        rows?: OneVidFeedRow[];
-        error?: string;
-      };
-      if (!(res.ok && data.rows)) {
-        setError(data.error || "Error al guardar tu inicio");
-        return;
-      }
-      setRows(withFeedRowIds(data.rows));
-      onSavedChange(true);
-      router.refresh();
-    } catch {
-      setError("Error de conexión");
-    } finally {
-      setSaving(false);
-      onSavingChange(false);
-    }
+    onRowsChange([...rows, { ...row, id }]);
   }
 
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-1.5">
-          <Label className="text-xs">Filas de tu inicio</Label>
+          <Label className="text-xs">{label}</Label>
           <Badge variant="outline">Opcional</Badge>
           <span className="text-[0.65rem] text-muted-foreground">
             arrastra para ordenar
@@ -254,28 +221,6 @@ export function SetupFeedStep({
             </SelectContent>
           </Select>
 
-          <Select
-            items={FEED_CATALOG_IDS.map((catalog) => ({
-              value: catalog,
-              label: getFeedCatalogLabel(catalog, t),
-            }))}
-            onValueChange={(val) => setDraftCatalog(val as FeedCatalogId)}
-            value={draftCatalog}
-          >
-            <SelectTrigger className="flex-1 text-xs" data-dpad-focusable size="sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {FEED_CATALOG_IDS.map((catalog) => (
-                <SelectItem key={catalog} value={catalog}>
-                  {getFeedCatalogLabel(catalog, t)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex gap-1.5">
           <Select
             items={[
               { value: "all", label: t("Todas las cadenas") },
@@ -313,20 +258,18 @@ export function SetupFeedStep({
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-[0.7rem] text-muted-foreground">
-          Sin filas: tu inicio usará la selección por defecto.
-        </p>
+        <p className="text-[0.7rem] text-muted-foreground">{emptyHint}</p>
       ) : (
         <Reorder.Group
           as="ul"
           axis="y"
-          className="flex flex-col gap-1.5"
-          onReorder={(nextIds: string[]) => {
+          className="space-y-1.5"
+          onReorder={(ids: string[]) => {
             const byId = new Map(rows.map((row) => [row.id, row]));
-            const next = nextIds
+            const next = ids
               .map((id) => byId.get(id))
               .filter((row): row is FeedRowWithId => Boolean(row));
-            applyRows(next);
+            onRowsChange(next);
           }}
           values={rows.map((row) => row.id)}
         >
@@ -342,22 +285,128 @@ export function SetupFeedStep({
               )}
               onMoveDown={() => move(index, index + 1)}
               onMoveUp={() => move(index, index - 1)}
-              onRemove={() => applyRows(rows.filter((r) => r.id !== row.id))}
+              onRemove={() => onRowsChange(rows.filter((r) => r.id !== row.id))}
               row={row}
             />
           ))}
         </Reorder.Group>
       )}
+    </div>
+  );
+}
+
+/**
+ * Paso 2 del setup: elige qué filas verá el usuario, en qué orden, y en cuál de
+ * las dos superficies — su inicio o la pestaña Descubrir. Cada una guarda su
+ * propia lista y las dos las respetan tanto /home como la app.
+ */
+export function SetupFeedStep({
+  initialDiscoverRows,
+  initialRows,
+  onSavedChange,
+  onSavingChange,
+}: SetupFeedStepProps) {
+  const router = useRouter();
+
+  const [rows, setRows] = useState<FeedRowWithId[]>(() =>
+    withFeedRowIds(initialRows)
+  );
+  const [discoverRows, setDiscoverRows] = useState<FeedRowWithId[]>(() =>
+    withFeedRowIds(initialDiscoverRows)
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  // Cualquier cambio local invalida el "guardado" hasta el próximo PUT, venga
+  // de la superficie que venga: el botón guarda las dos a la vez.
+  function applyRows(next: FeedRowWithId[]) {
+    setRows(next);
+    onSavedChange(false);
+  }
+
+  function applyDiscoverRows(next: FeedRowWithId[]) {
+    setDiscoverRows(next);
+    onSavedChange(false);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    onSavingChange(true);
+    setError("");
+    try {
+      const res = await fetch("/api/onevid-feed", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          discoverRows: discoverRows.map(({ id: _id, ...row }) => row),
+          rows: rows.map(({ id: _id, ...row }) => row),
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        discoverRows?: OneVidFeedRow[];
+        error?: string;
+        rows?: OneVidFeedRow[];
+      };
+      if (!(res.ok && data.rows)) {
+        setError(data.error || "Error al guardar tu inicio");
+        return;
+      }
+      setRows(withFeedRowIds(data.rows));
+      if (data.discoverRows) {
+        setDiscoverRows(withFeedRowIds(data.discoverRows));
+      }
+      onSavedChange(true);
+      router.refresh();
+    } catch {
+      setError("Error de conexión");
+    } finally {
+      setSaving(false);
+      onSavingChange(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <Tabs defaultValue="home">
+        <TabsList className="w-full">
+          <TabsTrigger data-dpad-focusable value="home">
+            Inicio
+          </TabsTrigger>
+          <TabsTrigger data-dpad-focusable value="discover">
+            Descubrir
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="home">
+          <FeedSurfaceEditor
+            emptyHint="Sin filas: tu inicio usará la selección por defecto."
+            label="Filas de tu inicio"
+            onRowsChange={applyRows}
+            rows={rows}
+          />
+        </TabsContent>
+
+        <TabsContent value="discover">
+          <FeedSurfaceEditor
+            emptyHint="Sin filas: Descubrir usará la selección por defecto."
+            label="Filas de Descubrir"
+            onRowsChange={applyDiscoverRows}
+            rows={discoverRows}
+          />
+        </TabsContent>
+      </Tabs>
+
+      {error && <p className="text-destructive text-xs">{error}</p>}
 
       <Button
         className="btn-primary w-full"
         data-dpad-focusable
-        disabled={saving || rows.length === 0}
+        disabled={saving || rows.length === 0 || discoverRows.length === 0}
         onClick={handleSave}
         size="sm"
       >
         {saving && <LoaderIcon className="size-3 animate-spin" />}
-        {saving ? "Guardando..." : "Guardar mi inicio"}
+        Guardar mis filas
       </Button>
     </div>
   );

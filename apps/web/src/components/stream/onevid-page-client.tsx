@@ -24,7 +24,7 @@ import {
   type OneVidProfile,
   OneVidProfileProvider,
 } from "@/components/stream/onevid-profile-context";
-import type { OneVidFeedRow } from "@/lib/onevid-feed";
+import type { FeedSurface, OneVidFeedRow } from "@/lib/onevid-feed";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { MediaMeta } from "@/lib/tmdb";
 
@@ -108,6 +108,7 @@ function BackToHomeHeader({ title }: { title: string }) {
 
 interface OneVidPageClientProps {
   addons: OneVidAddonSummary[];
+  discoverRows: OneVidFeedRow[];
   feedConfigured: boolean;
   feedRows: OneVidFeedRow[];
   /** Modo feed: filas ya resueltas por el server. */
@@ -120,11 +121,14 @@ interface OneVidPageClientProps {
   /** Modo "Ver todo": grilla completa de una sola fila. */
   posters?: MediaMeta[];
   setupCompleted: boolean;
+  /** Pestaña activa del header (Inicio/Descubrir); la elige `?surface=` en /home. */
+  surface?: FeedSurface;
   viewAllTitle?: string;
 }
 
 export function OneVidPageClient({
   addons,
+  discoverRows,
   feedConfigured,
   feedRows,
   feedSections,
@@ -134,6 +138,7 @@ export function OneVidPageClient({
   linked,
   posters,
   setupCompleted,
+  surface,
   viewAllTitle,
 }: OneVidPageClientProps) {
   const searchParams = useSearchParams();
@@ -215,12 +220,14 @@ export function OneVidPageClient({
     <OneVidProfileProvider initialProfiles={initialProfiles}>
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <OneVidHeader
+          discoverRows={discoverRows}
           addons={addons}
           feedConfigured={feedConfigured}
           feedRows={feedRows}
           hasTorboxKey={hasTorboxKey}
           linked={linked}
           onMovieSelect={handleMovieSelect}
+          surface={surface}
           setupCompleted={setupCompleted}
         />
 

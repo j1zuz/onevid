@@ -8,16 +8,12 @@ import {
   HORIZONTAL_POSTER_GRID_CLASS,
   PosterCard,
 } from "@/components/stream/poster-card";
+import type { FeedSection } from "@/lib/onevid-feed-sections";
 import { useTranslation } from "@/lib/onevid-i18n-context";
-import type { MediaMeta } from "@/lib/tmdb";
 
-export interface FeedSection {
-  /** Vista "Ver todo": /home?type=…&catalog=…&network=… */
-  href: string;
-  id: string;
-  items: MediaMeta[];
-  title: string;
-}
+// Definido junto a `resolveFeed`, que es quien las produce. Se re-exporta aquí
+// porque los consumidores de este componente ya lo importaban de este módulo.
+export type { FeedSection };
 
 /**
  * Una fila del feed de inicio. El título y los items ya vienen resueltos desde

@@ -16,11 +16,18 @@ import { LocalVideoPicker } from '@/components/local-video-picker';
 import { SetupPrompt, useSetupStatus } from '@/components/setup-prompt';
 import { StreamLoginScreen } from '@/components/stream-login-screen';
 import { useAppSurface } from '@/hooks/use-app-surface';
-import { apiFetch, type MediaMeta } from '@/lib/api';
+import {
+  apiFetch,
+  type FeedSectionsResponse,
+  type MediaMeta,
+} from '@/lib/api';
 import { navigateToDetail } from '@/lib/detail-nav';
 import { COLORS } from '@/lib/theme';
 
-const HERO_TAKE = 8;
+// Filas de skeleton mientras llega el feed: no sabemos cuántas tiene el usuario
+// hasta que responde el backend, así que mostramos un par y luego se sustituyen
+// por las reales.
+const SKELETON_ROWS = 2;
 
 export default function HomeTab() {
   const { t, i18n } = useTranslation();
@@ -60,36 +67,26 @@ export default function HomeTab() {
       }
     }, [catalogEnabled, queryClient]),
   );
-  const moviesQuery = useQuery({
-    queryKey: ['catalog', 'movie', 'trending', lang],
+  // Una sola petición para todo el feed: el backend resuelve las filas que el
+  // usuario configuró en la web (más el hero) y las devuelve ya con sus items,
+  // en vez de que la app pida fila por fila.
+  const feedQuery = useQuery({
+    queryKey: ['feed-sections', lang],
     queryFn: () =>
-      apiFetch<{ results: MediaMeta[] }>(
-        '/api/onevid-catalog?type=movie&catalog=trending',
-      ).then((r) => r.results ?? []),
-    enabled: catalogEnabled,
-  });
-  const seriesQuery = useQuery({
-    queryKey: ['catalog', 'series', 'trending', lang],
-    queryFn: () =>
-      apiFetch<{ results: MediaMeta[] }>(
-        '/api/onevid-catalog?type=series&catalog=trending',
-      ).then((r) => r.results ?? []),
+      apiFetch<FeedSectionsResponse>('/api/onevid-feed/sections'),
     enabled: catalogEnabled,
   });
 
-  const movies = moviesQuery.data ?? [];
-  const series = seriesQuery.data ?? [];
+  const sections = feedQuery.data?.sections ?? [];
+  const heroItems = feedQuery.data?.hero ?? [];
   // Solo skeleton si aún no hay datos en cache (primera carga real). Incluye
   // continueQuery para que todo el contenido aparezca en un solo bloque en vez
   // de revelarse fila por fila conforme cada query resuelve (efecto cascada).
-  const loading =
-    moviesQuery.isLoading || seriesQuery.isLoading || continueQuery.isLoading;
+  const loading = feedQuery.isLoading || continueQuery.isLoading;
   const error =
-    moviesQuery.isError && seriesQuery.isError
+    feedQuery.isError || feedQuery.data?.error === 'network'
       ? t('No pudimos cargar el catálogo. Reintenta en un momento.')
       : null;
-
-  const heroItems = interleave(movies, series).slice(0, HERO_TAKE);
 
   const handlePressItem = useCallback(
     (item: MediaMeta) => {
@@ -175,18 +172,24 @@ export default function HomeTab() {
           />
         ) : null}
 
-        <PosterRow
-          title={t('Películas en tendencia')}
-          items={movies}
-          loading={loading}
-          onPressItem={handlePressItem}
-        />
-        <PosterRow
-          title={t('Series en tendencia')}
-          items={series}
-          loading={loading}
-          onPressItem={handlePressItem}
-        />
+        {loading
+          ? Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+              <PosterRow
+                items={[]}
+                // biome-ignore lint/suspicious/noArrayIndexKey: placeholder fijo
+                key={i}
+                loading
+                title=""
+              />
+            ))
+          : sections.map((section) => (
+              <PosterRow
+                items={section.items}
+                key={section.id}
+                onPressItem={handlePressItem}
+                title={section.title}
+              />
+            ))}
 
         {error && !loading ? (
           <Typography
@@ -202,14 +205,4 @@ export default function HomeTab() {
       </ScrollShadow>
     </View>
   );
-}
-
-function interleave<T>(a: T[], b: T[]): T[] {
-  const out: T[] = [];
-  const len = Math.max(a.length, b.length);
-  for (let i = 0; i < len; i += 1) {
-    if (a[i]) out.push(a[i]);
-    if (b[i]) out.push(b[i]);
-  }
-  return out;
 }
