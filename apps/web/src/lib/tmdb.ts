@@ -1177,12 +1177,18 @@ export async function searchMovies(
   page?: number,
   locale?: string
 ): Promise<MediaMeta[]> {
-  const genreMap = await fetchMovieGenres(token, locale);
-  const data = await tmdbFetch<TmdbSearchResponse>(token, "/3/search/movie", {
-    query,
-    language: locale || "es-MX",
-    page: String(page || 1),
-  });
+  // En paralelo, no en serie: la lista de géneros solo queda cacheada a
+  // partir de la primera llamada del proceso, así que encadenarla le sumaba
+  // un round-trip completo a TMDB a la primera búsqueda. Y si falla, seguimos
+  // con los resultados sin géneros en vez de dejar la búsqueda vacía.
+  const [genreMap, data] = await Promise.all([
+    fetchMovieGenres(token, locale).catch(() => undefined),
+    tmdbFetch<TmdbSearchResponse>(token, "/3/search/movie", {
+      query,
+      language: locale || "es-MX",
+      page: String(page || 1),
+    }),
+  ]);
 
   return (data.results ?? []).map((item) =>
     mapMovieToMeta(item as TmdbMovieResult, genreMap)
@@ -1195,12 +1201,16 @@ export async function searchTv(
   page?: number,
   locale?: string
 ): Promise<MediaMeta[]> {
-  const genreMap = await fetchTvGenres(token, locale);
-  const data = await tmdbFetch<TmdbSearchResponse>(token, "/3/search/tv", {
-    query,
-    language: locale || "es-MX",
-    page: String(page || 1),
-  });
+  // Igual que searchMovies: géneros y búsqueda en paralelo, y un fallo de
+  // géneros no invalida los resultados.
+  const [genreMap, data] = await Promise.all([
+    fetchTvGenres(token, locale).catch(() => undefined),
+    tmdbFetch<TmdbSearchResponse>(token, "/3/search/tv", {
+      query,
+      language: locale || "es-MX",
+      page: String(page || 1),
+    }),
+  ]);
 
   return (data.results ?? []).map((item) =>
     mapTvToMeta(item as TmdbTvResult, genreMap)

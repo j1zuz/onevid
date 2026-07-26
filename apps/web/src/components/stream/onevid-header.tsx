@@ -2,11 +2,13 @@
 
 import { Input } from "@workspace/ui/components/input";
 import { Skeleton } from "@workspace/ui/components/skeleton";
+import { cn } from "@workspace/ui/lib/utils";
 import { SearchIcon, XIcon } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OneVidAddonSummary } from "@/components/stepper-onevid";
 import { OneVidProfileSwitcher } from "@/components/stream/onevid-profile-switcher";
+import { useDebouncedSearch } from "@/hooks/use-debounced-search";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { OneVidFeedRow } from "@/lib/onevid-feed";
 import type { MediaMeta } from "@/lib/tmdb";
@@ -21,6 +23,19 @@ interface SearchMeta {
   poster?: string;
   type?: CatalogType;
   year?: string;
+}
+
+// El endpoint ya recorta a 20; en el dropdown solo caben unos pocos.
+const SEARCH_RESULT_LIMIT = 8;
+const SEARCH_SKELETON_ROWS = ["a", "b", "c", "d"];
+
+function buildSearchUrl(query: string): string {
+  return `/api/search?q=${encodeURIComponent(query)}`;
+}
+
+function parseSearchResults(payload: unknown): SearchMeta[] {
+  const results = (payload as { results?: SearchMeta[] } | null)?.results;
+  return Array.isArray(results) ? results.slice(0, SEARCH_RESULT_LIMIT) : [];
 }
 
 // feedConfigured/feedRows/hasTorboxKey/addons/linked/setupCompleted quedan en
@@ -40,63 +55,54 @@ interface OneVidHeaderProps {
 export function OneVidHeader({ onMovieSelect }: OneVidHeaderProps) {
   const { t: rawT } = useTranslation();
   const t = (key: string) => rawT(key as never);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchMeta[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [showResults, setShowResults] = useState(false);
+  const {
+    loading: searchLoading,
+    query: searchQuery,
+    reset: resetSearch,
+    results: searchResults,
+    search,
+    submit,
+  } = useDebouncedSearch<SearchMeta>({
+    buildUrl: buildSearchUrl,
+    parse: parseSearchResults,
+  });
+  // `open` es independiente de la respuesta del fetch a propósito: antes el
+  // dropdown se abría al *recibir* los resultados, así que en la primera
+  // búsqueda el skeleton no llegaba a verse nunca y la lista aparecía de
+  // golpe (a partir de la segunda sí, porque el estado ya se había quedado
+  // abierto).
+  const [open, setOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
 
-  const doSearch = useCallback(async (q: string) => {
-    if (!q.trim()) {
-      setSearchResults([]);
-      setShowResults(false);
-      return;
-    }
-    setSearchLoading(true);
-    try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
-      const data = await res.json();
-      setSearchResults(data.results?.slice(0, 8) || []);
-      setShowResults(true);
-    } catch {
-      setSearchResults([]);
-    } finally {
-      setSearchLoading(false);
-    }
-  }, []);
+  const hasQuery = searchQuery.trim().length > 0;
+  const showResults = open && hasQuery;
 
   const handleSearchChange = useCallback(
     (value: string) => {
-      setSearchQuery(value);
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-      }
-      debounceRef.current = setTimeout(() => doSearch(value), 350);
+      search(value);
+      setOpen(value.trim().length > 0);
     },
-    [doSearch]
+    [search]
   );
 
   const handleSearchSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-      if (searchQuery.trim()) {
-        doSearch(searchQuery);
-      }
+      submit();
+      setOpen(searchQuery.trim().length > 0);
     },
-    [searchQuery, doSearch]
+    [searchQuery, submit]
   );
 
   const clearSearch = useCallback(() => {
-    setSearchQuery("");
-    setSearchResults([]);
-    setShowResults(false);
-  }, []);
+    resetSearch();
+    setOpen(false);
+  }, [resetSearch]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
-        setShowResults(false);
+        setOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -104,10 +110,13 @@ export function OneVidHeader({ onMovieSelect }: OneVidHeaderProps) {
   }, []);
 
   function renderSearchResults() {
-    if (searchLoading) {
+    // Solo caemos al skeleton cuando no hay nada que mostrar. Si ya había
+    // resultados, se quedan atenuados mientras llega la query refinada: así
+    // el dropdown no cambia de alto en cada tecla.
+    if (searchLoading && searchResults.length === 0) {
       return (
         <div className="space-y-2 p-2">
-          {["a", "b", "c", "d"].map((key) => (
+          {SEARCH_SKELETON_ROWS.map((key) => (
             <div className="flex items-center gap-3" key={key}>
               <Skeleton className="h-12 w-20 shrink-0 rounded-md" />
               <div className="flex-1 space-y-1">
@@ -122,17 +131,23 @@ export function OneVidHeader({ onMovieSelect }: OneVidHeaderProps) {
     if (searchResults.length === 0) {
       return (
         <p className="p-3 text-center text-muted-foreground text-sm">
-          No se encontraron resultados
+          {t("No se encontraron resultados")}
         </p>
       );
     }
     return (
       <ul
-        className="scroll-fade-y max-h-80 overflow-y-auto [&::-webkit-scrollbar]:hidden"
+        className={cn(
+          "scroll-fade-y max-h-80 overflow-y-auto transition-opacity [&::-webkit-scrollbar]:hidden",
+          searchLoading && "opacity-50"
+        )}
         style={{ scrollbarWidth: "none" }}
       >
         {searchResults.map((item) => (
-          <li key={item.id}>
+          // Tipo + id, igual que el dedupe de /api/search: los ids de TMDB
+          // son por colección, así que una película y una serie pueden
+          // compartir el mismo número y colisionar como key.
+          <li key={`${item.type ?? "movie"}:${item.id}`}>
             <button
               className="flex w-full items-center gap-3 rounded-md border border-transparent px-3 py-2 text-left transition-colors"
               data-dpad-focusable
@@ -149,17 +164,18 @@ export function OneVidHeader({ onMovieSelect }: OneVidHeaderProps) {
                   type: item.type === "series" ? "series" : "movie",
                   year: item.year,
                 });
-                setShowResults(false);
-                setSearchQuery("");
+                clearSearch();
               }}
               type="button"
             >
               {item.background || item.poster ? (
-                <div
-                  className="h-12 w-20 shrink-0 rounded-md bg-center bg-cover"
-                  style={{
-                    backgroundImage: `url(${item.background || item.poster})`,
-                  }}
+                /* biome-ignore lint/performance/noImgElement: external CDN art */
+                <img
+                  alt=""
+                  className="h-12 w-20 shrink-0 rounded-md object-cover"
+                  decoding="async"
+                  loading="lazy"
+                  src={item.background || item.poster}
                 />
               ) : (
                 <div className="h-12 w-20 shrink-0 rounded-md bg-muted" />
@@ -223,8 +239,8 @@ export function OneVidHeader({ onMovieSelect }: OneVidHeaderProps) {
                 data-dpad-focusable
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onFocus={() => {
-                  if (searchResults.length > 0) {
-                    setShowResults(true);
+                  if (hasQuery) {
+                    setOpen(true);
                   }
                 }}
                 placeholder={`${t("Buscar")}...`}
@@ -245,7 +261,11 @@ export function OneVidHeader({ onMovieSelect }: OneVidHeaderProps) {
           </form>
 
           {showResults && (
-            <div className="absolute top-full right-0 z-50 mt-1 w-full overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+            /* El fade+slide es del contenedor, no de cada resultado: el
+               scanner del mando (dpad-navigation) descarta los elementos con
+               opacity 0, así que animar los ítems uno a uno los volvería
+               inalcanzables mientras dura su animación. */
+            <div className="absolute top-full right-0 z-50 mt-1 w-full animate-in overflow-hidden rounded-lg border border-border bg-card shadow-lg duration-150 fade-in-0 slide-in-from-top-1">
               {renderSearchResults()}
             </div>
           )}
