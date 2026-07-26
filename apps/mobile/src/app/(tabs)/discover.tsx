@@ -1,11 +1,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Image } from 'expo-image';
 import { ScrollShadow, SearchField, Skeleton, Typography } from 'heroui-native';
 import { Search } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FlatList, Platform, Pressable, ScrollView, View } from 'react-native';
+import { FlatList, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
 import { PosterCard } from '@/components/poster-card';
@@ -13,31 +12,17 @@ import { PosterRow } from '@/components/home/poster-row';
 import { SetupPrompt, useSetupStatus } from '@/components/setup-prompt';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { useResponsive } from '@/hooks/use-responsive';
-import { useTvFocus } from '@/hooks/use-tv-focus';
-import { apiFetch, type MediaMeta } from '@/lib/api';
+import {
+  apiFetch,
+  type FeedSectionsResponse,
+  type MediaMeta,
+} from '@/lib/api';
 import { navigateToDetail } from '@/lib/detail-nav';
 import { COLORS } from '@/lib/theme';
 
-interface Network {
-  /** ID de la cadena en TMDB (lo entiende /api/onevid-catalog?network=). */
-  value: string;
-  label: string;
-  /** Ruta del logo en TMDB (negro sobre transparente → va en tarjeta clara). */
-  logo: string;
-}
-
-// Cadenas que soportamos. Los logos son de TMDB (image.tmdb.org sirve imágenes
-// sin API key); al ser negros sobre transparente se muestran en tarjeta blanca.
-const NETWORKS: Network[] = [
-  { value: '213', label: 'Netflix', logo: '/wwemzKWzjKYJFfCeiB57q3r4Bcm.png' },
-  { value: '1024', label: 'Prime Video', logo: '/w7HfLNm9CWwRmAMU58udl2L7We7.png' },
-  { value: '2739', label: 'Disney+', logo: '/1edZOYAfoyZyZ3rklNSiUpXX30Q.png' },
-  { value: '2552', label: 'Apple TV+', logo: '/bngHRFi794mnMq34gfVcm9nDxN1.png' },
-  { value: '49', label: 'HBO', logo: '/tuomPhY2UtuPTqqFnKMVHvSb724.png' },
-  { value: '4330', label: 'Paramount+', logo: '/fi83B1oztoS47xxcemFdPMhIzK.png' },
-];
-
-const networkLogoUrl = (logo: string) => `https://image.tmdb.org/t/p/w300${logo}`;
+// Filas de skeleton mientras llega el feed: no sabemos cuántas trae hasta que
+// responde el backend.
+const SKELETON_ROWS = 2;
 
 export default function DiscoverTab() {
   const { t, i18n } = useTranslation();
@@ -47,8 +32,7 @@ export default function DiscoverTab() {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [network, setNetwork] = useState<Network>(NETWORKS[0]);
-  const { posterColumns, isTV } = useResponsive();
+  const { posterColumns } = useResponsive();
   // `insets.top` viene de `initialWindowMetrics` (sembrado sincrónicamente por
   // SafeAreaProvider en _layout.tsx): a diferencia de `<SafeAreaView>` (nativo,
   // mide en un frame posterior al primer render), esto evita el salto donde el
@@ -66,11 +50,6 @@ export default function DiscoverTab() {
 
   const isSearching = query.trim().length > 0;
 
-  // Tarjetas de cadenas en el slider horizontal. En TV no las agrandamos tanto
-  // (antes 200 px se veían más grandes que los pósters del grid de abajo); las
-  // dejamos en un tamaño cercano al de esas tarjetas para que la fila combine.
-  const cardW = isTV ? 148 : 132;
-
   // Debounce de la búsqueda.
   useEffect(() => {
     const trimmed = query.trim();
@@ -78,25 +57,19 @@ export default function DiscoverTab() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  // Populares de la cadena seleccionada (películas y series), cacheadas por red.
-  const moviesQuery = useQuery({
-    queryKey: ['catalog', 'movie', 'top', network.value, lang],
+  // Las filas de Descubrir son las que el usuario configuró en la web (pestaña
+  // "Descubrir" del paso 2), no un selector de cadena local: así esta pantalla
+  // y la web muestran lo mismo. Igual que el Inicio, en una sola petición.
+  const feedQuery = useQuery({
+    queryKey: ['feed-sections', 'discover', lang],
     queryFn: () =>
-      apiFetch<{ results: MediaMeta[] }>(
-        `/api/onevid-catalog?type=movie&catalog=top&network=${network.value}`,
-      ).then((r) => r.results ?? []),
+      apiFetch<FeedSectionsResponse>(
+        '/api/onevid-feed/sections?surface=discover',
+      ),
     enabled: catalogEnabled && !isSearching,
   });
-  const seriesQuery = useQuery({
-    queryKey: ['catalog', 'series', 'top', network.value, lang],
-    queryFn: () =>
-      apiFetch<{ results: MediaMeta[] }>(
-        `/api/onevid-catalog?type=series&catalog=top&network=${network.value}`,
-      ).then((r) => r.results ?? []),
-    enabled: catalogEnabled && !isSearching,
-  });
-  // Ambas filas de "Descubrir" aparecen juntas en vez de una a la vez.
-  const catalogLoading = moviesQuery.isLoading || seriesQuery.isLoading;
+  const sections = feedQuery.data?.sections ?? [];
+  const catalogLoading = feedQuery.isLoading;
 
   // Búsqueda: cubre películas y series, intercaladas.
   const searchMoviesQuery = useQuery({
@@ -230,64 +203,39 @@ export default function DiscoverTab() {
             </View>
           ) : (
             <>
-              <View style={{ gap: 12 }}>
-                <Typography type="h2" style={{ paddingHorizontal: 16 }}>
-                  {t('Descubrir')}
-                </Typography>
-                <ScrollShadow
-                  size={32}
-                  color={COLORS.background}
-                  LinearGradientComponent={LinearGradient}
-                >
-                  <FlatList
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    data={NETWORKS}
-                    keyExtractor={(n) => n.value}
-                    contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
-                    renderItem={({ item }) => (
-                      <NetworkCard
-                        network={item}
-                        width={cardW}
-                        selected={item.value === network.value}
-                        onPress={() => setNetwork(item)}
-                      />
-                    )}
-                  />
-                </ScrollShadow>
-              </View>
+              <Typography type="h2" style={{ paddingHorizontal: 16 }}>
+                {t('Descubrir')}
+              </Typography>
 
-              {/* La cadena (network de TMDB) aplica a series; muchas no tienen
-                  películas asociadas. Ocultamos cada fila si no hay resultados.
-                  Ambas filas comparten `catalogLoading` para que aparezcan en el
-                  mismo instante en vez de una fila a la vez (efecto cascada). */}
-              {catalogLoading || (moviesQuery.data?.length ?? 0) > 0 ? (
-                <PosterRow
-                  title={t('Películas populares')}
-                  items={moviesQuery.data ?? []}
-                  loading={catalogLoading}
-                  onPressItem={handlePressItem}
-                />
-              ) : null}
-              {catalogLoading || (seriesQuery.data?.length ?? 0) > 0 ? (
-                <PosterRow
-                  title={t('Series populares')}
-                  items={seriesQuery.data ?? []}
-                  loading={catalogLoading}
-                  onPressItem={handlePressItem}
-                />
-              ) : null}
+              {catalogLoading
+                ? Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                    <PosterRow
+                      items={[]}
+                      // biome-ignore lint/suspicious/noArrayIndexKey: placeholder fijo
+                      key={i}
+                      loading
+                      title=""
+                    />
+                  ))
+                : sections.map((section) => (
+                    <PosterRow
+                      items={section.items}
+                      key={section.id}
+                      onPressItem={handlePressItem}
+                      title={section.title}
+                    />
+                  ))}
 
-              {!catalogLoading &&
-              (moviesQuery.data?.length ?? 0) === 0 &&
-              (seriesQuery.data?.length ?? 0) === 0 ? (
+              {!catalogLoading && sections.length === 0 ? (
                 <Typography
                   type="body-sm"
                   color="muted"
                   align="center"
                   style={{ paddingHorizontal: 16 }}
                 >
-                  {t('No hay títulos para esta cadena.')}
+                  {t(
+                    'No hay títulos para mostrar. Configura Descubrir desde la web.',
+                  )}
                 </Typography>
               ) : null}
             </>
@@ -295,48 +243,6 @@ export default function DiscoverTab() {
         </ScrollView>
       </ScrollShadow>
     </View>
-  );
-}
-
-function NetworkCard({
-  network,
-  width,
-  selected,
-  onPress,
-}: {
-  network: Network;
-  width: number;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  const { focused, focusProps } = useTvFocus();
-  // En TV el anillo sigue al foco del D-pad; en móvil (sin foco) marcamos la
-  // cadena seleccionada con el mismo anillo azul.
-  const ringed = focused || (!Platform.isTV && selected);
-  return (
-    <Pressable
-      onPress={onPress}
-      {...focusProps}
-      style={{
-        width,
-        aspectRatio: 3 / 2,
-        borderRadius: 14,
-        backgroundColor: '#fff',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 12,
-        borderWidth: 3,
-        borderColor: ringed ? '#4f9dff' : 'transparent',
-      }}
-    >
-      <Image
-        source={networkLogoUrl(network.logo)}
-        contentFit="contain"
-        cachePolicy="memory-disk"
-        transition={150}
-        style={{ width: '100%', height: '100%' }}
-      />
-    </Pressable>
   );
 }
 

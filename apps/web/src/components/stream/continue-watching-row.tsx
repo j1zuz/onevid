@@ -1,9 +1,16 @@
 "use client";
 
-import { Play } from "lucide-react";
+import { buttonVariants } from "@workspace/ui/components/button";
+import { cn } from "@workspace/ui/lib/utils";
+import { ChevronRightIcon } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ExploreMovieDialog } from "@/components/explore-movie-dialog";
+import {
+  HORIZONTAL_POSTER_GRID_CLASS,
+  PosterCard,
+} from "@/components/stream/poster-card";
 import { useOneVidProfiles } from "@/components/stream/onevid-profile-context";
+import { FEED_ROW_ITEM_LIMIT } from "@/lib/onevid-feed";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { MediaMeta } from "@/lib/tmdb";
 
@@ -12,11 +19,22 @@ interface ContinueWatchingItem extends MediaMeta {
   positionSec: number;
 }
 
+interface ContinueWatchingRowProps {
+  /**
+   * Vista completa (/home?view=continuing): sin cap ni botón "Ver todo" propio
+   * ni encabezado propio — el título y el "Volver al inicio" los pone la
+   * página, igual que en las demás filas del feed.
+   */
+  fullView?: boolean;
+}
+
 /**
  * "Continue watching" row: the profile's in-progress titles with a resume
  * progress bar over each poster. Hidden entirely when there's nothing to resume.
  */
-export function ContinueWatchingRow() {
+export function ContinueWatchingRow({
+  fullView = false,
+}: ContinueWatchingRowProps = {}) {
   const { t, language } = useTranslation();
   const { activeProfileId } = useOneVidProfiles();
   // `null` = fetch in flight (show a skeleton reserving this row's space so
@@ -44,7 +62,16 @@ export function ContinueWatchingRow() {
       .then((data) => {
         setItems(data?.results ?? []);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        // Un fetch cancelado (cleanup del efecto: cambio de perfil/idioma,
+        // remount al entrar a la vista completa, o el doble-invoke de Strict
+        // Mode en dev) no es "sin datos" — no toques el estado, que ya lo
+        // resuelve la ejecución del efecto que sí sigue en pie. Si lo
+        // tratábamos igual que un error real, se veía un parpadeo de "No
+        // tienes nada para continuar viendo" antes de que llegaran los items.
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
         /* no profile / offline — just don't show the row */
         setItems([]);
       });
@@ -54,35 +81,74 @@ export function ContinueWatchingRow() {
   if (items === null) {
     return (
       <section className="container mx-auto flex flex-col gap-3 px-2">
-        <h2 className="px-1 font-semibold text-lg md:text-xl">
-          {t("Continuar viendo")}
-        </h2>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
-          {["a", "b", "c", "d", "e"].map((key) => (
-            <div className="space-y-1" key={key}>
-              <div className="aspect-video w-full animate-pulse rounded-(--radius) bg-muted/40" />
-              <div className="mx-auto h-4 w-3/4 animate-pulse rounded bg-muted/40" />
-            </div>
-          ))}
+        {!fullView && (
+          <h2 className="px-1 font-semibold text-lg md:text-xl">
+            {t("Continuar viendo")}
+          </h2>
+        )}
+        <div className={HORIZONTAL_POSTER_GRID_CLASS}>
+          {/* Mismo tope que la grilla real (FEED_ROW_ITEM_LIMIT): antes
+              mostraba 5 placeholders contra un máximo de 4 columnas y el
+              skeleton se veía en 2 filas mientras el contenido real quedaba
+              en 1 sola. */}
+          {Array.from({ length: FEED_ROW_ITEM_LIMIT }, (_, i) => i).map(
+            (key) => (
+              <div className="space-y-1" key={key}>
+                <div className="aspect-video w-full animate-pulse rounded-(--radius) bg-muted/40" />
+                <div className="mx-auto h-4 w-3/4 animate-pulse rounded bg-muted/40" />
+              </div>
+            )
+          )}
         </div>
       </section>
     );
   }
 
   if (items.length === 0) {
+    if (fullView) {
+      return (
+        <section className="rounded-xl border bg-card p-8 text-center">
+          <p className="text-muted-foreground text-sm">
+            No tienes nada para continuar viendo.
+          </p>
+        </section>
+      );
+    }
     return null;
   }
 
+  // Solo se muestra "Ver todo" cuando hay más de los que caben en una fila:
+  // con pocos items no hay nada oculto que revelar.
+  const hasOverflow = !fullView && items.length > FEED_ROW_ITEM_LIMIT;
+  const visibleItems = fullView || !hasOverflow ? items : items.slice(0, FEED_ROW_ITEM_LIMIT);
+
   return (
     <section className="container mx-auto flex flex-col gap-3 px-2">
-      <h2 className="px-1 font-semibold text-lg md:text-xl">
-        {t("Continuar viendo")}
-      </h2>
-      <div
-        className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5"
-        data-dpad-poster-grid
-      >
-        {items.map((item) => {
+      {!fullView && (
+        <div className="flex items-baseline justify-between gap-2 px-1">
+          <h2 className="font-semibold text-lg md:text-xl">
+            {t("Continuar viendo")}
+          </h2>
+          {hasOverflow && (
+            <Link
+              className={cn(
+                buttonVariants({ size: "xs" }),
+                "btn-primary shrink-0"
+              )}
+              data-dpad-focusable
+              href="/home?view=continuing"
+            >
+              <ChevronRightIcon data-icon="inline-start" />
+              {t("Ver todo")}
+            </Link>
+          )}
+        </div>
+      )}
+      {/* Sin `data-dpad-poster-grid` propio: el ámbito lo pone el contenedor del
+          feed (onevid-page-client.tsx) para que el mando pueda bajar de esta
+          fila a las siguientes. */}
+      <div className={HORIZONTAL_POSTER_GRID_CLASS}>
+        {visibleItems.map((item) => {
           const pct =
             item.durationSec > 0
               ? Math.min(
@@ -90,69 +156,13 @@ export function ContinueWatchingRow() {
                   Math.round((item.positionSec / item.durationSec) * 100)
                 )
               : 0;
-          // Preferimos el backdrop horizontal (16:9); si no hay, caemos al
-          // póster para no dejar la tarjeta vacía.
-          const art = item.background ?? item.poster;
           return (
-            <ExploreMovieDialog
+            <PosterCard
+              item={item}
               key={`${item.type}-${item.id}`}
-              movie={item}
-              onPlay={() => {
-                /* no-op */
-              }}
-            >
-              <article className="group block h-full">
-                <div
-                  className="relative aspect-video w-full rounded-(--radius) border border-border/70 bg-muted/40 p-1 transition-[border-color,box-shadow,filter] duration-200"
-                  data-dpad-card-frame
-                >
-                  <div
-                    className="flex h-full w-full items-center justify-center overflow-hidden rounded-[calc(var(--radius)-4px)] border border-border/60 bg-card transition-[filter]"
-                    data-dpad-card-art
-                  >
-                    {art ? (
-                      // biome-ignore lint/performance/noImgElement: external CDN art
-                      <img
-                        alt={item.name}
-                        className="h-full w-full object-cover"
-                        height={0}
-                        loading="lazy"
-                        src={art}
-                        width={0}
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center px-3 text-center text-muted-foreground text-xs">
-                        {t("Sin poster")}
-                      </div>
-                    )}
-                  </div>
-
-                  <div
-                    className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100"
-                    data-dpad-card-overlay
-                  >
-                    <div className="flex size-11 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
-                      <Play className="size-5 fill-current" />
-                    </div>
-                  </div>
-
-                  {pct > 0 && (
-                    <div className="absolute inset-x-2 bottom-2 h-1 overflow-hidden rounded-full bg-black/50">
-                      <div
-                        className="h-full rounded-full bg-primary"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-1 px-1 pt-2 pb-1 text-center">
-                  <p className="line-clamp-2 font-medium text-sm leading-tight md:text-base">
-                    {item.name}
-                  </p>
-                </div>
-              </article>
-            </ExploreMovieDialog>
+              orientation="horizontal"
+              progressPct={pct}
+            />
           );
         })}
       </div>

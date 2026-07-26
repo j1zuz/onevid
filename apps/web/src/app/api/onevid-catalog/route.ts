@@ -5,55 +5,15 @@ import { getOneVidTmdb } from "@/lib/onevid-tmdb";
 import { posthogServerCapture } from "@/lib/posthog-server";
 import { getServerT } from "@/lib/server-t";
 import {
-  catalogToSortBy,
-  discoverMovies,
-  discoverTv,
   getNetworkOptions,
   getTmdbLocale,
   getTmdbRegion,
-  type MediaMeta,
   TmdbAuthError,
   TmdbNetworkError,
-  trendingMovies,
-  trendingTv,
 } from "@/lib/tmdb";
+import { fetchCatalogResults } from "@/lib/tmdb-catalog";
 
 const VALID_CATALOGS = new Set(["top", "year", "imdbrating", "trending"]);
-
-type NetworkOption = ReturnType<typeof getNetworkOptions>[number];
-
-// Resuelve los resultados del catálogo: 'trending' usa el endpoint /trending de
-// TMDB (semanal, sin filtro de red); el resto usa discover con sort_by.
-function fetchCatalogResults(opts: {
-  type: "movie" | "series";
-  catalog: string;
-  token: string;
-  page: number;
-  tmdbLocale: string;
-  tmdbRegion: string;
-  network?: NetworkOption;
-}): Promise<MediaMeta[]> {
-  const { type, catalog, token, page, tmdbLocale, tmdbRegion, network } = opts;
-
-  if (catalog === "trending") {
-    return type === "movie"
-      ? trendingMovies(token, page, tmdbLocale)
-      : trendingTv(token, page, tmdbLocale);
-  }
-
-  const sortBy = catalogToSortBy(catalog);
-  return type === "movie"
-    ? discoverMovies(
-        token,
-        sortBy,
-        page,
-        tmdbLocale,
-        network?.providerId,
-        tmdbRegion,
-        network?.companyIds
-      )
-    : discoverTv(token, network?.id, sortBy, page, tmdbLocale);
-}
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({

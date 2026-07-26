@@ -1,6 +1,9 @@
 "use client";
 
+import { buttonVariants } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
+import { ChevronRightIcon } from "lucide-react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   type ReactNode,
@@ -14,20 +17,18 @@ import { ExploreMovieDialog } from "@/components/explore-movie-dialog";
 import { ExploreMovieGrid } from "@/components/explore-movie-grid";
 import type { OneVidAddonSummary } from "@/components/stepper-onevid";
 import { ContinueWatchingRow } from "@/components/stream/continue-watching-row";
+import { type FeedSection, FeedRow } from "@/components/stream/feed-row";
+import { HeroCarousel } from "@/components/stream/hero-carousel";
 import { OneVidHeader } from "@/components/stream/onevid-header";
 import {
   type OneVidProfile,
   OneVidProfileProvider,
 } from "@/components/stream/onevid-profile-context";
-import type { MediaMeta, NetworkOption } from "@/lib/tmdb";
+import type { FeedSurface, OneVidFeedRow } from "@/lib/onevid-feed";
+import { useTranslation } from "@/lib/onevid-i18n-context";
+import type { MediaMeta } from "@/lib/tmdb";
 
 type CatalogType = "movie" | "series";
-
-interface CatalogOption {
-  id: string;
-  name: string;
-  type: CatalogType;
-}
 
 // Top-edge fade, cheap version: the shadcn `scroll-fade-t` utility masks
 // (`mask-image`) whatever element it's applied to and re-evaluates that mask
@@ -81,62 +82,80 @@ function ScrollTopFade({
   );
 }
 
+// Encabezado de las vistas "salidas del feed" ("Ver todo" de una fila, o
+// "Ver todo" de Continuar viendo): título + botón para volver, con el mismo
+// icono y estilo que el "Ver todo" que llevó hasta aquí.
+function BackToHomeHeader({ title }: { title: string }) {
+  const { t: rawT } = useTranslation();
+  const t = (key: string) => rawT(key as never);
+  return (
+    <div className="container mx-auto flex items-baseline justify-between gap-2 px-3">
+      <h1 className="font-semibold text-lg md:text-xl">{title}</h1>
+      {/* Un `<a>` no debe renderizarse a través del `render` de Button (Base UI
+          le exige semántica de botón nativo); se estilan las clases del botón
+          directamente sobre el Link. */}
+      <Link
+        className={cn(buttonVariants({ size: "xs" }), "btn-primary shrink-0")}
+        data-dpad-focusable
+        href="/home"
+      >
+        <ChevronRightIcon data-icon="inline-start" />
+        {t("Volver al inicio")}
+      </Link>
+    </div>
+  );
+}
+
 interface OneVidPageClientProps {
   addons: OneVidAddonSummary[];
-  allNetworks: NetworkOption[];
-  catalogs: CatalogOption[];
-  catalogsByType: CatalogOption[];
+  discoverRows: OneVidFeedRow[];
+  feedConfigured: boolean;
+  feedRows: OneVidFeedRow[];
+  /** Modo feed: filas ya resueltas por el server. */
+  feedSections?: FeedSection[];
   hasTorboxKey: boolean;
+  /** Hero destacado (trending película/serie), solo modo feed. */
+  heroItems: MediaMeta[];
   initialProfiles: OneVidProfile[];
   linked: boolean;
-  posters: MediaMeta[];
-  selectedCatalog: string;
-  selectedCatalogOption: CatalogOption | undefined;
-  selectedNetwork?: NetworkOption;
-  selectedType: CatalogType;
+  /** Modo "Ver todo": grilla completa de una sola fila. */
+  posters?: MediaMeta[];
   setupCompleted: boolean;
-  typeOptions: CatalogType[];
+  /** Pestaña activa del header (Inicio/Descubrir); la elige `?surface=` en /home. */
+  surface?: FeedSurface;
+  viewAllTitle?: string;
 }
 
 export function OneVidPageClient({
-  typeOptions,
-  selectedType,
-  catalogs,
-  catalogsByType,
-  selectedCatalogOption,
-  selectedCatalog,
-  selectedNetwork,
-  allNetworks,
-  posters,
   addons,
+  discoverRows,
+  feedConfigured,
+  feedRows,
+  feedSections,
   hasTorboxKey,
+  heroItems,
   initialProfiles,
   linked,
+  posters,
   setupCompleted,
+  surface,
+  viewAllTitle,
 }: OneVidPageClientProps) {
   const searchParams = useSearchParams();
+  const { t: rawT } = useTranslation();
+  const t = (key: string) => rawT(key as never);
+  // Vista completa de Continuar viendo (navegada desde su propio "Ver todo").
+  // No depende del server: los datos de progreso ya se piden en el cliente.
+  const continueViewAll = searchParams.get("view") === "continuing";
   const [searchMovie, setSearchMovie] = useState<MediaMeta | null>(null);
   const [drawerKey, setDrawerKey] = useState(0);
   const consumedReopenRef = useRef(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-  const handleMovieSelect = useCallback(
-    (id: string, type: CatalogType) => {
-      const found = posters.find((p) => p.id === id);
-      setSearchMovie(
-        found ?? {
-          id,
-          type,
-          name: "",
-          poster: "",
-          background: "",
-          logo: "",
-        }
-      );
-      setDrawerKey((k) => k + 1);
-    },
-    [posters]
-  );
+  const handleMovieSelect = useCallback((movie: MediaMeta) => {
+    setSearchMovie(movie);
+    setDrawerKey((k) => k + 1);
+  }, []);
 
   // Reopen movie drawer when returning from the player via ?movie=&movieType=
   useEffect(() => {
@@ -151,7 +170,22 @@ export function OneVidPageClient({
     consumedReopenRef.current = true;
     const movieType: CatalogType =
       movieTypeParam === "series" ? "series" : "movie";
-    handleMovieSelect(movieId, movieType);
+    // Aquí solo tenemos el id, así que pedimos la ficha para que el drawer abra
+    // con título y arte. Si falla, se abre igual (el diálogo resuelve logo,
+    // tráiler y streams por id) como hacía antes.
+    handleMovieSelect({ id: movieId, type: movieType, name: "" });
+    fetch(
+      `${movieType === "series" ? "/api/series-meta" : "/api/movie-meta"}?id=${encodeURIComponent(movieId)}`
+    )
+      .then((res) => (res.ok ? (res.json() as Promise<MediaMeta>) : null))
+      .then((meta) => {
+        if (meta?.name) {
+          setSearchMovie(meta);
+        }
+      })
+      .catch(() => {
+        /* se queda el fallback */
+      });
 
     // Strip the params from the URL via the native History API instead of
     // router.replace: this avoids a second Next.js soft-navigation (RSC
@@ -166,7 +200,13 @@ export function OneVidPageClient({
   }, [searchParams, handleMovieSelect]);
 
   let mainContent: ReactNode;
-  if (posters.length === 0) {
+  if (feedSections?.length) {
+    mainContent = feedSections.map((section) => (
+      <FeedRow key={section.id} section={section} />
+    ));
+  } else if (posters?.length) {
+    mainContent = <ExploreMovieGrid posters={posters} />;
+  } else {
     mainContent = (
       <section className="rounded-xl border bg-card p-8 text-center">
         <p className="text-muted-foreground text-sm">
@@ -174,27 +214,21 @@ export function OneVidPageClient({
         </p>
       </section>
     );
-  } else {
-    mainContent = <ExploreMovieGrid posters={posters} />;
   }
 
   return (
     <OneVidProfileProvider initialProfiles={initialProfiles}>
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <OneVidHeader
+          discoverRows={discoverRows}
           addons={addons}
-          allNetworks={allNetworks}
-          catalogs={catalogs}
-          catalogsByType={catalogsByType}
+          feedConfigured={feedConfigured}
+          feedRows={feedRows}
           hasTorboxKey={hasTorboxKey}
           linked={linked}
           onMovieSelect={handleMovieSelect}
-          selectedCatalog={selectedCatalog}
-          selectedCatalogOption={selectedCatalogOption}
-          selectedNetwork={selectedNetwork}
-          selectedType={selectedType}
+          surface={surface}
           setupCompleted={setupCompleted}
-          typeOptions={typeOptions}
         />
 
         {/* Contenedor con scroll propio (no el de <body>): así el fondo con
@@ -204,12 +238,44 @@ export function OneVidPageClient({
             visual, igual que el dropdown de búsqueda del header). */}
         <div className="relative min-h-0 flex-1">
           <ScrollTopFade scrollAreaRef={scrollAreaRef} />
+          {/* `data-dpad-poster-grid` va aquí, en el contenedor de TODAS las
+              filas, no en cada fila: findNextFocusable (dpad-navigation.tsx)
+              resuelve el ámbito con `closest()` y devuelve null si no encuentra
+              candidato dentro del mismo grid, así que con un grid por fila el
+              mando no podría bajar de una fila a la siguiente. */}
           <div
             className="no-scrollbar flex h-full flex-col gap-8 overflow-y-auto py-4"
+            data-dpad-poster-grid
             ref={scrollAreaRef}
           >
-            <ContinueWatchingRow />
-            {mainContent}
+            {continueViewAll ? (
+              <>
+                <BackToHomeHeader title={t("Continuar viendo")} />
+                <ContinueWatchingRow fullView />
+              </>
+            ) : viewAllTitle ? (
+              // "Ver todo" de una fila del catálogo: sin Continuar viendo
+              // arriba, solo el encabezado de vuelta y la grilla completa. Se
+              // muestra también cuando la grilla viene vacía, para no dejar
+              // al usuario atrapado sin los dropdowns que antes lo devolvían.
+              <>
+                <BackToHomeHeader title={viewAllTitle} />
+                {mainContent}
+              </>
+            ) : (
+              <>
+                {heroItems.length > 0 && (
+                  // -mt-4 para acercarlo al header: cancela el padding
+                  // superior del contenedor con scroll (py-4) sin tocar el
+                  // espaciado del resto de las filas.
+                  <div className="-mt-4">
+                    <HeroCarousel items={heroItems} />
+                  </div>
+                )}
+                <ContinueWatchingRow />
+                {mainContent}
+              </>
+            )}
           </div>
         </div>
       </div>

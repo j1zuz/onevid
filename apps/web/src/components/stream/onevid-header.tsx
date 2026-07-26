@@ -1,51 +1,19 @@
 "use client";
 
-import { buttonVariants } from "@workspace/ui/components/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@workspace/ui/components/dropdown-menu";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerHeader,
-  DrawerTitle,
-} from "@workspace/ui/components/drawer";
 import { Input } from "@workspace/ui/components/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@workspace/ui/components/select";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
-import { BoltIcon, LogOutIcon, SearchIcon, UploadIcon, XIcon } from "lucide-react";
+import { SearchIcon, XIcon } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { LanguageMenuItem } from "@/components/language-selector";
-import {
-  type OneVidAddonSummary,
-  SetupStepper,
-} from "@/components/stepper-onevid";
-import { authClient } from "@/lib/auth-client";
+import type { OneVidAddonSummary } from "@/components/stepper-onevid";
 import { OneVidProfileSwitcher } from "@/components/stream/onevid-profile-switcher";
+import { useDebouncedSearch } from "@/hooks/use-debounced-search";
 import { useTranslation } from "@/lib/onevid-i18n-context";
-import type { NetworkOption } from "@/lib/tmdb";
+import type { FeedSurface, OneVidFeedRow } from "@/lib/onevid-feed";
+import type { MediaMeta } from "@/lib/tmdb";
 
 type CatalogType = "movie" | "series";
-
-interface CatalogOption {
-  id: string;
-  name: string;
-  type: CatalogType;
-}
 
 interface SearchMeta {
   background?: string;
@@ -57,149 +25,99 @@ interface SearchMeta {
   year?: string;
 }
 
+const SURFACE_TABS: Array<{
+  href: string;
+  label: string;
+  surface: FeedSurface;
+}> = [
+  { href: "/home", label: "Inicio", surface: "home" },
+  { href: "/home?surface=discover", label: "Descubrir", surface: "discover" },
+];
+
+// El endpoint ya recorta a 20; en el dropdown solo caben unos pocos.
+const SEARCH_RESULT_LIMIT = 8;
+const SEARCH_SKELETON_ROWS = ["a", "b", "c", "d"];
+
+function buildSearchUrl(query: string): string {
+  return `/api/search?q=${encodeURIComponent(query)}`;
+}
+
+function parseSearchResults(payload: unknown): SearchMeta[] {
+  const results = (payload as { results?: SearchMeta[] } | null)?.results;
+  return Array.isArray(results) ? results.slice(0, SEARCH_RESULT_LIMIT) : [];
+}
+
+// feedConfigured/feedRows/hasTorboxKey/addons/linked/setupCompleted quedan en
+// la interfaz para no romper a los server components que ya arman este
+// objeto de props (home/page.tsx), pero el header ya no los usa: esa
+// configuración vive en la página /home/account.
 interface OneVidHeaderProps {
   addons: OneVidAddonSummary[];
-  allNetworks: NetworkOption[];
-  catalogs: CatalogOption[];
-  catalogsByType: CatalogOption[];
+  discoverRows: OneVidFeedRow[];
+  feedConfigured: boolean;
+  feedRows: OneVidFeedRow[];
   hasTorboxKey: boolean;
   linked: boolean;
-  onMovieSelect?: (id: string, type: CatalogType) => void;
-  selectedCatalog: string;
-  selectedCatalogOption: CatalogOption | undefined;
-  selectedNetwork?: NetworkOption;
-  selectedType: CatalogType;
+  onMovieSelect?: (movie: MediaMeta) => void;
   setupCompleted: boolean;
-  typeOptions: CatalogType[];
-}
-
-function getCatalogDisplayLabel(
-  catalog: CatalogOption,
-  t: (key: string) => string
-): string {
-  const normalizedId = catalog.id.trim().toLowerCase();
-  if (normalizedId === "top") {
-    return t("Populares");
-  }
-  if (normalizedId === "year") {
-    return t("Estrenos");
-  }
-  if (normalizedId === "imdbrating") {
-    return t("Destacados");
-  }
-  return catalog.name;
-}
-
-function buildUrl({
-  type,
-  catalog,
-  network,
-}: {
-  type: CatalogType;
-  catalog: string;
-  network?: number;
-}): string {
-  const params = new URLSearchParams();
-  params.set("type", type);
-  params.set("catalog", catalog);
-  if (network) {
-    params.set("network", String(network));
-  }
-  return `/home?${params.toString()}`;
+  /** Pestaña activa; la elige `?surface=` en /home. */
+  surface?: FeedSurface;
 }
 
 export function OneVidHeader({
-  typeOptions,
-  selectedType,
-  catalogs,
-  catalogsByType,
-  selectedCatalogOption: _selectedCatalogOption,
-  selectedCatalog,
-  allNetworks,
-  selectedNetwork,
   onMovieSelect,
-  addons,
-  hasTorboxKey,
-  linked,
-  setupCompleted,
+  surface = "home",
 }: OneVidHeaderProps) {
-  const { push, refresh } = useRouter();
   const { t: rawT } = useTranslation();
   const t = (key: string) => rawT(key as never);
-  const [configOpen, setConfigOpen] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
-
-  const handleSignOut = useCallback(async () => {
-    setSigningOut(true);
-    await authClient.signOut({
-      fetchOptions: {
-        onSuccess: () => {
-          push("/");
-          refresh();
-        },
-        onError: () => {
-          setSigningOut(false);
-        },
-      },
-    });
-  }, [push, refresh]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchMeta[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [showResults, setShowResults] = useState(false);
+  const {
+    loading: searchLoading,
+    query: searchQuery,
+    reset: resetSearch,
+    results: searchResults,
+    search,
+    submit,
+  } = useDebouncedSearch<SearchMeta>({
+    buildUrl: buildSearchUrl,
+    parse: parseSearchResults,
+  });
+  // `open` es independiente de la respuesta del fetch a propósito: antes el
+  // dropdown se abría al *recibir* los resultados, así que en la primera
+  // búsqueda el skeleton no llegaba a verse nunca y la lista aparecía de
+  // golpe (a partir de la segunda sí, porque el estado ya se había quedado
+  // abierto).
+  const [open, setOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
 
-  const doSearch = useCallback(async (q: string) => {
-    if (!q.trim()) {
-      setSearchResults([]);
-      setShowResults(false);
-      return;
-    }
-    setSearchLoading(true);
-    try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
-      const data = await res.json();
-      setSearchResults(data.results?.slice(0, 8) || []);
-      setShowResults(true);
-    } catch {
-      setSearchResults([]);
-    } finally {
-      setSearchLoading(false);
-    }
-  }, []);
+  const hasQuery = searchQuery.trim().length > 0;
+  const showResults = open && hasQuery;
 
   const handleSearchChange = useCallback(
     (value: string) => {
-      setSearchQuery(value);
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-      }
-      debounceRef.current = setTimeout(() => doSearch(value), 350);
+      search(value);
+      setOpen(value.trim().length > 0);
     },
-    [doSearch]
+    [search]
   );
 
   const handleSearchSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-      if (searchQuery.trim()) {
-        doSearch(searchQuery);
-      }
+      submit();
+      setOpen(searchQuery.trim().length > 0);
     },
-    [searchQuery, doSearch]
+    [searchQuery, submit]
   );
 
   const clearSearch = useCallback(() => {
-    setSearchQuery("");
-    setSearchResults([]);
-    setShowResults(false);
-  }, []);
+    resetSearch();
+    setOpen(false);
+  }, [resetSearch]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
-        setShowResults(false);
+        setOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -207,10 +125,13 @@ export function OneVidHeader({
   }, []);
 
   function renderSearchResults() {
-    if (searchLoading) {
+    // Solo caemos al skeleton cuando no hay nada que mostrar. Si ya había
+    // resultados, se quedan atenuados mientras llega la query refinada: así
+    // el dropdown no cambia de alto en cada tecla.
+    if (searchLoading && searchResults.length === 0) {
       return (
         <div className="space-y-2 p-2">
-          {["a", "b", "c", "d"].map((key) => (
+          {SEARCH_SKELETON_ROWS.map((key) => (
             <div className="flex items-center gap-3" key={key}>
               <Skeleton className="h-12 w-20 shrink-0 rounded-md" />
               <div className="flex-1 space-y-1">
@@ -225,35 +146,51 @@ export function OneVidHeader({
     if (searchResults.length === 0) {
       return (
         <p className="p-3 text-center text-muted-foreground text-sm">
-          No se encontraron resultados
+          {t("No se encontraron resultados")}
         </p>
       );
     }
     return (
       <ul
-        className="scroll-fade-y max-h-80 overflow-y-auto [&::-webkit-scrollbar]:hidden"
+        className={cn(
+          "scroll-fade-y max-h-80 overflow-y-auto transition-opacity [&::-webkit-scrollbar]:hidden",
+          searchLoading && "opacity-50"
+        )}
         style={{ scrollbarWidth: "none" }}
       >
         {searchResults.map((item) => (
-          <li key={item.id}>
+          // Tipo + id, igual que el dedupe de /api/search: los ids de TMDB
+          // son por colección, así que una película y una serie pueden
+          // compartir el mismo número y colisionar como key.
+          <li key={`${item.type ?? "movie"}:${item.id}`}>
             <button
               className="flex w-full items-center gap-3 rounded-md border border-transparent px-3 py-2 text-left transition-colors"
               data-dpad-focusable
               onClick={() => {
-                const resultType: CatalogType =
-                  item.type === "series" ? "series" : "movie";
-                onMovieSelect?.(item.id, resultType);
-                setShowResults(false);
-                setSearchQuery("");
+                // Pasamos el objeto completo del /api/search: así el diálogo
+                // abre con título y arte sin tener que buscar el item en una
+                // lista de la página (que con el feed ya no es única).
+                onMovieSelect?.({
+                  background: item.background,
+                  id: item.id,
+                  imdbRating: item.imdbRating,
+                  name: item.name,
+                  poster: item.poster,
+                  type: item.type === "series" ? "series" : "movie",
+                  year: item.year,
+                });
+                clearSearch();
               }}
               type="button"
             >
               {item.background || item.poster ? (
-                <div
-                  className="h-12 w-20 shrink-0 rounded-md bg-center bg-cover"
-                  style={{
-                    backgroundImage: `url(${item.background || item.poster})`,
-                  }}
+                /* biome-ignore lint/performance/noImgElement: external CDN art */
+                <img
+                  alt=""
+                  className="h-12 w-20 shrink-0 rounded-md object-cover"
+                  decoding="async"
+                  loading="lazy"
+                  src={item.background || item.poster}
                 />
               ) : (
                 <div className="h-12 w-20 shrink-0 rounded-md bg-muted" />
@@ -282,101 +219,55 @@ export function OneVidHeader({
   }
 
   return (
-    <section className="sticky top-0 z-20 -mx-4 mb-6 grid grid-cols-1 gap-3 border-border border-b border-dashed bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:-mx-6 md:grid-cols-[minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,1.5fr)] md:px-6">
-      {/* Type selector */}
-      <Select
-        items={typeOptions.map((type) => ({
-          value: type,
-          label: type === "movie" ? t("Películas") : t("Series"),
-        }))}
-        onValueChange={(val) => {
-          const type = val as CatalogType;
-          const firstCatalog =
-            catalogs.find((c) => c.type === type)?.id ?? "top";
-          push(buildUrl({ type, catalog: firstCatalog }));
-        }}
-        value={selectedType}
+    <section
+      className="sticky top-0 z-20 -mx-4 mb-6 flex items-center gap-3 border-border border-b border-dashed bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:-mx-6 md:px-6"
+      data-dpad-focus-subtle
+    >
+      {/* Logo: lleva de vuelta a /home. */}
+      <Link
+        className="flex shrink-0 items-center rounded border border-transparent"
+        data-dpad-focusable
+        href="/home"
       >
-        <SelectTrigger className="w-full" data-dpad-focusable>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {typeOptions.map((type) => (
-            <SelectItem key={type} value={type}>
-              {type === "movie" ? t("Películas") : t("Series")}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+        {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
+        <img
+          alt="onevid"
+          className="size-8 rounded-md border border-border/70 bg-card p-1"
+          height={32}
+          src="/onevid.svg"
+          width={32}
+        />
+      </Link>
 
-      {/* Catalog selector */}
-      <Select
-        items={catalogsByType.map((catalog) => ({
-          value: catalog.id,
-          label: getCatalogDisplayLabel(catalog, t),
-        }))}
-        onValueChange={(val) => {
-          if (val) {
-            push(buildUrl({ type: selectedType, catalog: val }));
-          }
-        }}
-        value={selectedCatalog}
-      >
-        <SelectTrigger className="w-full" data-dpad-focusable>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {catalogsByType.map((catalog) => (
-            <SelectItem
-              key={`${catalog.type}:${catalog.id}`}
-              value={catalog.id}
-            >
-              {getCatalogDisplayLabel(catalog, t)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {/* Las dos superficies configurables. Son enlaces y no un control con
+          estado porque cada una es una carga distinta del Server Component; el
+          feed de cada pestaña lo arma el usuario en el paso 2 del stepper. */}
+      <nav className="flex shrink-0 items-center gap-1">
+        {SURFACE_TABS.map((tab) => (
+          <Link
+            aria-current={surface === tab.surface ? "page" : undefined}
+            className={cn(
+              "rounded-full border border-transparent px-3 py-1 font-medium text-sm transition-colors",
+              surface === tab.surface
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            data-dpad-focusable
+            href={tab.href}
+            key={tab.surface}
+          >
+            {t(tab.label)}
+          </Link>
+        ))}
+      </nav>
 
-      {/* Network selector */}
-      <Select
-        items={[
-          { value: "all", label: t("Todas las cadenas") },
-          ...allNetworks.map((n) => ({
-            value: String(n.id),
-            label: n.name,
-          })),
-        ]}
-        onValueChange={(val) => {
-          if (val === "all") {
-            push(buildUrl({ type: selectedType, catalog: selectedCatalog }));
-          } else {
-            push(
-              buildUrl({
-                type: selectedType,
-                catalog: selectedCatalog,
-                network: Number(val),
-              })
-            );
-          }
-        }}
-        value={selectedNetwork ? String(selectedNetwork.id) : "all"}
-      >
-        <SelectTrigger className="w-full" data-dpad-focusable>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">{t("Todas las cadenas")}</SelectItem>
-          {allNetworks.map((network) => (
-            <SelectItem key={network.id} value={String(network.id)}>
-              {network.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      {/* Search + Config */}
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1" ref={searchRef}>
+      {/* Búsqueda + perfil + configuración. Los selectores de tipo / catálogo /
+          cadena que vivían aquí ahora son el paso 2 del stepper ("Configurar
+          feed"): el usuario arma su inicio una vez y /home lo respeta. */}
+      <div className="flex flex-1 items-center justify-end gap-2">
+        {/* max-w para que la búsqueda no ocupe todo el espacio entre el logo y
+            los controles de la derecha. */}
+        <div className="relative w-full max-w-xs" ref={searchRef}>
           <form onSubmit={handleSearchSubmit}>
             <div className="relative">
               <SearchIcon className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -385,8 +276,8 @@ export function OneVidHeader({
                 data-dpad-focusable
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onFocus={() => {
-                  if (searchResults.length > 0) {
-                    setShowResults(true);
+                  if (hasQuery) {
+                    setOpen(true);
                   }
                 }}
                 placeholder={`${t("Buscar")}...`}
@@ -395,7 +286,7 @@ export function OneVidHeader({
               />
               {searchQuery && (
                 <button
-                  className="absolute top-1/2 right-3 rounded border border-transparent text-muted-foreground hover:text-foreground"
+                  className="-translate-y-1/2 absolute top-1/2 right-3 rounded border border-transparent text-muted-foreground hover:text-foreground"
                   data-dpad-focusable
                   onClick={clearSearch}
                   type="button"
@@ -407,80 +298,20 @@ export function OneVidHeader({
           </form>
 
           {showResults && (
-            <div className="absolute top-full right-0 z-50 mt-1 w-full overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+            /* El fade+slide es del contenedor, no de cada resultado: el
+               scanner del mando (dpad-navigation) descarta los elementos con
+               opacity 0, así que animar los ítems uno a uno los volvería
+               inalcanzables mientras dura su animación. */
+            <div className="absolute top-full right-0 z-50 mt-1 w-full animate-in overflow-hidden rounded-lg border border-border bg-card shadow-lg duration-150 fade-in-0 slide-in-from-top-1">
               {renderSearchResults()}
             </div>
           )}
         </div>
 
+        {/* Único trigger: el dropdown del avatar trae perfiles + Configuración
+            + Modo local + Cerrar sesión (onevid-profile-switcher.tsx). Ya no
+            hay un ícono de engranaje aparte. */}
         <OneVidProfileSwitcher />
-
-        <div aria-hidden className="h-6 w-px shrink-0 bg-border" />
-
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            aria-label={t("Configuración")}
-            className={cn(buttonVariants({ size: "icon", variant: "outline" }))}
-            data-dpad-focusable
-          >
-            <BoltIcon className="size-4" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-52">
-            <DropdownMenuItem
-              data-dpad-focusable
-              onClick={() => setConfigOpen(true)}
-            >
-              <BoltIcon className="size-3.5" />
-              {t("Configuración de onevid")}
-            </DropdownMenuItem>
-            <LanguageMenuItem />
-            <DropdownMenuSeparator />
-            {/* Navega a /: la MISMA pantalla de modo local que ve alguien sin
-                sesión (sin duplicar una versión propia acá). El proxy
-                (src/proxy.ts) detecta que venimos de /home vía Referer y no
-                redirige de vuelta. */}
-            <DropdownMenuItem data-dpad-focusable render={<Link href="/" />}>
-              <UploadIcon className="size-3.5" />
-              {t("Modo local")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              data-dpad-focusable
-              disabled={signingOut}
-              onClick={handleSignOut}
-              variant="destructive"
-            >
-              <LogOutIcon className="size-3.5" />
-              {t("Cerrar sesión")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {/* Drawer sobre @base-ui/react/drawer (NO vaul): misma librería que
-            DropdownMenu/Dialog en este proyecto, así que el menú de los 3
-            puntos anidado dentro funciona sin conflictos de foco/portal. */}
-        <Drawer
-          onOpenChange={setConfigOpen}
-          open={configOpen}
-          swipeDirection="right"
-        >
-          <DrawerContent>
-            <DrawerHeader>
-              <DrawerTitle>{t("Configuración de onevid")}</DrawerTitle>
-              <DrawerDescription>
-                {t("Gestiona tu token de TMDB y los complementos OneVLP.")}
-              </DrawerDescription>
-            </DrawerHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-              <SetupStepper
-                hasTorboxKey={hasTorboxKey}
-                initialAddons={addons}
-                linked={linked}
-                setupCompleted={setupCompleted}
-              />
-            </div>
-          </DrawerContent>
-        </Drawer>
       </div>
     </section>
   );

@@ -40,13 +40,15 @@ export function SetupPrompt() {
   const queryClient = useQueryClient();
   const [checking, setChecking] = useState(false);
 
-  // Vuelve a consultar el estado de configuración (y el catálogo) tras
-  // configurar en la web, sin tener que reiniciar la app.
+  // Vuelve a consultar el estado de configuración (y el contenido) tras
+  // configurar en la web, sin tener que reiniciar la app. `feed-sections` es
+  // el feed del Inicio y `catalog` las filas por cadena de Descubrir.
   const handleRecheck = async () => {
     if (checking) return;
     setChecking(true);
     try {
       await queryClient.invalidateQueries({ queryKey: ['setup-status'] });
+      await queryClient.invalidateQueries({ queryKey: ['feed-sections'] });
       await queryClient.invalidateQueries({ queryKey: ['catalog'] });
     } finally {
       setChecking(false);

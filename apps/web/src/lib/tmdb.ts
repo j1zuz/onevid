@@ -3,6 +3,22 @@ import { fetchJustWatchLinks } from "@/lib/justwatch";
 const TMDB_BASE = "https://api.themoviedb.org";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
 
+// El backend mapea poster/background a tamaños chicos (w500/w780), pensados
+// para tarjetas. Para piezas grandes (el hero de /home) hace falta pedir una
+// versión de mayor resolución — mismo approach que apps/mobile/src/lib/api.ts.
+const TMDB_IMAGE_SIZE_RE =
+  /image\.tmdb\.org\/t\/p\/(w92|w154|w185|w300|w342|w500|w780|w1280|original)\//;
+
+export function tmdbImage(
+  url: string | undefined,
+  targetSize: "w185" | "w300" | "w500" | "w780" | "w1280" | "original"
+): string | undefined {
+  if (!url) {
+    return url;
+  }
+  return url.replace(TMDB_IMAGE_SIZE_RE, `image.tmdb.org/t/p/${targetSize}/`);
+}
+
 const LOCALE_MAP: Record<string, string> = {
   "es-419": "es-MX",
   "es-ES": "es-ES",
@@ -133,20 +149,15 @@ export interface SeriesMetaResponse {
   year?: string;
 }
 
-export interface CatalogOption {
-  id: string;
-  name: string;
-  type: "movie" | "series";
-}
-
-export interface NetworkOption {
-  // Movie production company ids (TMDB `with_companies`). Used only as a
-  // fallback when `with_watch_providers` returns nothing for the region.
-  companyIds: number[];
-  id: number;
-  name: string;
-  providerId: number;
-}
+// Las listas estáticas de catálogos y cadenas viven en `onevid-feed.ts` (módulo
+// puro, importable desde el cliente) y se re-exportan aquí para no romper a los
+// consumidores que ya las importaban desde tmdb.
+export {
+  type CatalogOption,
+  getCatalogOptions,
+  type NetworkOption,
+  getNetworkOptions,
+} from "@/lib/onevid-feed";
 
 // ─── Caches ──────────────────────────────────────────────────────────
 
@@ -337,40 +348,8 @@ export async function fetchTvGenres(
 }
 
 // ─── Catalog options (static) ────────────────────────────────────────
-
-export function getCatalogOptions(): CatalogOption[] {
-  return [
-    { id: "trending", type: "movie", name: "Tendencias" },
-    { id: "year", type: "movie", name: "Estrenos" },
-    { id: "imdbrating", type: "movie", name: "Destacados" },
-    { id: "trending", type: "series", name: "Tendencias" },
-    { id: "year", type: "series", name: "Estrenos" },
-    { id: "imdbrating", type: "series", name: "Destacados" },
-  ];
-}
-
-export function getNetworkOptions(): NetworkOption[] {
-  return [
-    { id: 213, name: "Netflix", providerId: 8, companyIds: [178_464] },
-    { id: 2739, name: "Disney+", providerId: 337, companyIds: [3475, 2] },
-    { id: 49, name: "HBO", providerId: 1899, companyIds: [3268] },
-    {
-      id: 1024,
-      name: "Amazon",
-      providerId: 119,
-      companyIds: [20_580, 210_099],
-    },
-    {
-      id: 2552,
-      name: "Apple TV+",
-      providerId: 350,
-      companyIds: [194_232, 152_726],
-    },
-    { id: 4330, name: "Paramount+", providerId: 531, companyIds: [4] },
-    { id: 453, name: "Hulu", providerId: 15, companyIds: [] },
-    { id: 6171, name: "Max", providerId: 1899, companyIds: [3268] },
-  ];
-}
+// getCatalogOptions() / getNetworkOptions() se re-exportan arriba desde
+// `onevid-feed.ts`.
 
 export function catalogToSortBy(catalogId: string): string {
   switch (catalogId) {
@@ -1198,12 +1177,18 @@ export async function searchMovies(
   page?: number,
   locale?: string
 ): Promise<MediaMeta[]> {
-  const genreMap = await fetchMovieGenres(token, locale);
-  const data = await tmdbFetch<TmdbSearchResponse>(token, "/3/search/movie", {
-    query,
-    language: locale || "es-MX",
-    page: String(page || 1),
-  });
+  // En paralelo, no en serie: la lista de géneros solo queda cacheada a
+  // partir de la primera llamada del proceso, así que encadenarla le sumaba
+  // un round-trip completo a TMDB a la primera búsqueda. Y si falla, seguimos
+  // con los resultados sin géneros en vez de dejar la búsqueda vacía.
+  const [genreMap, data] = await Promise.all([
+    fetchMovieGenres(token, locale).catch(() => undefined),
+    tmdbFetch<TmdbSearchResponse>(token, "/3/search/movie", {
+      query,
+      language: locale || "es-MX",
+      page: String(page || 1),
+    }),
+  ]);
 
   return (data.results ?? []).map((item) =>
     mapMovieToMeta(item as TmdbMovieResult, genreMap)
@@ -1216,12 +1201,16 @@ export async function searchTv(
   page?: number,
   locale?: string
 ): Promise<MediaMeta[]> {
-  const genreMap = await fetchTvGenres(token, locale);
-  const data = await tmdbFetch<TmdbSearchResponse>(token, "/3/search/tv", {
-    query,
-    language: locale || "es-MX",
-    page: String(page || 1),
-  });
+  // Igual que searchMovies: géneros y búsqueda en paralelo, y un fallo de
+  // géneros no invalida los resultados.
+  const [genreMap, data] = await Promise.all([
+    fetchTvGenres(token, locale).catch(() => undefined),
+    tmdbFetch<TmdbSearchResponse>(token, "/3/search/tv", {
+      query,
+      language: locale || "es-MX",
+      page: String(page || 1),
+    }),
+  ]);
 
   return (data.results ?? []).map((item) =>
     mapTvToMeta(item as TmdbTvResult, genreMap)

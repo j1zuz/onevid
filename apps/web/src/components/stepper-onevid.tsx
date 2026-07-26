@@ -21,7 +21,7 @@ import {
   StepperTrigger,
 } from "@workspace/ui/components/stepper";
 import {
-  CheckIcon,
+  CircleCheck,
   EllipsisVerticalIcon,
   LoaderIcon,
   PencilIcon,
@@ -30,6 +30,12 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { SetupFeedStep } from "@/components/stepper-onevid-feed-step";
+import type { OneVidFeedRow } from "@/lib/onevid-feed";
+
+// El indicador numerado repite el mismo set de variantes en los 4 pasos.
+const STEP_INDICATOR_CLASS =
+  "size-5 rounded-full border-2 text-[0.6rem] data-[state=active]:border-primary data-[state=completed]:border-transparent data-[state=inactive]:border-muted data-[state=active]:bg-primary data-[state=completed]:bg-transparent data-[state=active]:text-primary-foreground data-[state=completed]:text-primary-foreground";
 
 export interface OneVidAddonSummary {
   baseUrl: string;
@@ -41,6 +47,12 @@ export interface OneVidAddonSummary {
 }
 
 interface SetupStepperProps {
+  /** Filas de Descubrir, o su preset por defecto. */
+  discoverRows: OneVidFeedRow[];
+  /** True cuando el usuario ya guardó su feed alguna vez (columna no NULL). */
+  feedConfigured: boolean;
+  /** Filas guardadas, o el preset por defecto si aún no configuró nada. */
+  feedRows: OneVidFeedRow[];
   hasTorboxKey: boolean;
   initialAddons: OneVidAddonSummary[];
   /** True when the user has connected their TMDB account via OAuth v4. */
@@ -48,8 +60,11 @@ interface SetupStepperProps {
   setupCompleted: boolean;
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: stepper bundles token + addons + torbox UI with multiple async flows
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: stepper bundles token + feed + addons + torbox UI with multiple async flows
 export function SetupStepper({
+  discoverRows,
+  feedConfigured,
+  feedRows,
   hasTorboxKey,
   linked,
   setupCompleted,
@@ -66,6 +81,8 @@ export function SetupStepper({
   // Legacy users with just a read access token still need to connect to enable
   // favorites/watchlist, so they are not treated as complete here.
   const [tokenSaved, setTokenSaved] = useState(linked);
+  const [feedSaved, setFeedSaved] = useState(feedConfigured);
+  const [feedSaving, setFeedSaving] = useState(false);
   const [addons, setAddons] = useState<OneVidAddonSummary[]>(initialAddons);
   const [addonUrl, setAddonUrl] = useState("");
   const [addingAddon, setAddingAddon] = useState(false);
@@ -82,16 +99,16 @@ export function SetupStepper({
 
   // Controlled active step so we can auto-advance when a step completes.
   const [activeStep, setActiveStep] = useState<number>(() => {
-    if (linked && initialAddons.length > 0 && hasTorboxKey) {
-      return 3;
+    if (!linked) {
+      return 1;
     }
-    if (linked && initialAddons.length > 0) {
-      return 3;
-    }
-    if (linked) {
+    if (!feedConfigured) {
       return 2;
     }
-    return 1;
+    if (initialAddons.length === 0) {
+      return 3;
+    }
+    return 4;
   });
 
   // Auto-advance to the next step once the current one is completed, so the
@@ -105,11 +122,19 @@ export function SetupStepper({
     prevTokenSaved.current = tokenSaved;
   }, [tokenSaved, activeStep]);
 
+  const prevFeedSaved = useRef(feedSaved);
+  useEffect(() => {
+    if (!prevFeedSaved.current && feedSaved && activeStep === 2) {
+      setActiveStep(3);
+    }
+    prevFeedSaved.current = feedSaved;
+  }, [feedSaved, activeStep]);
+
   const prevHasAddons = useRef(addons.length > 0);
   useEffect(() => {
     const hasAddons = addons.length > 0;
-    if (!prevHasAddons.current && hasAddons && activeStep === 2) {
-      setActiveStep(3);
+    if (!prevHasAddons.current && hasAddons && activeStep === 3) {
+      setActiveStep(4);
     }
     prevHasAddons.current = hasAddons;
   }, [addons.length, activeStep]);
@@ -365,15 +390,18 @@ export function SetupStepper({
     }
   }
 
-  // Los pasos 2 (complementos) y 3 (TorBox) son opcionales: solo se requiere
-  // haber conectado TMDB (paso 1) para poder finalizar la configuración.
+  // Los pasos 2 (feed), 3 (complementos) y 4 (TorBox) son opcionales: solo se
+  // requiere haber conectado TMDB (paso 1) para poder finalizar la
+  // configuración. Sin guardar el feed, /home usa DEFAULT_FEED_ROWS.
   const canFinish = tokenSaved;
 
   return (
     <Stepper
-      className="w-full max-w-md"
+      className="mx-auto w-full max-w-md"
       indicators={{
-        completed: <CheckIcon className="size-3" />,
+        completed: (
+          <CircleCheck className="size-5 fill-primary text-primary-foreground" />
+        ),
         loading: <LoaderIcon className="size-3 animate-spin" />,
       }}
       onValueChange={setActiveStep}
@@ -382,36 +410,50 @@ export function SetupStepper({
       <StepperNav className="mb-5">
         <StepperItem completed={tokenSaved} loading={connecting} step={1}>
           <StepperTrigger>
-            <StepperIndicator className="size-5 rounded-full border-2 text-[0.6rem] data-[state=active]:border-primary data-[state=completed]:border-green-500 data-[state=inactive]:border-muted data-[state=active]:bg-primary data-[state=completed]:bg-green-500 data-[state=active]:text-primary-foreground data-[state=completed]:text-white">
+            <StepperIndicator className={STEP_INDICATOR_CLASS}>
               1
             </StepperIndicator>
           </StepperTrigger>
-          <StepperSeparator className="group-data-[state=completed]/step:bg-green-500" />
+          <StepperSeparator className="group-data-[state=completed]/step:bg-primary" />
+        </StepperItem>
+
+        <StepperItem
+          completed={feedSaved}
+          disabled={!tokenSaved}
+          loading={feedSaving}
+          step={2}
+        >
+          <StepperTrigger>
+            <StepperIndicator className={STEP_INDICATOR_CLASS}>
+              2
+            </StepperIndicator>
+          </StepperTrigger>
+          <StepperSeparator className="group-data-[state=completed]/step:bg-primary" />
         </StepperItem>
 
         <StepperItem
           completed={addons.length > 0}
           disabled={!tokenSaved && addons.length === 0}
           loading={addingAddon}
-          step={2}
+          step={3}
         >
           <StepperTrigger>
-            <StepperIndicator className="size-5 rounded-full border-2 text-[0.6rem] data-[state=active]:border-primary data-[state=completed]:border-green-500 data-[state=inactive]:border-muted data-[state=active]:bg-primary data-[state=completed]:bg-green-500 data-[state=active]:text-primary-foreground data-[state=completed]:text-white">
-              2
+            <StepperIndicator className={STEP_INDICATOR_CLASS}>
+              3
             </StepperIndicator>
           </StepperTrigger>
-          <StepperSeparator className="group-data-[state=completed]/step:bg-green-500" />
+          <StepperSeparator className="group-data-[state=completed]/step:bg-primary" />
         </StepperItem>
 
         <StepperItem
           completed={torboxSaved}
           disabled={!tokenSaved}
           loading={torboxSaving}
-          step={3}
+          step={4}
         >
           <StepperTrigger>
-            <StepperIndicator className="size-5 rounded-full border-2 text-[0.6rem] data-[state=active]:border-primary data-[state=completed]:border-green-500 data-[state=inactive]:border-muted data-[state=active]:bg-primary data-[state=completed]:bg-green-500 data-[state=active]:text-primary-foreground data-[state=completed]:text-white">
-              3
+            <StepperIndicator className={STEP_INDICATOR_CLASS}>
+              4
             </StepperIndicator>
           </StepperTrigger>
         </StepperItem>
@@ -423,7 +465,7 @@ export function SetupStepper({
             {tokenSaved ? (
               <div className="flex items-center justify-between gap-2 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
                 <div className="flex items-center gap-2">
-                  <CheckIcon className="size-3.5 text-green-500" />
+                  <CircleCheck className="size-3.5 fill-primary text-primary-foreground" />
                   <span className="font-medium text-xs">
                     Cuenta de TMDB conectada
                   </span>
@@ -495,10 +537,19 @@ export function SetupStepper({
         </StepperContent>
 
         <StepperContent value={2}>
+          <SetupFeedStep
+            initialDiscoverRows={discoverRows}
+            initialRows={feedRows}
+            onSavedChange={setFeedSaved}
+            onSavingChange={setFeedSaving}
+          />
+        </StepperContent>
+
+        <StepperContent value={3}>
           {addons.length > 0 && !addonsEditMode ? (
             <div className="flex items-center justify-between gap-2 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
               <div className="flex items-center gap-2">
-                <CheckIcon className="size-3.5 text-green-500" />
+                <CircleCheck className="size-3.5 fill-primary text-primary-foreground" />
                 <span className="font-medium text-xs">
                   {addons.length === 1
                     ? "1 complemento configurado"
@@ -551,7 +602,7 @@ export function SetupStepper({
                     className="btn-primary shrink-0"
                     disabled={!addonUrl.trim() || addingAddon}
                     onClick={handleAddAddon}
-                    size="lg"
+                    size="sm"
                   >
                     {addingAddon ? (
                       <LoaderIcon className="size-3 animate-spin" />
@@ -610,12 +661,12 @@ export function SetupStepper({
           )}
         </StepperContent>
 
-        <StepperContent value={3}>
+        <StepperContent value={4}>
           <div className="space-y-3">
             {torboxSaved ? (
               <div className="flex items-center justify-between gap-2 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
                 <div className="flex items-center gap-2">
-                  <CheckIcon className="size-3.5 text-green-500" />
+                  <CircleCheck className="size-3.5 fill-primary text-primary-foreground" />
                   <span className="font-medium text-xs">
                     TorBox API configurada
                   </span>
@@ -670,7 +721,7 @@ export function SetupStepper({
                     className="btn-primary shrink-0"
                     disabled={!torboxKeyValue.trim() || torboxSaving}
                     onClick={handleSaveTorboxKey}
-                    size="lg"
+                    size="sm"
                   >
                     {torboxSaving && (
                       <LoaderIcon className="size-3 animate-spin" />

@@ -3,11 +3,13 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import type { OneVidFeedRow } from "@/lib/onevid-feed";
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -154,6 +156,12 @@ export const oneVid = pgTable(
     tmdbAccountId: text("tmdb_account_id"),
     torboxApiKey: text("torbox_api_key"),
     setupCompleted: boolean("setup_completed").default(false).notNull(),
+    // Filas del feed de inicio, en el orden elegido por el usuario en el paso 2
+    // del stepper. NULL = nunca configurado → /home usa DEFAULT_FEED_ROWS.
+    feedRows: jsonb("feed_rows").$type<OneVidFeedRow[]>(),
+    // Igual que feedRows pero para la superficie "Descubrir" (segunda pestaña
+    // del paso 2, y el tab Descubrir de la app). NULL → DEFAULT_DISCOVER_ROWS.
+    discoverRows: jsonb("discover_rows").$type<OneVidFeedRow[]>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()
