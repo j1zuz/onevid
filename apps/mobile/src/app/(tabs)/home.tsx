@@ -79,10 +79,17 @@ export default function HomeTab() {
 
   const sections = feedQuery.data?.sections ?? [];
   const heroItems = feedQuery.data?.hero ?? [];
-  // Solo skeleton si aún no hay datos en cache (primera carga real). Incluye
-  // continueQuery para que todo el contenido aparezca en un solo bloque en vez
-  // de revelarse fila por fila conforme cada query resuelve (efecto cascada).
-  const loading = feedQuery.isLoading || continueQuery.isLoading;
+  // Solo skeleton mientras no haya datos DEL FEED en cache (primera carga real).
+  // Deliberadamente NO dependemos de continueQuery: `/api/onevid-progress` hace
+  // enriquecimiento con TMDB por cada item (título + logo) y puede tardar varios
+  // segundos, o devolver 409 cuando el perfil aún no existe. Al incluirlo en
+  // `loading` manteníamos el hero y TODAS las filas como skeleton hasta que esa
+  // query resolviera, aunque el feed ya hubiera llegado: la pantalla se quedaba
+  // "en blanco" (solo skeletons) rehén de "Continuar viendo". La fila de
+  // "Continuar viendo" ya se pinta por su cuenta cuando llegan sus datos
+  // (condicionada a `continueItems.length`), así que el feed aparece en cuanto
+  // responde feedQuery y esa fila se inserta después sin bloquear el resto.
+  const loading = feedQuery.isLoading;
   const error =
     feedQuery.isError || feedQuery.data?.error === 'network'
       ? t('No pudimos cargar el catálogo. Reintenta en un momento.')
