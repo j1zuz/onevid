@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "bun run db:migrate && next start",
+    "db:migrate": "bun run scripts/migrate.ts",
+    "db:push": "drizzle-kit push",
     "email:dev": "email dev --dir ./src/email -p 3001"
   },
   "dependencies": {
