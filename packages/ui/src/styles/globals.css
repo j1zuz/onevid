@@ -156,16 +156,16 @@
   }
 
   [data-dpad-focusable]:not(:has([data-dpad-card-frame])) {
-    @apply dpad-pointer:hover:!border-lime-500 dpad-pointer:hover:brightness-125 dpad-pointer:hover:shadow-md dpad-pointer:hover:shadow-zinc-950/30 dpad-active:!border-lime-500 dpad-active:brightness-125 dpad-active:shadow-md dpad-active:shadow-zinc-950/30;
+    @apply dpad-pointer:hover:!border-primary dpad-pointer:hover:brightness-125 dpad-pointer:hover:shadow-md dpad-pointer:hover:shadow-zinc-950/30 dpad-active:!border-primary dpad-active:brightness-125 dpad-active:shadow-md dpad-active:shadow-zinc-950/30;
   }
 
-  /* En OneVidHeader el foco por control remoto usa el ring del tema en vez del lima genérico */
+  /* En OneVidHeader el foco por control remoto usa el ring del tema en vez del primario genérico */
   [data-dpad-focus-subtle] [data-dpad-focusable]:not(:has([data-dpad-card-frame])) {
     @apply dpad-pointer:hover:!border-ring dpad-active:!border-ring;
   }
 
   [data-dpad-card-frame] {
-    @apply dpad-parent-pointer:!border-lime-500 dpad-parent-pointer:shadow-md dpad-parent-pointer:shadow-zinc-950/30 dpad-parent-active:!border-lime-500 dpad-parent-active:shadow-md dpad-parent-active:shadow-zinc-950/30;
+    @apply dpad-parent-pointer:!border-primary dpad-parent-pointer:shadow-md dpad-parent-pointer:shadow-zinc-950/30 dpad-parent-active:!border-primary dpad-parent-active:shadow-md dpad-parent-active:shadow-zinc-950/30;
   }
 
   [data-dpad-card-art] {
