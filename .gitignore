@@ -18,6 +18,9 @@ out/
 # local env files
 .env*.local
 
+# artefactos de Playwright MCP (logs de consola, snapshots, capturas)
+.playwright-mcp/
+
 # misc
 .DS_Store
 *.pem

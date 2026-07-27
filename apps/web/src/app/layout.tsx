@@ -72,7 +72,11 @@ export default async function RootLayout({
     : DEFAULT_LANGUAGE;
 
   return (
-    <html lang={initialLocale} className="dark" suppressHydrationWarning>
+    <html
+      lang={initialLocale}
+      className={`dark ${geistSans.variable} ${geistMono.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         {process.env.NODE_ENV === "development" && (
           <Script
@@ -82,9 +86,7 @@ export default async function RootLayout({
           />
         )}
       </head>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body className="antialiased">
         {process.env.NODE_ENV === "development" && <ReactScan />}
         <DpadNavigation />
         <OnevidI18nProvider initialLocale={initialLocale}>
