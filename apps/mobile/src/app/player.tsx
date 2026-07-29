@@ -190,7 +190,14 @@ const CONTROLS_HIDE_MS = 4_000;
 //    solo está buffering — le damos mucho más margen para el primer fotograma en
 //    vez de matarla. Antes un watchdog único de 10 s descartaba fuentes que SÍ
 //    abrían (detectaban pistas) pero tardaban 12-15 s en dar imagen.
-const PLAYBACK_START_TIMEOUT_MS = 20_000;
+// 30 s (antes 20 s): medido en PostHog (jul-2026), el corte de 20 s saltaba
+// fuentes comprobadamente sanas (la sonda respondía 206 con el vídeo, incluso
+// el tail del MKV). En móviles gama baja el p50 de time-to-first-frame POR
+// FUENTE es 29.6 s (Redmi 9C); en TV el p50 es 15.1 s pero el p90 llega a
+// 93.9 s y 26 de 103 saltos en 30 días fueron de fuentes con probeOk=true.
+// La prórroga por buffering nunca llegó a activarse (0/180 saltos) — ver
+// bufferEventCountRef.
+const PLAYBACK_START_TIMEOUT_MS = 30_000;
 const PLAYBACK_FIRST_FRAME_TIMEOUT_MS = 30_000;
 // Prórrogas del watchdog de arranque cuando la descarga PROGRESA. Medido en
 // PostHog (build 27): el p50 de time-to-first-frame en TV es ~20.7 s, o sea la
@@ -200,7 +207,7 @@ const PLAYBACK_FIRST_FRAME_TIMEOUT_MS = 30_000;
 // (403/DNS/host colgado) no progresa y sigue saltando a los 20 s como siempre.
 const START_EXTENSION_MS = 20_000; // duración de cada prórroga
 const START_EXTENSION_WINDOW_MS = 12_000; // "hace poco" = progreso en esta ventana
-const MAX_START_EXTENSIONS = 2; // tope: 20 s + 2×20 s = 60 s máx por fuente
+const MAX_START_EXTENSIONS = 2; // tope: 30 s + 2×20 s = 70 s máx por fuente
 // Elección manual del usuario: le damos mucho más margen "sin pistas" antes de
 // saltar, porque pidió ESA fuente explícitamente (p. ej. torbox lento de arrancar).
 const PLAYBACK_MANUAL_TIMEOUT_MS = 35_000;
@@ -1045,6 +1052,14 @@ function Player({
   // distinguir "fuente viva pero lenta" (prórroga) de "fuente muerta" (salto).
   const lastBufferProgressRef = useRef(0);
   const bufferGrowthAtRef = useRef(0); // Date.now() del último avance real
+  // Telemetría de la prórroga: en 7 días de datos (jul-2026) NUNCA se concedió
+  // una prórroga (0/89 first_frame, 0/180 probes) pese a sawBuffering=true en la
+  // mayoría de saltos. Estos contadores registran qué valores de `progress`
+  // llegan de verdad de onBuffering para saber si la condición "cambió y > 0"
+  // es imposible en la práctica (¿siempre 0?, ¿siempre igual?, ¿fuera de la
+  // ventana de 12 s?) y arreglarla con evidencia en vez de a ciegas.
+  const bufferEventCountRef = useRef(0); // nº de eventos onBuffering recibidos
+  const maxBufferProgressRef = useRef(0); // máximo progress visto en esta fuente
   const startExtensionsRef = useRef(0); // prórrogas ya concedidas a esta fuente
   // Resumen de audio de la fuente (para telemetría en player_first_frame): nº de
   // pistas, sus nombres (suelen traer el códec: "AC3", "EAC3 5.1"…) y la elegida.
@@ -1150,8 +1165,12 @@ function Player({
         audioTrackNames: audioInfoRef.current.names,
         audioTrackSelectedId: audioInfoRef.current.selectedId,
         // Prórrogas del watchdog que necesitó esta fuente para arrancar: > 0 =
-        // el timeout fijo de 20 s la habría saltado (mide el acierto del fix).
+        // el timeout base la habría saltado (mide el acierto del fix).
         startExtensions: startExtensionsRef.current,
+        // Buffering observado en fuentes que SÍ arrancan: línea base para
+        // comparar contra los mismos campos en player_source_probe (saltos).
+        bufferEventCount: bufferEventCountRef.current,
+        maxBufferProgress: maxBufferProgressRef.current,
       });
       onReveal?.();
     }
@@ -1199,6 +1218,9 @@ function Player({
     }
     firedUnplayable.current = true;
     clearTimeout(startTimer.current);
+    // Momento de la decisión de salto: la sonda tarda hasta 6 s en resolver, y
+    // msSinceBufferGrowth debe medirse contra AHORA, no contra cuando respondió.
+    const decidedAt = Date.now();
     // Diagnóstico (fire-and-forget, no bloquea el fallback): sondeamos la MISMA
     // URL que VLC intentó para registrar en PostHog qué ve el dispositivo —
     // ¿alcanza el CDN (200/vídeo), lo bloquean (403/HTML) o es error de red
@@ -1216,12 +1238,22 @@ function Player({
           startExtensions: startExtensionsRef.current, // prórrogas gastadas antes de saltar
           sawStopped: sawStoppedRef.current, // ¿VLC se detuvo solo?
           dialogType: dialogTypeRef.current, // ¿diálogo oculto? (ssl/login/error)
+          // Radiografía del buffering al momento de decidir el salto: explica
+          // por qué la prórroga (condición progress>0 y cambió, hace <12 s) no
+          // aplicó. Ver comentario en bufferEventCountRef.
+          bufferEventCount: bufferEventCountRef.current,
+          maxBufferProgress: maxBufferProgressRef.current,
+          lastBufferProgress: lastBufferProgressRef.current,
+          msSinceBufferGrowth: bufferGrowthAtRef.current
+            ? decidedAt - bufferGrowthAtRef.current
+            : -1, // -1 = nunca hubo avance real (progress>0 y distinto)
+          startTimeoutMs,
           ...probe,
         });
       });
     }
     onUnplayable?.();
-  }, [onUnplayable, url, mediaType, mediaId]);
+  }, [onUnplayable, url, mediaType, mediaId, startTimeoutMs]);
 
   // Watchdog de arranque: si la fuente no produce imagen a tiempo (host colgado),
   // la saltamos. Se reinicia por fuente gracias al remontaje (key={url}).
@@ -1392,6 +1424,10 @@ function Player({
     ({ progress }: VlcEvent<'onBuffering'>) => {
       setBuffering(true);
       sawBufferingRef.current = true; // diagnóstico: VLC llegó a leer datos
+      bufferEventCountRef.current += 1;
+      if (progress > maxBufferProgressRef.current) {
+        maxBufferProgressRef.current = progress;
+      }
       // Avance real de descarga (progress cambia y no es 0) → sella el momento;
       // el watchdog lo usa para prorrogar fuentes vivas-pero-lentas. VLC
       // reinicia progress a 0 en cada episodio, por eso "cambió y > 0".
