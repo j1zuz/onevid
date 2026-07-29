@@ -273,9 +273,15 @@ async function probeStreamUrl(url: string): Promise<string> {
       res.headers.get('content-range') ??
       res.headers.get('content-length') ??
       '—';
+    const ranges = res.headers.get('accept-ranges') ?? '—';
+    const tail = await probeStreamTail(url);
+    const tailInfo =
+      tail.probeTailStatus !== undefined
+        ? `\ncola (índice): HTTP ${tail.probeTailStatus}`
+        : `\ncola (índice): sin respuesta`;
     const redirect =
       res.url && res.url !== url ? `\n→ redirige a: ${res.url}` : '';
-    return `Diagnóstico: HTTP ${res.status} · ${ct} · ${size}${redirect}`;
+    return `Diagnóstico: HTTP ${res.status} · ${ct} · ${size} · ranges: ${ranges}${tailInfo}${redirect}`;
   } catch (e) {
     return `Diagnóstico: sin respuesta del host (${
       e instanceof Error ? e.message : 'error de red'
@@ -294,6 +300,10 @@ async function probeStreamForTelemetry(url: string): Promise<{
   probeContentType?: string;
   probeRedirected?: boolean;
   probeError?: string;
+  probeAcceptRanges?: string;
+  probeContentLength?: number;
+  probeTailStatus?: number;
+  probeTailError?: string;
 }> {
   try {
     const res = await fetchWithTimeout(
@@ -301,17 +311,51 @@ async function probeStreamForTelemetry(url: string): Promise<{
       { method: 'GET', headers: { Range: 'bytes=0-1', 'User-Agent': STREAM_UA } },
       6_000,
     );
+    // Tamaño total del archivo: lo trae `Content-Range` (formato "bytes 0-1/SIZE")
+    // en una respuesta 206, o `Content-Length` si el host ignoró el Range.
+    const contentRange = res.headers.get('content-range');
+    const totalFromRange = contentRange?.split('/')[1];
+    const contentLength = totalFromRange ?? res.headers.get('content-length');
+    // Sonda a la COLA del archivo: MKV guarda el índice `Cues` al final, y el
+    // demuxer de VLC necesita saltar ahí por HTTP para listar las pistas. Si el
+    // host no sirve un Range al final (devuelve 200 con todo el archivo, o 416/
+    // 403), VLC no puede construir el índice y se queda leyendo sin abrir el
+    // vídeo (esAdded nunca se dispara). Esto confirma/descarta esa causa.
+    const tail = await probeStreamTail(url);
     return {
       probeOk: res.ok,
       probeStatus: res.status,
       probeContentType: res.headers.get('content-type') ?? undefined,
       probeRedirected: Boolean(res.url && res.url !== url),
+      probeAcceptRanges: res.headers.get('accept-ranges') ?? undefined,
+      probeContentLength: contentLength ? Number(contentLength) : undefined,
+      ...tail,
     };
   } catch (e) {
     return {
       probeOk: false,
       probeError: e instanceof Error ? e.message : String(e),
     };
+  }
+}
+
+// Petición a los últimos 64 KB del archivo. `Range: bytes=-N` = "los N bytes
+// finales" (RFC 7233). 206 = el host sirve el final → el índice del MKV es
+// alcanzable. 200 = ignora el Range y manda el archivo entero → VLC no puede
+// saltar al índice (causa probable del fallo). 416/403/otro = seek al final roto.
+async function probeStreamTail(url: string): Promise<{
+  probeTailStatus?: number;
+  probeTailError?: string;
+}> {
+  try {
+    const res = await fetchWithTimeout(
+      url,
+      { method: 'GET', headers: { Range: 'bytes=-65536', 'User-Agent': STREAM_UA } },
+      6_000,
+    );
+    return { probeTailStatus: res.status };
+  } catch (e) {
+    return { probeTailError: e instanceof Error ? e.message : String(e) };
   }
 }
 
