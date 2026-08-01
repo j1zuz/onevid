@@ -1,82 +1,109 @@
-# Welcome to your Expo app 👋
+# onevid
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Monorepo de **onevid**: una app de vídeo con cliente móvil/TV (Expo + React Native) y web
+(Next.js), compartiendo componentes de UI.
 
-## Get started
+```
+apps/
+  mobile/   Expo (React Native tvOS/Android TV + móvil), expo-router
+  web/      Next.js 16 + better-auth + drizzle (Postgres)
+packages/
+  ui/       Componentes compartidos de la web (@workspace/ui)
+```
 
-1. Install dependencies
+El gestor de paquetes es **Bun** (workspaces + catalog). No uses npm/yarn/pnpm: el lockfile es
+`bun.lock` y hay dependencias parcheadas (`patches/`) que solo aplica Bun.
 
-   ```bash
-   pnpm install
-   ```
+## Requisitos
 
-2. Start the app
+- **Bun** ≥ 1.3.13
+- **Node 20+** (algunas herramientas de Expo/EAS lo necesitan)
+- Para compilar Android en local: **JDK 17** y el **Android SDK** con `ANDROID_HOME` exportado
+- Para iOS / Apple TV: una **Mac con Xcode** (no se puede compilar en Linux)
 
-   ```bash
-   npx expo start
-   ```
+## Empezar
 
-In the output, you'll find options to open the app in a
+```bash
+bun install
+```
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### Web
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+```bash
+bun dev          # next dev  (apps/web)
+bun run build    # next build
+bun start        # next start
+```
 
-## Builds locales (gratis)
+Migraciones de base de datos (drizzle, desde `apps/web`):
 
-> ⚠️ **Importante:** `eas build` **sin** `--local` compila en la nube de Expo y **cobra por build**.
-> Todos los comandos de abajo compilan en **tu máquina** y **no generan cargos**.
->
-> Las versiones de **Apple (iOS / Apple TV) requieren una Mac con Xcode** y no pueden compilarse
-> en Linux. Este proyecto está preparado para compilar **Android (teléfono) y Android TV** en local.
+```bash
+bunx drizzle-kit generate
+bunx drizzle-kit migrate
+```
 
-Esta app usa módulos nativos propios (`expo-libvlc-player`, `react-native-tvos`), por eso no
-funciona en Expo Go: se necesita un *development build* propio (`expo-dev-client`). El switch
-entre móvil y TV lo hace el plugin `@react-native-tvos/config-tv` leyendo la variable de
-entorno `EXPO_TV` en tiempo de build.
+Previsualizar los emails de React Email:
 
-### Comandos
+```bash
+bun --filter web email:dev
+```
+
+### Móvil / TV
+
+```bash
+bun mobile       # expo start (apps/mobile)
+```
+
+La app usa módulos nativos propios (`expo-libvlc-player`, `react-native-tvos`), así que **no
+funciona en Expo Go**: necesitas un *development build* con `expo-dev-client`. El cambio entre
+móvil y TV lo hace el plugin `@react-native-tvos/config-tv` leyendo la variable de entorno
+`EXPO_TV` en tiempo de build.
+
+Todos estos scripts se ejecutan desde `apps/mobile` (o con `bun --filter onevid <script>`):
 
 | Objetivo | Móvil | Android TV |
 | --- | --- | --- |
-| Dev build + instalar (debug, lo más rápido) | `pnpm android` | `pnpm android:tv` |
-| APK distribuible (sideload) | `pnpm build:android` | `pnpm build:android:tv` |
-| AAB para Play Store | `pnpm build:android:prod` | `pnpm build:android:tv:prod` |
-| Update OTA (sin recompilar) | `pnpm update` | `pnpm update:tv` |
+| Dev build + instalar (debug, lo más rápido) | `bun android` | `bun android:tv` |
+| APK distribuible (sideload) | `bun run build:android` | `bun run build:android:tv` |
+| AAB para Play Store | `bun run build:android:prod` | `bun run build:android:tv:prod` |
+| Update OTA (sin recompilar) | `bun run update` | `bun run update:tv` |
+| Lint | `bun lint` | — |
 
-- Los `expo run:*` (`pnpm android` / `pnpm android:tv`) son 100% locales y **no necesitan `eas-cli`**.
-- Los `build:*` usan `eas build --local`: compilan en tu máquina (sin cobro) usando los
-  perfiles de `eas.json`. Los perfiles `-tv` ya inyectan `EXPO_TV=1`.
-- **EAS Update (OTA)** se conserva: es gratis hasta 1,000 usuarios activos/mes y **no** consume
-  builds de pago. Para TV se antepone `EXPO_TV=1` para que el *fingerprint* coincida con el build de TV.
+> ⚠️ `eas build` **sin** `--local` compila en la nube de Expo y **cobra por build**. Todos los
+> scripts `build:*` de arriba usan `--local`: compilan en tu máquina y no generan cargos.
+> Los perfiles `-tv` de `eas.json` ya inyectan `EXPO_TV=1`.
 
-### Requisitos para compilar Android en local
+Los `expo run:*` (`bun android` / `bun android:tv`) son 100% locales y no necesitan `eas-cli`.
+Para los scripts `build:*` y `update*` sí hace falta `eas-cli` global (`bun add -g eas-cli`).
 
-- **JDK 17** (en Arch: `jdk17-openjdk`).
-- **Android SDK** (Android Studio o `cmdline-tools`) con `ANDROID_HOME` exportado.
-- Un **emulador** (AVD de teléfono y/o de Android TV) o un dispositivo real con depuración
-  USB / `adb connect`.
-- Solo para los scripts `build:*` y `update*`: `eas-cli` global (`npm i -g eas-cli`).
+## Variables de entorno
 
-### Other setup steps
+`apps/web/.env`:
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+| Variable | Para qué |
+| --- | --- |
+| `DATABASE_URL` | Postgres (drizzle + better-auth) |
+| `BASE_URL` | URL pública de la web |
+| `COOKIE_DOMAIN` | Dominio de las cookies de sesión |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Login con Google |
+| `APPLE_CLIENT_ID` / `APPLE_CLIENT_SECRET` | Login con Apple |
+| `RESEND_API_KEY` / `RESEND_FROM` | Envío de emails |
+| `TMDB_APP_READ_TOKEN` | API de TMDB |
+| `NEXT_PUBLIC_POSTHOG_TOKEN` | Analítica |
 
-## Learn more
+`apps/mobile/.env`:
 
-To learn more about developing your project with Expo, look at the following resources:
+| Variable | Para qué |
+| --- | --- |
+| `EXPO_PUBLIC_API_URL` | URL de la API (la app web) |
+| `EXPO_PUBLIC_HACKW_CLIENT_ID` | Client ID de auth |
+| `EXPO_PUBLIC_POSTHOG_API_KEY` / `EXPO_PUBLIC_POSTHOG_HOST` | Analítica |
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Ramas
 
-## Join the community
+- `main` — estable
+- `dev` — desarrollo; abre los PR contra esta rama
 
-Join our community of developers creating universal apps.
+## Licencia
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+MIT — ver [LICENSE](./LICENSE).
