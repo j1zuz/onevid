@@ -39,14 +39,66 @@
   display: none;
 }
 
+/* The skin's own captions button is a plain on/off toggle for whichever
+   subtitle track happens to be active; once `MediaTrackControls` has a real
+   language picker to show (which also offers "off"), the skin's button is a
+   second, confusingly similar captions icon — hide it. Scoped with
+   `:has(.stream-track-controls)` so it stays put on sources where our picker
+   has nothing to show (e.g. progressive MP4 with no embedded subtitles). */
+.stream-video-player-root
+  .media-default-skin:has(.stream-track-controls)
+  .media-button--captions {
+  display: none;
+}
+
 /* Audio-language / subtitle pickers.
 
-   `MediaTrackControls` portals its buttons directly into the skin's own last
-   `.media-button-group` (see CONTROLS_BAR_GROUP_SELECTOR in
-   media-track-controls.tsx), so they share that group's flex gap and hover
-   styles for free — no separate positioning needed here.
+   Pinned to the top-right corner instead of the bottom control bar: that bar
+   already has playback-rate/volume/captions/pip/fullscreen packed into it,
+   and this project's default skin (`VideoSkin`, a sealed preset from
+   `@videojs/react`) exposes no slot to weave extra buttons into that same
+   row anyway. */
+.stream-video-player-root .media-default-skin .stream-track-controls {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  padding: 0.25rem;
+  border-radius: calc(infinity * 1px);
+  color: var(--media-color-primary, oklch(1 0 0));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--media-controls-transition-duration)
+    var(--media-controls-transition-timing-function);
+}
 
-   `display` below is load-bearing: the popup carries `popover="manual"`, which the UA
+@container media-root (width > 42rem) {
+  .stream-video-player-root .media-default-skin .stream-track-controls {
+    top: 0.75rem;
+    right: 0.75rem;
+  }
+}
+
+/* An open menu outlives the skin's 2s idle timer, so the cluster (and the
+   cursor) have to stay around with it. */
+.stream-video-player-root
+  .media-default-skin
+  .stream-track-controls[data-visible],
+.stream-video-player-root
+  .media-default-skin
+  .stream-track-controls[data-menu-open] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.stream-video-player-root
+  .media-default-skin--video:has(.stream-track-controls[data-menu-open]) {
+  cursor: auto;
+}
+
+/* `display` is load-bearing: the popup carries `popover="manual"`, which the UA
    stylesheet hides unless the popover API opened it. @videojs/react never calls
    showPopover() — it just unmounts the popup when closed — so the author-level
    `display` here is what makes an open menu visible at all. */
