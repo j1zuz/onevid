@@ -3,10 +3,11 @@
 import { createPlayer, videoFeatures } from "@videojs/react";
 import { HlsVideo } from "@videojs/react/media/hls-video";
 import { Video, VideoSkin } from "@videojs/react/video";
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import "@videojs/react/video/skin.css";
 import { cn } from "@workspace/ui/lib/utils";
 import "./video-js-player-overrides.css";
+import { MediaTrackControls } from "@/components/stream/media-track-controls";
 import type { MimeType } from "@/types/stream";
 
 interface VideoJsStreamPlayerProps {
@@ -49,7 +50,9 @@ export function VideoJsStreamPlayer({
   onPlaying,
   onTimeUpdate,
 }: VideoJsStreamPlayerProps) {
-  const playerRef = useRef<HTMLVideoElement>(null);
+  // State (not a ref) so the track controls re-render once the <video> mounts
+  // and they can read its audio/text track lists.
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
   // HLS (streams en vivo o .m3u8 bajo demanda) necesita hls.js para MSE: un
   // <video> nativo solo lo reproduce en Safari. HlsVideo decide internamente
   // MSE vs. nativo según soporte del navegador.
@@ -102,7 +105,7 @@ export function VideoJsStreamPlayer({
               playsInline={playsInline}
               poster={poster}
               preload={preload}
-              ref={playerRef}
+              ref={setVideoEl}
               src={src}
               // @videojs/core detecta HLS comparando contra su propio string
               // interno ("application/vnd.apple.mpegurl"), distinto del que
@@ -124,11 +127,12 @@ export function VideoJsStreamPlayer({
               playsInline={playsInline}
               poster={poster}
               preload={preload}
-              ref={playerRef}
+              ref={setVideoEl}
               src={src}
               {...({ type: mimeType } as React.ComponentProps<typeof Video>)}
             />
           )}
+          <MediaTrackControls video={videoEl} />
         </VideoSkin>
       </Player.Provider>
     </div>
