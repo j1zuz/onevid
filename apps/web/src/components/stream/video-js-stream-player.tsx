@@ -132,7 +132,10 @@ export function VideoJsStreamPlayer({
               {...({ type: mimeType } as React.ComponentProps<typeof Video>)}
             />
           )}
-          <MediaTrackControls video={videoEl} />
+          {/* `controls` here is the native <video controls> attribute: when
+              the caller wants that instead of the skin's own bar, stacking
+              our menu cluster on top of it would just look broken. */}
+          {!controls && <MediaTrackControls video={videoEl} />}
         </VideoSkin>
       </Player.Provider>
     </div>

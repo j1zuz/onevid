@@ -67,12 +67,27 @@ function getHlsEngine(media: unknown): HlsEngine | null {
     : null;
 }
 
+// `Intl.DisplayNames` construction is expensive and `languageName` runs once
+// per track on every track-list sync, so build it once, lazily.
+let displayNames: Intl.DisplayNames | null | undefined;
+
+function getDisplayNames(): Intl.DisplayNames | null {
+  if (displayNames === undefined) {
+    try {
+      displayNames = new Intl.DisplayNames(["es"], { type: "language" });
+    } catch {
+      displayNames = null;
+    }
+  }
+  return displayNames;
+}
+
 function languageName(code: string | undefined): string | null {
   if (!code) {
     return null;
   }
   try {
-    const name = new Intl.DisplayNames(["es"], { type: "language" }).of(code);
+    const name = getDisplayNames()?.of(code);
     if (!name || name.toLowerCase() === code.toLowerCase()) {
       return code.toUpperCase();
     }
@@ -261,16 +276,17 @@ export function useMediaTracks(
       if (!list) {
         return;
       }
-      // Enable the chosen track last: disabling every track first would leave
-      // the element momentarily silent in browsers that allow it.
+      // Enable the chosen track before disabling the rest: some browsers
+      // require at least one `AudioTrack` to stay enabled at all times, so
+      // disabling everything first can silently no-op the whole switch.
+      const index = Number(id);
+      if (list[index]) {
+        list[index].enabled = true;
+      }
       for (let i = 0; i < list.length; i++) {
         if (String(i) !== id) {
           list[i].enabled = false;
         }
-      }
-      const index = Number(id);
-      if (list[index]) {
-        list[index].enabled = true;
       }
       setActiveAudioId(id);
     },

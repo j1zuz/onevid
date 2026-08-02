@@ -51,7 +51,7 @@ function TrackMenu({
         <div
           aria-labelledby={titleId}
           className="stream-track-menu__list"
-          role="menu"
+          role="radiogroup"
         >
           {options.map((option) => (
             <button
@@ -63,7 +63,7 @@ function TrackMenu({
                 onSelect(option.value);
                 onOpenChange(false);
               }}
-              role="menuitemradio"
+              role="radio"
               type="button"
             >
               <CheckIcon className="stream-track-menu__check" />
