@@ -48,6 +48,16 @@ const PASSTHROUGH_AUDIO_CODECS = new Set(["aac", "mp3", "opus"]);
  * MP4 as a File. Video is passed through (H.264/AVC) and only audio is
  * re-encoded (→ Opus); the output is streamed into the given OPFS file.
  *
+ * Known gap: mediabunny's Matroska demuxer (as of 1.49.0) never surfaces
+ * subtitle tracks as `InputTrack`s — they're silently dropped during
+ * demuxing, before `Conversion` ever sees them — so a transcoded MKV loses
+ * every embedded subtitle. Multiple audio tracks *do* survive the transcode,
+ * but Chromium has no reliable `audioTracks` switching support for local
+ * blob MP4 playback, so the audio picker (`useMediaTracks`) may still come up
+ * empty. Both pickers work as intended against HLS sources, which never go
+ * through this pipeline.
+ *
+
  * `conversionRef` is populated with the live `Conversion` instance as soon as
  * it exists, so the caller can `cancel()` it (releasing its WebCodecs
  * decoder/encoder sessions) if the component unmounts mid-transcode. Without
