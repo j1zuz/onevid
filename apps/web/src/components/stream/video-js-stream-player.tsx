@@ -88,6 +88,20 @@ export function VideoJsStreamPlayer({
     );
   };
 
+  // The skin's own play/pause button is hidden (see the override CSS) in
+  // favor of tapping the video itself, so this is the only way to toggle
+  // playback short of the keyboard shortcut.
+  const handleTogglePlay = () => {
+    if (!videoEl) {
+      return;
+    }
+    if (videoEl.paused || videoEl.ended) {
+      videoEl.play();
+    } else {
+      videoEl.pause();
+    }
+  };
+
   return (
     <div className={rootClassName}>
       <Player.Provider>
@@ -96,6 +110,7 @@ export function VideoJsStreamPlayer({
             <HlsVideo
               autoPlay={autoPlay}
               controls={controls}
+              onClick={handleTogglePlay}
               onEnded={onEnded}
               onError={handleError}
               onLoadStart={onLoadStart}
@@ -118,6 +133,7 @@ export function VideoJsStreamPlayer({
             <Video
               autoPlay={autoPlay}
               controls={controls}
+              onClick={handleTogglePlay}
               onEnded={onEnded}
               onError={handleError}
               onLoadStart={onLoadStart}
