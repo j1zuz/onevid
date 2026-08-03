@@ -310,7 +310,7 @@ function FeedSurfaceEditor({
               label:
                 source.kind === "addon"
                   ? `${source.addonName} · ${source.catalogName}`
-                  : t("Tendencias (TMDB)"),
+                  : t("Tendencias"),
             }))}
             onValueChange={(val) => setDraftSource(val ?? "trending")}
             value={draftSource}
@@ -323,7 +323,7 @@ function FeedSurfaceEditor({
                 <SelectItem key={source.value} value={source.value}>
                   {source.kind === "addon"
                     ? `${source.addonName} · ${source.catalogName}`
-                    : t("Tendencias (TMDB)")}
+                    : t("Tendencias")}
                 </SelectItem>
               ))}
             </SelectContent>
