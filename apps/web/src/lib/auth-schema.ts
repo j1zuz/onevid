@@ -9,7 +9,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import type { OneVidFeedRow } from "@/lib/onevid-feed";
+import type { AddonCatalogRef, OneVidFeedRow } from "@/lib/onevid-feed";
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -184,6 +184,9 @@ export const oneVidAddon = pgTable(
     manifestVersion: text("manifest_version"),
     manifestDescription: text("manifest_description"),
     supportsStreams: boolean("supports_streams").default(false).notNull(),
+    // Catálogos propios del addon (manifest.catalogs, formato Stremio). NULL
+    // o [] = el addon no declara catálogos, solo resuelve streams.
+    catalogs: jsonb("catalogs").$type<AddonCatalogRef[]>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()

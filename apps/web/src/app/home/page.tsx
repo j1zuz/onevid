@@ -95,6 +95,7 @@ export default async function OneVidPage({
         manifestName: oneVidAddon.manifestName,
         manifestVersion: oneVidAddon.manifestVersion,
         supportsStreams: oneVidAddon.supportsStreams,
+        catalogs: oneVidAddon.catalogs,
       })
       .from(oneVidAddon)
       .where(eq(oneVidAddon.userId, session.user.id))
@@ -156,6 +157,20 @@ export default async function OneVidPage({
   const allCatalogs = getCatalogOptions();
   const allNetworks = getNetworkOptions();
   const networksById = new Map(allNetworks.map((n) => [n.id, n]));
+  const addons = addonRows.map((addon) => ({
+    ...addon,
+    catalogs: addon.catalogs ?? [],
+  }));
+  const addonsById = new Map(
+    addons.map((addon) => [
+      addon.id,
+      {
+        baseUrl: addon.baseUrl,
+        catalogs: addon.catalogs,
+        manifestName: addon.manifestName,
+      },
+    ])
+  );
 
   const typeOptions: CatalogType[] = Array.from(
     new Set(allCatalogs.map((c) => c.type))
@@ -190,7 +205,7 @@ export default async function OneVidPage({
   }
 
   const headerProps = {
-    addons: addonRows,
+    addons,
     discoverRows,
     feedConfigured,
     feedRows,
@@ -235,7 +250,7 @@ export default async function OneVidPage({
                   feedConfigured={feedConfigured}
                   feedRows={feedRows}
                   hasTorboxKey={Boolean(torboxKey)}
-                  initialAddons={addonRows}
+                  initialAddons={addons}
                   linked={tmdbLinked}
                   setupCompleted={setupCompleted}
                 />
@@ -291,6 +306,7 @@ export default async function OneVidPage({
     }
   } else {
     const feed = await resolveFeed({
+      addonsById,
       itemsPerRow: FEED_ROW_ITEM_LIMIT,
       networksById,
       rows: surfaceRows,
@@ -323,7 +339,7 @@ export default async function OneVidPage({
                   feedConfigured={feedConfigured}
                   feedRows={feedRows}
                   hasTorboxKey={Boolean(torboxKey)}
-                  initialAddons={addonRows}
+                  initialAddons={addons}
                   linked={false}
                   setupCompleted={false}
                 />
@@ -359,7 +375,7 @@ export default async function OneVidPage({
   return (
     <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
       <OneVidPageClient
-        addons={addonRows}
+        addons={addons}
         discoverRows={discoverRows}
         feedConfigured={feedConfigured}
         feedRows={feedRows}

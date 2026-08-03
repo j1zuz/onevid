@@ -746,6 +746,47 @@ function mapNetworks(items: TmdbTvNetwork[] | undefined): NetworkRef[] {
   });
 }
 
+// ─── Meta liviano (sin cast/related/logo) ─────────────────────────────
+
+/**
+ * Versión liviana de `fetchMovieDetail`/`fetchTvDetail`: solo el detalle base
+ * (poster, título, año, rating…), sin cast/related/logo. La usa
+ * `addon-catalog.ts` para hidratar cada item de un catálogo de addon — ahí
+ * se resuelven varios ids en paralelo y pedir cast+related+logo por cada uno
+ * sería mucho más costoso de lo que una fila de feed necesita mostrar.
+ */
+export async function fetchMovieMeta(
+  token: string,
+  tmdbId: string,
+  locale?: string
+): Promise<MediaMeta> {
+  const genreMap = await fetchMovieGenres(token, locale);
+  const detail = await tmdbFetch<TmdbMovieDetail>(
+    token,
+    `/3/movie/${tmdbId}`,
+    { language: locale || "es-MX" },
+    600
+  );
+  const meta = mapMovieToMeta(detail, genreMap);
+  meta.imdbId = detail.imdb_id || undefined;
+  return meta;
+}
+
+export async function fetchTvMeta(
+  token: string,
+  tmdbId: string,
+  locale?: string
+): Promise<MediaMeta> {
+  const genreMap = await fetchTvGenres(token, locale);
+  const detail = await tmdbFetch<TmdbTvDetail>(
+    token,
+    `/3/tv/${tmdbId}`,
+    { language: locale || "es-MX" },
+    600
+  );
+  return mapTvToMeta(detail, genreMap);
+}
+
 // ─── Detail ──────────────────────────────────────────────────────────
 
 const EMPTY_CREDITS: { cast: CastMember[]; crew: TmdbCreditPerson[] } = {
@@ -1241,6 +1282,33 @@ export async function findImdbId(
     3600
   );
   return data.imdb_id || undefined;
+}
+
+interface TmdbFindResponse {
+  movie_results?: TmdbMovieResult[];
+  tv_results?: TmdbTvResult[];
+}
+
+/**
+ * La dirección inversa de `findImdbId`: dado un IMDb id (el formato que
+ * devuelven los catálogos estilo Stremio, p. ej. los de un addon OneVLP),
+ * resuelve el TMDB id equivalente. Sin esto no se puede hidratar poster,
+ * título ni el resto de `MediaMeta` para esos items.
+ */
+export async function findTmdbIdByImdbId(
+  token: string,
+  imdbId: string,
+  type: "movie" | "series"
+): Promise<string | undefined> {
+  const data = await tmdbFetch<TmdbFindResponse>(
+    token,
+    `/3/find/${imdbId}`,
+    { external_source: "imdb_id" },
+    3600
+  );
+  const results = type === "movie" ? data.movie_results : data.tv_results;
+  const first = results?.[0];
+  return first ? String(first.id) : undefined;
 }
 
 // ─── OAuth v4 (user authentication) ──────────────────────────────────

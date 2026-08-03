@@ -28,6 +28,7 @@ import { Reorder, useDragControls } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
+  type AddonCatalogRef,
   buildFeedRowId,
   FEED_MAX_ROWS,
   type FeedMediaType,
@@ -39,13 +40,57 @@ import {
 } from "@/lib/onevid-feed";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 
+/** Lo mínimo que necesita este paso de un addon para ofrecer su catálogo. */
+interface FeedAddonOption {
+  catalogs: AddonCatalogRef[];
+  id: string;
+  manifestName: string;
+}
+
 interface SetupFeedStepProps {
+  /** Addons del usuario, para poder añadir filas con su catálogo propio. */
+  addons: FeedAddonOption[];
   initialDiscoverRows: OneVidFeedRow[];
   initialRows: OneVidFeedRow[];
   /** Alimenta `completed` del StepperItem 2 (se apaga al haber cambios sin guardar). */
   onSavedChange: (saved: boolean) => void;
   /** Alimenta `loading` del StepperItem 2. */
   onSavingChange: (saving: boolean) => void;
+}
+
+/**
+ * Una opción del selector "fuente" al añadir una fila: TMDB Tendencias, o el
+ * catálogo propio de un addon (formato Stremio). `value` es lo que persiste
+ * el `<Select>`; los demás campos alimentan la fila que se agrega.
+ */
+type CatalogSourceOption =
+  | {
+      addonCatalogId: string;
+      addonId: string;
+      addonName: string;
+      catalogName: string;
+      kind: "addon";
+      value: string;
+    }
+  | { kind: "trending"; value: "trending" };
+
+function buildCatalogSourceOptions(
+  addons: FeedAddonOption[],
+  type: FeedMediaType
+): CatalogSourceOption[] {
+  const fromAddons: CatalogSourceOption[] = addons.flatMap((addon) =>
+    addon.catalogs
+      .filter((c) => c.type === type)
+      .map((c) => ({
+        addonCatalogId: c.id,
+        addonId: addon.id,
+        addonName: addon.manifestName,
+        catalogName: c.name,
+        kind: "addon" as const,
+        value: `${addon.id}::${c.id}`,
+      }))
+  );
+  return [{ kind: "trending", value: "trending" }, ...fromAddons];
 }
 
 function FeedRowItem({
@@ -137,11 +182,13 @@ function FeedRowItem({
  * desde `SetupFeedStep`, con un único botón.
  */
 function FeedSurfaceEditor({
+  addons,
   emptyHint,
   label,
   onRowsChange,
   rows,
 }: {
+  addons: FeedAddonOption[];
   emptyHint: string;
   label: string;
   onRowsChange: (next: FeedRowWithId[]) => void;
@@ -155,10 +202,27 @@ function FeedSurfaceEditor({
     () => new Map(networks.map((n) => [n.id, n.name])),
     [networks]
   );
+  // "addonId::catalogId" -> nombre del catálogo, para el label de cada fila
+  // ya agregada (ver getFeedRowTitle más abajo).
+  const addonCatalogNameById = useMemo(
+    () =>
+      new Map(
+        addons.flatMap((addon) =>
+          addon.catalogs.map((c) => [`${addon.id}::${c.id}`, c.name])
+        )
+      ),
+    [addons]
+  );
 
   const [draftType, setDraftType] = useState<FeedMediaType>("movie");
   const [draftNetwork, setDraftNetwork] = useState("all");
+  const [draftSource, setDraftSource] = useState("trending");
   const [error, setError] = useState("");
+
+  const catalogSources = useMemo(
+    () => buildCatalogSourceOptions(addons, draftType),
+    [addons, draftType]
+  );
 
   function move(from: number, to: number) {
     if (to < 0 || to >= rows.length) {
@@ -178,11 +242,24 @@ function FeedSurfaceEditor({
       setError(`Máximo ${FEED_MAX_ROWS} filas`);
       return;
     }
-    const networkId =
-      draftNetwork !== "all" ? Number(draftNetwork) : undefined;
-    const row: OneVidFeedRow = networkId
-      ? { type: draftType, catalog: "trending", networkId }
-      : { type: draftType, catalog: "trending" };
+    const selectedSource = catalogSources.find((s) => s.value === draftSource);
+
+    let row: OneVidFeedRow;
+    if (selectedSource?.kind === "addon") {
+      row = {
+        type: draftType,
+        catalog: "addon",
+        addonId: selectedSource.addonId,
+        addonCatalogId: selectedSource.addonCatalogId,
+      };
+    } else {
+      const networkId =
+        draftNetwork !== "all" ? Number(draftNetwork) : undefined;
+      row = networkId
+        ? { type: draftType, catalog: "trending", networkId }
+        : { type: draftType, catalog: "trending" };
+    }
+
     const id = buildFeedRowId(row);
     if (rows.some((r) => r.id === id)) {
       setError("Esa fila ya está en la lista");
@@ -209,7 +286,13 @@ function FeedSurfaceEditor({
               { value: "movie", label: t("Películas") },
               { value: "series", label: t("Series") },
             ]}
-            onValueChange={(val) => setDraftType(val as FeedMediaType)}
+            onValueChange={(val) => {
+              setDraftType(val as FeedMediaType);
+              // Un catálogo de addon es de un solo tipo: al cambiar de tipo la
+              // fuente elegida puede dejar de existir, así que se vuelve a
+              // Tendencias en vez de arrastrar una selección inválida.
+              setDraftSource("trending");
+            }}
             value={draftType}
           >
             <SelectTrigger className="flex-1 text-xs" data-dpad-focusable size="sm">
@@ -222,25 +305,57 @@ function FeedSurfaceEditor({
           </Select>
 
           <Select
-            items={[
-              { value: "all", label: t("Todas las cadenas") },
-              ...networks.map((n) => ({ value: String(n.id), label: n.name })),
-            ]}
-            onValueChange={(val) => setDraftNetwork(val ?? "all")}
-            value={draftNetwork}
+            items={catalogSources.map((source) => ({
+              value: source.value,
+              label:
+                source.kind === "addon"
+                  ? `${source.addonName} · ${source.catalogName}`
+                  : t("Tendencias (TMDB)"),
+            }))}
+            onValueChange={(val) => setDraftSource(val ?? "trending")}
+            value={draftSource}
           >
             <SelectTrigger className="flex-1 text-xs" data-dpad-focusable size="sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">{t("Todas las cadenas")}</SelectItem>
-              {networks.map((network) => (
-                <SelectItem key={network.id} value={String(network.id)}>
-                  {network.name}
+              {catalogSources.map((source) => (
+                <SelectItem key={source.value} value={source.value}>
+                  {source.kind === "addon"
+                    ? `${source.addonName} · ${source.catalogName}`
+                    : t("Tendencias (TMDB)")}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        <div className="flex gap-1.5">
+          {draftSource === "trending" && (
+            <Select
+              items={[
+                { value: "all", label: t("Todas las cadenas") },
+                ...networks.map((n) => ({
+                  value: String(n.id),
+                  label: n.name,
+                })),
+              ]}
+              onValueChange={(val) => setDraftNetwork(val ?? "all")}
+              value={draftNetwork}
+            >
+              <SelectTrigger className="flex-1 text-xs" data-dpad-focusable size="sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("Todas las cadenas")}</SelectItem>
+                {networks.map((network) => (
+                  <SelectItem key={network.id} value={String(network.id)}>
+                    {network.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
 
           <Button
             className="btn-primary shrink-0"
@@ -281,7 +396,13 @@ function FeedSurfaceEditor({
               label={getFeedRowTitle(
                 row,
                 t,
-                row.networkId ? networkNameById.get(row.networkId) : undefined
+                row.catalog === "addon"
+                  ? addonCatalogNameById.get(
+                      `${row.addonId}::${row.addonCatalogId}`
+                    )
+                  : row.networkId
+                    ? networkNameById.get(row.networkId)
+                    : undefined
               )}
               onMoveDown={() => move(index, index + 1)}
               onMoveUp={() => move(index, index - 1)}
@@ -301,6 +422,7 @@ function FeedSurfaceEditor({
  * propia lista y las dos las respetan tanto /home como la app.
  */
 export function SetupFeedStep({
+  addons,
   initialDiscoverRows,
   initialRows,
   onSavedChange,
@@ -379,6 +501,7 @@ export function SetupFeedStep({
 
         <TabsContent value="home">
           <FeedSurfaceEditor
+            addons={addons}
             emptyHint="Sin filas: tu inicio usará la selección por defecto."
             label="Filas de tu inicio"
             onRowsChange={applyRows}
@@ -388,6 +511,7 @@ export function SetupFeedStep({
 
         <TabsContent value="discover">
           <FeedSurfaceEditor
+            addons={addons}
             emptyHint="Sin filas: Descubrir usará la selección por defecto."
             label="Filas de Descubrir"
             onRowsChange={applyDiscoverRows}

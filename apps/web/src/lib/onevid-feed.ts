@@ -1,13 +1,16 @@
 /**
- * Feed de inicio configurable: cada fila es una combinación tipo × cadena. El
- * usuario elige qué filas quiere y en qué orden desde el paso 2 del stepper de
- * configuración; el orden se guarda en `one_vid.feed_rows`.
+ * Feed de inicio configurable: cada fila es una combinación tipo × cadena (o
+ * tipo × catálogo de un addon). El usuario elige qué filas quiere y en qué
+ * orden desde el paso 2 del stepper de configuración; el orden se guarda en
+ * `one_vid.feed_rows`.
  *
- * Todas las filas son de tendencias. Antes se podía elegir entre Tendencias /
+ * Las filas "trending" son de TMDB. Antes se podía elegir entre Tendencias /
  * Estrenos / Destacados, pero las tres devolvían listas muy parecidas y el
- * tercer dropdown solo añadía ruido a la configuración: ahora una fila es
- * simplemente "lo que está en tendencia" de un tipo, opcionalmente acotado a
- * una cadena.
+ * tercer dropdown solo añadía ruido a la configuración: ahora una fila
+ * "trending" es simplemente "lo que está en tendencia" de un tipo,
+ * opcionalmente acotado a una cadena. Las filas "addon" en cambio muestran el
+ * catálogo propio de un addon OneVLP (formato Stremio: `manifest.catalogs` +
+ * `/catalog/:type/:id.json`), resuelto vía IMDb → TMDB.
  *
  * Este módulo es intencionalmente puro (sin `fetch`, sin `next/*`, sin `db`):
  * lo importan tanto Server Components y API routes como el paso 2 del stepper,
@@ -20,10 +23,17 @@
  * Se mantiene como campo persistido (y con forma de union) porque la app
  * mobile lee y escribe el mismo jsonb: quitarlo rompería su parseo.
  */
-export type FeedCatalogId = "trending";
+export type FeedCatalogId = "addon" | "trending";
 export type FeedMediaType = "movie" | "series";
 
 export interface CatalogOption {
+  id: string;
+  name: string;
+  type: FeedMediaType;
+}
+
+/** Un catálogo propio de un addon (manifest.catalogs, formato Stremio). */
+export interface AddonCatalogRef {
   id: string;
   name: string;
   type: FeedMediaType;
@@ -40,6 +50,10 @@ export interface NetworkOption {
 
 /** Una fila del feed tal cual se persiste en el jsonb. */
 export interface OneVidFeedRow {
+  /** Solo cuando `catalog === "addon"`: id del addon en `one_vid_addon`. */
+  addonId?: string;
+  /** Solo cuando `catalog === "addon"`: id del catálogo dentro de ese addon. */
+  addonCatalogId?: string;
   catalog: FeedCatalogId;
   networkId?: number;
   type: FeedMediaType;
@@ -105,10 +119,13 @@ const NETWORK_ALIASES: Record<number, number> = {
 
 /**
  * El id NO se persiste: se deriva de la propia fila, que ya es única por
- * (tipo, catálogo, cadena). Así el jsonb queda mínimo y no puede
- * desincronizarse del contenido.
+ * (tipo, catálogo, cadena) o (tipo, addon, catálogo del addon). Así el jsonb
+ * queda mínimo y no puede desincronizarse del contenido.
  */
 export function buildFeedRowId(row: OneVidFeedRow): string {
+  if (row.catalog === "addon") {
+    return `${row.type}:addon:${row.addonId}:${row.addonCatalogId}`;
+  }
   return `${row.type}:${row.catalog}:${row.networkId ?? "all"}`;
 }
 
@@ -161,6 +178,12 @@ export function getDefaultRows(surface: FeedSurface): OneVidFeedRow[] {
  *
  * Devuelve `null` cuando el valor no es un array (columna NULL o basura), que
  * es como distinguimos "nunca configurado" de "configurado".
+ *
+ * Una fila "addon" solo se valida estructuralmente aquí (que traiga
+ * `addonId`/`addonCatalogId` como strings): este módulo es puro y no puede
+ * consultar la DB para saber si ese addon/catálogo sigue existiendo. Si ya no
+ * existe, `resolveFeed` simplemente no devuelve items para esa fila y
+ * desaparece del feed, igual que cualquier otra fila caída.
  */
 export function parseFeedRows(value: unknown): OneVidFeedRow[] | null {
   if (!Array.isArray(value)) {
@@ -174,23 +197,43 @@ export function parseFeedRows(value: unknown): OneVidFeedRow[] | null {
     if (!raw || typeof raw !== "object") {
       continue;
     }
-    const { type, networkId } = raw as Record<string, unknown>;
+    const { type, networkId, catalog, addonId, addonCatalogId } =
+      raw as Record<string, unknown>;
     if (type !== "movie" && type !== "series") {
       continue;
     }
-    // `catalog` ya no discrimina nada (todas las filas son de tendencias),
-    // pero se sigue escribiendo para que la app mobile lea un jsonb con la
-    // forma que espera.
-    const row: OneVidFeedRow = { type, catalog: "trending" };
-    // El endpoint /trending de TMDB no admite filtro de cadena, pero
-    // fetchCatalogResults ya resuelve eso cayendo a discover (popularity.desc)
-    // cuando hay cadena, así que aquí no hace falta descartarla.
-    if (typeof networkId === "number") {
-      const resolved = NETWORK_ALIASES[networkId] ?? networkId;
-      if (validNetworkIds.has(resolved)) {
-        row.networkId = resolved;
+
+    let row: OneVidFeedRow;
+    if (
+      catalog === "addon" &&
+      typeof addonId === "string" &&
+      addonId.trim() &&
+      typeof addonCatalogId === "string" &&
+      addonCatalogId.trim()
+    ) {
+      row = {
+        type,
+        catalog: "addon",
+        addonId: addonId.trim(),
+        addonCatalogId: addonCatalogId.trim(),
+      };
+    } else {
+      // `catalog` ya no discrimina nada más dentro de las filas de TMDB
+      // (todas son de tendencias), pero se sigue escribiendo para que la app
+      // mobile lea un jsonb con la forma que espera.
+      row = { type, catalog: "trending" };
+      // El endpoint /trending de TMDB no admite filtro de cadena, pero
+      // fetchCatalogResults ya resuelve eso cayendo a discover
+      // (popularity.desc) cuando hay cadena, así que aquí no hace falta
+      // descartarla.
+      if (typeof networkId === "number") {
+        const resolved = NETWORK_ALIASES[networkId] ?? networkId;
+        if (validNetworkIds.has(resolved)) {
+          row.networkId = resolved;
+        }
       }
     }
+
     const id = buildFeedRowId(row);
     if (seen.has(id)) {
       continue;
@@ -209,26 +252,40 @@ type Translate = (key: string) => string;
 
 /**
  * Título de una fila, tanto en /home como en la lista del paso 2:
- * "Tendencias · Películas" cuando la fila no está acotada, y
- * "Películas · Netflix" cuando sí. El prefijo "Tendencias" solo aparece en las
- * filas generales, donde hace falta para que no queden como un "Películas" a
- * secas; en las de cadena el nombre de la cadena ya da el contexto y
- * encadenar tres partes solo alarga el título.
+ * "Tendencias · Películas" cuando la fila no está acotada, "Películas ·
+ * Netflix" cuando sí tiene cadena, y "<nombre del catálogo> · Películas"
+ * cuando la fila viene de un addon. `sourceName` es el nombre de la cadena o
+ * del catálogo del addon, según corresponda; sin él las filas de cadena caen
+ * al "Tendencias" genérico y las de addon a un rótulo neutro (p. ej. si el
+ * addon ya no existe).
  */
 export function getFeedRowTitle(
   row: OneVidFeedRow,
   t: Translate,
-  networkName?: string
+  sourceName?: string
 ): string {
   const typeLabel = row.type === "movie" ? t("Películas") : t("Series");
-  if (networkName) {
-    return `${typeLabel} · ${networkName}`;
+  if (row.catalog === "addon") {
+    return sourceName
+      ? `${sourceName} · ${typeLabel}`
+      : `${t("Catálogo del addon")} · ${typeLabel}`;
+  }
+  if (sourceName) {
+    return `${typeLabel} · ${sourceName}`;
   }
   return `${t("Tendencias")} · ${typeLabel}`;
 }
 
-/** URL de la vista "Ver todo" (la grilla completa de esa fila). */
+/**
+ * URL de la vista "Ver todo" (la grilla completa de esa fila). Las filas de
+ * addon no tienen vista "Ver todo": el catálogo de un addon llega en una sola
+ * página (sin paginación estandarizada como la de TMDB), así que no hay nada
+ * más que traer.
+ */
 export function buildFeedRowHref(row: OneVidFeedRow): string {
+  if (row.catalog === "addon") {
+    return "";
+  }
   const params = new URLSearchParams({ type: row.type, catalog: row.catalog });
   if (row.networkId) {
     params.set("network", String(row.networkId));
