@@ -277,14 +277,25 @@ export function getFeedRowTitle(
 }
 
 /**
- * URL de la vista "Ver todo" (la grilla completa de esa fila). Las filas de
- * addon no tienen vista "Ver todo": el catálogo de un addon llega en una sola
- * página (sin paginación estandarizada como la de TMDB), así que no hay nada
- * más que traer.
+ * URL de la vista "Ver todo" (la grilla completa de esa fila). El catálogo de
+ * un addon llega en una sola respuesta (sin paginación estandarizada como la
+ * de TMDB), pero esa respuesta trae más items de los que la fila del feed
+ * muestra (acotada a FEED_ROW_ITEM_LIMIT): "Ver todo" reutiliza esa misma
+ * respuesta con un tope más alto (ver CATALOG_VIEW_ALL_ITEM_LIMIT en
+ * addon-catalog.ts) en vez de descartar el resto.
  */
 export function buildFeedRowHref(row: OneVidFeedRow): string {
   if (row.catalog === "addon") {
-    return "";
+    if (!(row.addonId && row.addonCatalogId)) {
+      return "";
+    }
+    const params = new URLSearchParams({
+      type: row.type,
+      catalog: "addon",
+      addonId: row.addonId,
+      addonCatalogId: row.addonCatalogId,
+    });
+    return `/home?${params.toString()}`;
   }
   const params = new URLSearchParams({ type: row.type, catalog: row.catalog });
   if (row.networkId) {

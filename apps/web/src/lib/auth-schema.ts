@@ -184,6 +184,12 @@ export const oneVidAddon = pgTable(
     manifestVersion: text("manifest_version"),
     manifestDescription: text("manifest_description"),
     supportsStreams: boolean("supports_streams").default(false).notNull(),
+    // Addon Stremio estándar que declara `resources: ["stream"]` en su
+    // manifest, en vez del `supported_endpoints.streams` de OneVLP. Se
+    // resuelve pegando a `/stream/:type/:id.json` (ver stream/sources/route.ts).
+    supportsStremioStreams: boolean("supports_stremio_streams")
+      .default(false)
+      .notNull(),
     // Catálogos propios del addon (manifest.catalogs, formato Stremio). NULL
     // o [] = el addon no declara catálogos, solo resuelve streams.
     catalogs: jsonb("catalogs").$type<AddonCatalogRef[]>(),

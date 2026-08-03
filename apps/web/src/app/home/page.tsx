@@ -17,6 +17,10 @@ import type { FeedSection } from "@/components/stream/feed-row";
 import { OneVidHeader } from "@/components/stream/onevid-header";
 import { OneVidPageClient } from "@/components/stream/onevid-page-client";
 import { OneVidProfileProvider } from "@/components/stream/onevid-profile-context";
+import {
+  CATALOG_VIEW_ALL_ITEM_LIMIT,
+  fetchAddonCatalogResults,
+} from "@/lib/addon-catalog";
 import { auth } from "@/lib/auth";
 import { oneVid, oneVidAddon, oneVidProfile } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
@@ -57,6 +61,8 @@ type SearchParams = Promise<{
   catalog?: string;
   network?: string;
   surface?: string;
+  addonId?: string;
+  addonCatalogId?: string;
 }>;
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: catalog page with setup gating, token fallback and TMDB error handling
@@ -152,6 +158,10 @@ export default async function OneVidPage({
   // Con cualquiera de estos params estamos en la vista "Ver todo" (la grilla
   // completa de una fila); sin ellos, /home es el feed configurado.
   const viewAll = Boolean(params.type || params.catalog || params.network);
+  const isAddonView =
+    viewAll &&
+    params.catalog === "addon" &&
+    Boolean(params.addonId && params.addonCatalogId);
 
   // Listas de catálogos/redes son estáticas (no dependen del token TMDB).
   const allCatalogs = getCatalogOptions();
@@ -273,7 +283,43 @@ export default async function OneVidPage({
   let heroItems: MediaMeta[] = [];
   let loadError: "auth" | "network" | null = null;
 
-  if (viewAll) {
+  if (isAddonView) {
+    // A diferencia de las filas de TMDB, un addon entrega su catálogo en una
+    // sola respuesta: "Ver todo" reutiliza esa misma respuesta pidiendo más
+    // items (CATALOG_VIEW_ALL_ITEM_LIMIT) en vez de paginar.
+    const addon = addonsById.get(params.addonId ?? "");
+    const catalogRef = addon?.catalogs.find(
+      (c) => c.id === params.addonCatalogId
+    );
+    if (addon && catalogRef) {
+      try {
+        posters = await fetchAddonCatalogResults({
+          addonBaseUrl: addon.baseUrl,
+          catalogId: catalogRef.id,
+          limit: CATALOG_VIEW_ALL_ITEM_LIMIT,
+          tmdbLocale,
+          token,
+          type: catalogRef.type,
+        });
+        viewAllTitle = getFeedRowTitle(
+          { catalog: "addon", type: catalogRef.type },
+          t,
+          catalogRef.name
+        );
+      } catch (error) {
+        // El primer id hidratado deja propagar auth/red de TMDB tal cual
+        // (mismo contrato que fetchAddonCatalogResults); cualquier otro fallo
+        // (addon caído, timeout) también se trata como error de red: no hay
+        // nada que mostrar, pero no debe tumbar la página.
+        loadError = error instanceof TmdbAuthError ? "auth" : "network";
+      }
+    } else {
+      // Addon o catálogo ya no existe (quitado desde entonces): grilla
+      // vacía en vez de reventar, igual que una fila del feed sin resultados.
+      posters = [];
+      viewAllTitle = t("Catálogo del addon");
+    }
+  } else if (viewAll) {
     try {
       posters = await fetchCatalogResultsAtLeast(
         {
