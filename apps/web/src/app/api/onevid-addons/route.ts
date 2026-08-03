@@ -66,31 +66,49 @@ function buildId(): string {
     : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-async function fetchManifest(baseUrl: string): Promise<ManifestResult> {
-  const safety = isSafeFetchUrl(`${baseUrl}/manifest`);
+/**
+ * Intenta leer un manifest JSON de una URL puntual. Devuelve `null` (en vez de
+ * lanzar) ante cualquier fallo, para que `fetchManifest` pueda probar la
+ * siguiente ruta candidata sin que un 404 individual aborte todo el flujo.
+ */
+async function tryFetchManifestJson(url: string): Promise<unknown | null> {
+  const safety = isSafeFetchUrl(url);
   if (!safety.ok) {
     throw new Error(safety.reason);
   }
 
-  const response = await safeFetch(`${baseUrl}/manifest`, {
+  const response = await safeFetch(url, {
     method: "GET",
     headers: { accept: "application/json" },
     cache: "no-store",
   });
 
   if (!response.ok) {
-    throw new Error("No se pudo obtener /manifest del servidor OneVLP");
+    return null;
   }
 
-  let manifest: unknown;
   try {
-    manifest = (await response.json()) as unknown;
+    return (await response.json()) as unknown;
   } catch {
-    throw new Error("El /manifest no devolvió JSON válido");
+    return null;
+  }
+}
+
+async function fetchManifest(baseUrl: string): Promise<ManifestResult> {
+  // Los addons OneVLP sirven su manifest en `/manifest` (sin extensión). Los
+  // addons Stremio estándar (de los que también podemos leer catálogos, ver
+  // parseManifestCatalogs) solo sirven `/manifest.json` — probamos ambas rutas
+  // para poder registrar cualquiera de los dos tipos.
+  const manifest =
+    (await tryFetchManifestJson(`${baseUrl}/manifest`)) ??
+    (await tryFetchManifestJson(`${baseUrl}/manifest.json`));
+
+  if (manifest === null) {
+    throw new Error("No se pudo obtener /manifest ni /manifest.json del servidor");
   }
 
-  if (typeof manifest !== "object" || manifest === null) {
-    throw new Error("El /manifest no es un objeto JSON");
+  if (typeof manifest !== "object") {
+    throw new Error("El manifest no es un objeto JSON");
   }
 
   const obj = manifest as Record<string, unknown>;
