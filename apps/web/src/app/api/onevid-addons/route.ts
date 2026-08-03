@@ -22,6 +22,7 @@ interface ManifestResult {
   manifestName: string;
   manifestVersion: string;
   supportsStreams: boolean;
+  supportsStremioStreams: boolean;
 }
 
 /**
@@ -151,11 +152,26 @@ async function fetchManifest(baseUrl: string): Promise<ManifestResult> {
     }
   }
 
+  // Addons Stremio estándar declaran `resources: ["stream", ...]` (o, en su
+  // forma extendida, `[{ name: "stream", ... }, ...]`) en vez del
+  // `supported_endpoints.streams` de OneVLP. Ambos protocolos son
+  // independientes: un addon puede soportar uno, otro, o ambos. Ver
+  // `fetchAddonStremioStreams` en stream/sources/route.ts para el consumo.
+  const supportsStremioStreams =
+    Array.isArray(obj.resources) &&
+    obj.resources.some(
+      (resource) =>
+        resource === "stream" ||
+        (typeof resource === "object" &&
+          resource !== null &&
+          (resource as Record<string, unknown>).name === "stream")
+    );
+
   const catalogs = parseManifestCatalogs(obj);
 
-  if (!(supportsStreams || catalogs.length > 0)) {
+  if (!(supportsStreams || supportsStremioStreams || catalogs.length > 0)) {
     throw new Error(
-      "El manifest no declara `supported_endpoints.streams` ni `catalogs`"
+      "El manifest no declara `supported_endpoints.streams`, `resources: [\"stream\"]` ni `catalogs`"
     );
   }
 
@@ -167,6 +183,7 @@ async function fetchManifest(baseUrl: string): Promise<ManifestResult> {
     manifestVersion: version,
     manifestDescription: description,
     supportsStreams,
+    supportsStremioStreams,
   };
 }
 
@@ -186,6 +203,7 @@ export async function GET() {
       manifestVersion: oneVidAddon.manifestVersion,
       manifestDescription: oneVidAddon.manifestDescription,
       supportsStreams: oneVidAddon.supportsStreams,
+      supportsStremioStreams: oneVidAddon.supportsStremioStreams,
       catalogs: oneVidAddon.catalogs,
       createdAt: oneVidAddon.createdAt,
     })
@@ -262,6 +280,7 @@ export async function POST(request: Request) {
     manifestVersion: metadata.manifestVersion,
     manifestDescription: metadata.manifestDescription,
     supportsStreams: metadata.supportsStreams,
+    supportsStremioStreams: metadata.supportsStremioStreams,
     catalogs: metadata.catalogs,
     createdAt: now,
     updatedAt: now,
@@ -278,6 +297,7 @@ export async function POST(request: Request) {
         manifestVersion: metadata.manifestVersion,
         manifestDescription: metadata.manifestDescription,
         supportsStreams: metadata.supportsStreams,
+        supportsStremioStreams: metadata.supportsStremioStreams,
         createdAt: now,
       },
     },

@@ -40,6 +40,14 @@ interface OneVlpStreamResponse {
   }>;
 }
 
+interface StremioStreamResponse {
+  streams?: Array<{
+    name?: unknown;
+    title?: unknown;
+    url?: unknown;
+  }>;
+}
+
 interface ParsedStreamRef {
   episode?: number;
   season?: number;
@@ -97,6 +105,23 @@ function buildStreamsUrl(
   return `${baseUrl}/streams?${params.toString()}`;
 }
 
+// Convención Stremio: `/stream/:type/:id.json`, donde `id` es el IMDb id, o
+// `<imdbId>:<temporada>:<episodio>` para un episodio de serie. A diferencia de
+// OneVLP, el id va en la URL y no admite el TMDB numérico, así que este
+// protocolo requiere haber resuelto el IMDb id primero.
+function buildStremioStreamUrl(
+  baseUrl: string,
+  type: StreamType,
+  imdbId: string,
+  ref: ParsedStreamRef
+): string {
+  const streamId =
+    ref.season !== undefined && ref.episode !== undefined
+      ? `${imdbId}:${ref.season}:${ref.episode}`
+      : imdbId;
+  return `${baseUrl}/stream/${type}/${streamId}.json`;
+}
+
 function rewriteMagnetUrl(url: string, hasTorboxKey: boolean): string {
   if (!(hasTorboxKey && url.startsWith("magnet:"))) {
     return url;
@@ -146,6 +171,64 @@ async function fetchAddonStreams(
         url: finalUrl,
         behaviors: metadata,
       });
+    }
+
+    return { success: true, streams };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : String(error || "Unknown error");
+    return { success: false, streams: [], error: message };
+  }
+}
+
+// Contraparte de `fetchAddonStreams` (OneVLP) para addons Stremio estándar,
+// los que declaran `resources: ["stream"]` en vez de
+// `supported_endpoints.streams` (ver onevid-addons/route.ts). Muchos addons
+// de terceros (p. ej. los que agregan catálogos en español latino) solo
+// implementan este protocolo: sin este fetch, su catálogo se ve pero sus
+// streams siempre fallan con 404 contra `/streams`.
+async function fetchAddonStremioStreams(
+  baseUrl: string,
+  type: StreamType,
+  ref: ParsedStreamRef,
+  imdbId: string | undefined,
+  hasTorboxKey: boolean
+): Promise<{ success: boolean; streams: StreamSource[]; error?: string }> {
+  if (!imdbId) {
+    return {
+      success: false,
+      streams: [],
+      error: "No se pudo resolver el IMDb ID de este título",
+    };
+  }
+
+  try {
+    const res = await safeFetch(
+      buildStremioStreamUrl(baseUrl, type, imdbId, ref),
+      { method: "GET", headers: { accept: "application/json" } }
+    );
+
+    if (!res.ok) {
+      return { success: false, streams: [], error: `HTTP ${res.status}` };
+    }
+
+    const data = (await res.json()) as StremioStreamResponse;
+    const rawStreams = Array.isArray(data.streams) ? data.streams : [];
+
+    const streams: StreamSource[] = [];
+    for (const item of rawStreams) {
+      if (!item || typeof item !== "object") {
+        continue;
+      }
+      const rawUrl = typeof item.url === "string" ? item.url.trim() : "";
+      if (!rawUrl) {
+        continue;
+      }
+      const finalUrl = rewriteMagnetUrl(rawUrl, hasTorboxKey);
+      const name = typeof item.name === "string" ? item.name : "";
+      const title = typeof item.title === "string" ? item.title : name;
+
+      streams.push({ title, url: finalUrl, name: name || undefined });
     }
 
     return { success: true, streams };
@@ -225,6 +308,7 @@ export async function POST(request: Request) {
           id: oneVidAddon.id,
           manifestName: oneVidAddon.manifestName,
           baseUrl: oneVidAddon.baseUrl,
+          supportsStremioStreams: oneVidAddon.supportsStremioStreams,
         })
         .from(oneVidAddon)
         .where(eq(oneVidAddon.userId, session.user.id)),
@@ -236,17 +320,46 @@ export async function POST(request: Request) {
 
     const addonResults = await Promise.allSettled(
       addons.map(async (addon) => {
-        const result = await fetchAddonStreams(
-          addon.baseUrl,
-          type,
-          ref,
-          imdbId,
-          Boolean(ctx.torboxKey)
-        );
+        const hasTorboxKey = Boolean(ctx.torboxKey);
+        const attempts = [
+          fetchAddonStreams(addon.baseUrl, type, ref, imdbId, hasTorboxKey),
+        ];
+        if (addon.supportsStremioStreams) {
+          attempts.push(
+            fetchAddonStremioStreams(
+              addon.baseUrl,
+              type,
+              ref,
+              imdbId,
+              hasTorboxKey
+            )
+          );
+        }
+
+        const results = await Promise.all(attempts);
+        // Basta con que un protocolo responda bien: un addon puede fallar en
+        // uno (p. ej. Stremio 404 si no expone ese recurso) y traer streams
+        // en el otro. Solo se reporta error si TODOS los intentos fallaron;
+        // "success con 0 streams" (el addon respondió pero no tiene este
+        // título) no cuenta como error.
+        const anySuccess = results.some((r) => r.success);
+        if (anySuccess) {
+          return {
+            addonId: addon.id,
+            addonName: addon.manifestName,
+            success: true,
+            streams: results.flatMap((r) => r.streams),
+          };
+        }
+
+        const error =
+          results.map((r) => r.error).find(Boolean) ?? "Unknown error";
         return {
           addonId: addon.id,
           addonName: addon.manifestName,
-          ...result,
+          success: false,
+          streams: [],
+          error,
         };
       })
     );
