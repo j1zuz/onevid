@@ -15,21 +15,31 @@ import {
 } from "@/lib/tmdb";
 import { safeFetch } from "@/utils/ssrf-guard";
 
-// Mismo tope que usa TMDB por página (discover/trending): ni un addon ni TMDB
-// necesitan servir más de lo que ninguna fila del feed llega a mostrar.
-const CATALOG_ITEM_LIMIT = 20;
+// Tope por defecto (mismo que usa TMDB por página en discover/trending): de
+// sobra para una fila del feed, que solo llega a mostrar 4 items (ver
+// FEED_ROW_ITEM_LIMIT). La vista "Ver todo" en /home (ver isAddonView en
+// home/page.tsx) pide explícitamente más vía `opts.limit`, ya que el addon
+// devuelve su catálogo completo en una sola respuesta (no pagina con `skip`
+// de forma confiable), y truncar antes de hidratar tira contenido real que el
+// usuario nunca llega a ver.
+export const CATALOG_ITEM_LIMIT = 20;
+
+// Tope superior para "Ver todo": ninguna respuesta de addon debería traer más
+// que esto, pero por si acaso no hidratamos un catálogo arbitrariamente
+// grande (cada id extra es 1-2 requests más a TMDB).
+export const CATALOG_VIEW_ALL_ITEM_LIMIT = 100;
 
 interface StremioCatalogResponse {
   metas?: unknown;
 }
 
-function extractImdbIds(rawMetas: unknown): string[] {
+function extractImdbIds(rawMetas: unknown, limit: number): string[] {
   if (!Array.isArray(rawMetas)) {
     return [];
   }
   const imdbIds: string[] = [];
   for (const raw of rawMetas) {
-    if (imdbIds.length >= CATALOG_ITEM_LIMIT) {
+    if (imdbIds.length >= limit) {
       break;
     }
     if (!raw || typeof raw !== "object") {
@@ -46,11 +56,19 @@ function extractImdbIds(rawMetas: unknown): string[] {
 export async function fetchAddonCatalogResults(opts: {
   addonBaseUrl: string;
   catalogId: string;
+  limit?: number;
   tmdbLocale: string;
   token: string;
   type: "movie" | "series";
 }): Promise<MediaMeta[]> {
-  const { addonBaseUrl, catalogId, tmdbLocale, token, type } = opts;
+  const {
+    addonBaseUrl,
+    catalogId,
+    limit = CATALOG_ITEM_LIMIT,
+    tmdbLocale,
+    token,
+    type,
+  } = opts;
 
   const res = await safeFetch(
     `${addonBaseUrl}/catalog/${type}/${encodeURIComponent(catalogId)}.json`,
@@ -61,7 +79,7 @@ export async function fetchAddonCatalogResults(opts: {
   }
 
   const data = (await res.json()) as StremioCatalogResponse;
-  const [firstImdbId, ...restImdbIds] = extractImdbIds(data.metas);
+  const [firstImdbId, ...restImdbIds] = extractImdbIds(data.metas, limit);
   if (!firstImdbId) {
     return [];
   }
