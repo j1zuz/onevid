@@ -271,20 +271,30 @@ export async function POST(request: Request) {
   const id = buildId();
   const now = new Date();
 
-  await db.insert(oneVidAddon).values({
-    id,
-    userId: session.user.id,
-    baseUrl: metadata.baseUrl,
-    manifestId: metadata.manifestId,
-    manifestName: metadata.manifestName,
-    manifestVersion: metadata.manifestVersion,
-    manifestDescription: metadata.manifestDescription,
-    supportsStreams: metadata.supportsStreams,
-    supportsStremioStreams: metadata.supportsStremioStreams,
-    catalogs: metadata.catalogs,
-    createdAt: now,
-    updatedAt: now,
-  });
+  try {
+    await db.insert(oneVidAddon).values({
+      id,
+      userId: session.user.id,
+      baseUrl: metadata.baseUrl,
+      manifestId: metadata.manifestId,
+      manifestName: metadata.manifestName,
+      manifestVersion: metadata.manifestVersion,
+      manifestDescription: metadata.manifestDescription,
+      supportsStreams: metadata.supportsStreams,
+      supportsStremioStreams: metadata.supportsStremioStreams,
+      catalogs: metadata.catalogs,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } catch (error) {
+    // Sin esto, un error de DB (p. ej. una columna nueva del schema que
+    // todavía no corrió su `drizzle-kit push` contra esta base) tumbaba la
+    // ruta sin JSON de respuesta, y el cliente caía al mensaje genérico
+    // "Error al añadir el complemento" sin ninguna pista de la causa real.
+    const message =
+      error instanceof Error ? error.message : "No se pudo guardar el complemento";
+    return Response.json({ error: message }, { status: 500 });
+  }
 
   return Response.json(
     {
