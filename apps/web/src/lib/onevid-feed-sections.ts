@@ -9,7 +9,9 @@
  * de la página, las dos plataformas se desincronizarían en cuanto una cambiara.
  */
 
+import { fetchAddonCatalogResults } from "@/lib/addon-catalog";
 import {
+  type AddonCatalogRef,
   buildFeedRowHref,
   buildFeedRowId,
   getFeedRowTitle,
@@ -18,6 +20,13 @@ import {
 } from "@/lib/onevid-feed";
 import { type MediaMeta, TmdbAuthError } from "@/lib/tmdb";
 import { fetchCatalogResults } from "@/lib/tmdb-catalog";
+
+/** Un addon tal cual lo necesita `resolveFeed` para las filas "addon". */
+export interface FeedAddonRef {
+  baseUrl: string;
+  catalogs: AddonCatalogRef[];
+  manifestName: string;
+}
 
 /** Items del carrusel destacado (trending película/serie intercalados). */
 export const HERO_TAKE = 8;
@@ -42,6 +51,8 @@ export interface ResolvedFeed {
 }
 
 interface ResolveFeedOptions {
+  /** Addons del usuario, por id — solo hace falta para las filas "addon". */
+  addonsById: Map<string, FeedAddonRef>;
   /**
    * Pósters por fila. /home recorta a 4 (una sola fila de la grilla) y la app
    * usa la página completa de TMDB porque sus filas hacen scroll horizontal.
@@ -53,6 +64,56 @@ interface ResolveFeedOptions {
   tmdbLocale: string;
   tmdbRegion: string;
   token: string;
+}
+
+/** Resuelve UNA fila, sea de TMDB o del catálogo propio de un addon. */
+function resolveRow(
+  row: OneVidFeedRow,
+  addonsById: Map<string, FeedAddonRef>,
+  networksById: Map<number, NetworkOption>,
+  tmdbLocale: string,
+  tmdbRegion: string,
+  token: string
+): Promise<MediaMeta[]> {
+  if (row.catalog === "addon") {
+    const addon = row.addonId ? addonsById.get(row.addonId) : undefined;
+    if (!addon) {
+      // Addon quitado/desconocido: la fila desaparece del feed, igual que
+      // cualquier otra fila sin resultados (ver el filtro más abajo).
+      return Promise.resolve([]);
+    }
+    return fetchAddonCatalogResults({
+      addonBaseUrl: addon.baseUrl,
+      catalogId: row.addonCatalogId ?? "",
+      tmdbLocale,
+      token,
+      type: row.type,
+    });
+  }
+  return fetchCatalogResults({
+    catalog: row.catalog,
+    network: row.networkId ? networksById.get(row.networkId) : undefined,
+    tmdbLocale,
+    tmdbRegion,
+    token,
+    type: row.type,
+  });
+}
+
+/** Nombre a mostrar junto al tipo en el título de la fila (ver `getFeedRowTitle`). */
+function resolveRowSourceName(
+  row: OneVidFeedRow,
+  addonsById: Map<string, FeedAddonRef>,
+  networksById: Map<number, NetworkOption>
+): string | undefined {
+  if (row.catalog === "addon") {
+    const addon = row.addonId ? addonsById.get(row.addonId) : undefined;
+    const catalogName = addon?.catalogs.find(
+      (c) => c.id === row.addonCatalogId
+    )?.name;
+    return catalogName ?? addon?.manifestName;
+  }
+  return row.networkId ? networksById.get(row.networkId)?.name : undefined;
 }
 
 export function interleaveMediaMeta(
@@ -75,6 +136,7 @@ export function interleaveMediaMeta(
 }
 
 export async function resolveFeed({
+  addonsById,
   itemsPerRow,
   networksById,
   rows,
@@ -86,14 +148,7 @@ export async function resolveFeed({
   const [settled, heroMovies, heroSeries] = await Promise.all([
     Promise.allSettled(
       rows.map((row) =>
-        fetchCatalogResults({
-          catalog: row.catalog,
-          network: row.networkId ? networksById.get(row.networkId) : undefined,
-          tmdbLocale,
-          tmdbRegion,
-          token,
-          type: row.type,
-        })
+        resolveRow(row, addonsById, networksById, tmdbLocale, tmdbRegion, token)
       )
     ),
     // El hero es independiente de las filas configuradas (que pueden estar
@@ -158,7 +213,7 @@ export async function resolveFeed({
         title: getFeedRowTitle(
           row,
           t,
-          row.networkId ? networksById.get(row.networkId)?.name : undefined
+          resolveRowSourceName(row, addonsById, networksById)
         ),
       },
     ];

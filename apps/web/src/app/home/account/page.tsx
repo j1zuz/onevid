@@ -74,6 +74,7 @@ export default async function AccountPage({
         manifestName: oneVidAddon.manifestName,
         manifestVersion: oneVidAddon.manifestVersion,
         supportsStreams: oneVidAddon.supportsStreams,
+        catalogs: oneVidAddon.catalogs,
       })
       .from(oneVidAddon)
       .where(eq(oneVidAddon.userId, session.user.id))
@@ -104,6 +105,10 @@ export default async function AccountPage({
   const profiles = profileRows.map(({ pinHash, ...p }) => ({
     ...p,
     hasPin: Boolean(pinHash),
+  }));
+  const addons = addonRows.map((addon) => ({
+    ...addon,
+    catalogs: addon.catalogs ?? [],
   }));
 
   return (
@@ -143,7 +148,7 @@ export default async function AccountPage({
             feedConfigured={feedConfigured}
             feedRows={feedRows}
             hasTorboxKey={Boolean(torboxKey)}
-            initialAddons={addonRows}
+            initialAddons={addons}
             initialView={initialView}
             linked={tmdbLinked}
             setupCompleted={setupCompleted}

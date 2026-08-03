@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
+import type { AddonCatalogRef } from "@/lib/onevid-feed";
 import { isSafeFetchUrl, safeFetch } from "@/utils/ssrf-guard";
 
 const MAX_ADDONS_PER_USER = 20;
@@ -15,11 +16,41 @@ interface CreatePayload {
 
 interface ManifestResult {
   baseUrl: string;
+  catalogs: AddonCatalogRef[];
   manifestDescription: string;
   manifestId: string;
   manifestName: string;
   manifestVersion: string;
   supportsStreams: boolean;
+}
+
+/**
+ * Lee `manifest.catalogs` (formato Stremio: `[{ id, type, name }]`). Es
+ * independiente de `supported_endpoints.streams` (OneVLP): un addon puede
+ * traer solo streams, solo catálogos, o ambos. Entradas inválidas se
+ * descartan en vez de invalidar el manifest entero.
+ */
+function parseManifestCatalogs(obj: Record<string, unknown>): AddonCatalogRef[] {
+  if (!Array.isArray(obj.catalogs)) {
+    return [];
+  }
+  const catalogs: AddonCatalogRef[] = [];
+  for (const raw of obj.catalogs) {
+    if (!raw || typeof raw !== "object") {
+      continue;
+    }
+    const { id, type, name } = raw as Record<string, unknown>;
+    if (
+      typeof id === "string" &&
+      id.trim() &&
+      typeof name === "string" &&
+      name.trim() &&
+      (type === "movie" || type === "series")
+    ) {
+      catalogs.push({ id: id.trim(), name: name.trim(), type });
+    }
+  }
+  return catalogs;
 }
 
 function normalizeBaseUrl(input: string): string {
@@ -82,33 +113,42 @@ async function fetchManifest(baseUrl: string): Promise<ManifestResult> {
     throw new Error("El manifest no incluye `description`");
   }
 
+  // `supported_endpoints.streams` (OneVLP) es opcional: un addon puede traer
+  // solo catálogos (formato Stremio, `manifest.catalogs`), solo streams, o
+  // ambos. Solo se rechaza si el manifest no declara ninguna de las dos
+  // cosas, porque entonces no hay nada que este addon pueda ofrecerle a onevid.
+  let supportsStreams = false;
   if (
-    typeof obj.supported_endpoints !== "object" ||
-    obj.supported_endpoints === null
+    typeof obj.supported_endpoints === "object" &&
+    obj.supported_endpoints !== null
   ) {
-    throw new Error("El manifest no incluye `supported_endpoints`");
+    const supported = obj.supported_endpoints as Record<string, unknown>;
+    const streamsPath =
+      typeof supported.streams === "string" ? supported.streams.trim() : "";
+    if (streamsPath) {
+      if (!streamsPath.startsWith("/")) {
+        throw new Error("`supported_endpoints.streams` debe empezar con `/`");
+      }
+      supportsStreams = true;
+    }
   }
 
-  const supported = obj.supported_endpoints as Record<string, unknown>;
-  const streamsPath =
-    typeof supported.streams === "string" ? supported.streams.trim() : "";
+  const catalogs = parseManifestCatalogs(obj);
 
-  if (!streamsPath) {
+  if (!(supportsStreams || catalogs.length > 0)) {
     throw new Error(
-      "El servidor OneVLP debe declarar `supported_endpoints.streams`"
+      "El manifest no declara `supported_endpoints.streams` ni `catalogs`"
     );
-  }
-  if (!streamsPath.startsWith("/")) {
-    throw new Error("`supported_endpoints.streams` debe empezar con `/`");
   }
 
   return {
     baseUrl,
+    catalogs,
     manifestId: id,
     manifestName: name,
     manifestVersion: version,
     manifestDescription: description,
-    supportsStreams: true,
+    supportsStreams,
   };
 }
 
@@ -128,13 +168,16 @@ export async function GET() {
       manifestVersion: oneVidAddon.manifestVersion,
       manifestDescription: oneVidAddon.manifestDescription,
       supportsStreams: oneVidAddon.supportsStreams,
+      catalogs: oneVidAddon.catalogs,
       createdAt: oneVidAddon.createdAt,
     })
     .from(oneVidAddon)
     .where(eq(oneVidAddon.userId, session.user.id))
     .orderBy(desc(oneVidAddon.createdAt));
 
-  return Response.json({ items: rows });
+  return Response.json({
+    items: rows.map((row) => ({ ...row, catalogs: row.catalogs ?? [] })),
+  });
 }
 
 export async function POST(request: Request) {
@@ -201,6 +244,7 @@ export async function POST(request: Request) {
     manifestVersion: metadata.manifestVersion,
     manifestDescription: metadata.manifestDescription,
     supportsStreams: metadata.supportsStreams,
+    catalogs: metadata.catalogs,
     createdAt: now,
     updatedAt: now,
   });
@@ -210,6 +254,7 @@ export async function POST(request: Request) {
       item: {
         id,
         baseUrl: metadata.baseUrl,
+        catalogs: metadata.catalogs,
         manifestId: metadata.manifestId,
         manifestName: metadata.manifestName,
         manifestVersion: metadata.manifestVersion,

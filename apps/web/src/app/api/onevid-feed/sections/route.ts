@@ -12,7 +12,7 @@ import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { oneVid } from "@/lib/auth-schema";
+import { oneVid, oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
 import {
   type FeedSurface,
@@ -54,14 +54,35 @@ export async function GET(request: NextRequest) {
       ? "discover"
       : "home";
 
-  const [row] = await db
-    .select({
-      discoverRows: oneVid.discoverRows,
-      feedRows: oneVid.feedRows,
-    })
-    .from(oneVid)
-    .where(eq(oneVid.userId, session.user.id))
-    .limit(1);
+  const [[row], addonRows] = await Promise.all([
+    db
+      .select({
+        discoverRows: oneVid.discoverRows,
+        feedRows: oneVid.feedRows,
+      })
+      .from(oneVid)
+      .where(eq(oneVid.userId, session.user.id))
+      .limit(1),
+    db
+      .select({
+        id: oneVidAddon.id,
+        baseUrl: oneVidAddon.baseUrl,
+        manifestName: oneVidAddon.manifestName,
+        catalogs: oneVidAddon.catalogs,
+      })
+      .from(oneVidAddon)
+      .where(eq(oneVidAddon.userId, session.user.id)),
+  ]);
+  const addonsById = new Map(
+    addonRows.map((addon) => [
+      addon.id,
+      {
+        baseUrl: addon.baseUrl,
+        catalogs: addon.catalogs ?? [],
+        manifestName: addon.manifestName,
+      },
+    ])
+  );
 
   const parsed = parseFeedRows(
     surface === "discover" ? row?.discoverRows : row?.feedRows
@@ -80,6 +101,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const feed = await resolveFeed({
+      addonsById,
       itemsPerRow,
       networksById: new Map(getNetworkOptions().map((n) => [n.id, n])),
       rows,

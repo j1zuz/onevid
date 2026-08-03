@@ -31,7 +31,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { SetupFeedStep } from "@/components/stepper-onevid-feed-step";
-import type { OneVidFeedRow } from "@/lib/onevid-feed";
+import type { AddonCatalogRef, OneVidFeedRow } from "@/lib/onevid-feed";
 
 // El indicador numerado repite el mismo set de variantes en los 4 pasos.
 const STEP_INDICATOR_CLASS =
@@ -39,6 +39,7 @@ const STEP_INDICATOR_CLASS =
 
 export interface OneVidAddonSummary {
   baseUrl: string;
+  catalogs: AddonCatalogRef[];
   id: string;
   manifestId: string;
   manifestName: string;
@@ -538,6 +539,7 @@ export function SetupStepper({
 
         <StepperContent value={2}>
           <SetupFeedStep
+            addons={addons}
             initialDiscoverRows={discoverRows}
             initialRows={feedRows}
             onSavedChange={setFeedSaved}

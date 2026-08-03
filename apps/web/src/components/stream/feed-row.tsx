@@ -34,18 +34,21 @@ export function FeedRow({ section }: { section: FeedSection }) {
     <section className="container mx-auto flex flex-col gap-3 px-2">
       <div className="flex items-baseline justify-between gap-2 px-1">
         <h2 className="font-semibold text-lg md:text-xl">{section.title}</h2>
-        {/* Un `<a>` no debe renderizarse a través del `render` de Button (Base
-            UI le exige semántica de botón nativo); se estilan las clases del
-            botón directamente sobre el Link, como ya hace el trigger del
-            engranaje en onevid-header.tsx. */}
-        <Link
-          className={cn(buttonVariants({ size: "xs" }), "btn-primary shrink-0")}
-          data-dpad-focusable
-          href={section.href}
-        >
-          <ChevronRightIcon data-icon="inline-start" />
-          {t("Ver todo")}
-        </Link>
+        {/* Las filas de addon no tienen vista "Ver todo" (ver buildFeedRowHref). */}
+        {section.href && (
+          // Un `<a>` no debe renderizarse a través del `render` de Button (Base
+          // UI le exige semántica de botón nativo); se estilan las clases del
+          // botón directamente sobre el Link, como ya hace el trigger del
+          // engranaje en onevid-header.tsx.
+          <Link
+            className={cn(buttonVariants({ size: "xs" }), "btn-primary shrink-0")}
+            data-dpad-focusable
+            href={section.href}
+          >
+            <ChevronRightIcon data-icon="inline-start" />
+            {t("Ver todo")}
+          </Link>
+        )}
       </div>
       <div className={HORIZONTAL_POSTER_GRID_CLASS}>
         {section.items.map((item) => (
