@@ -86,7 +86,10 @@ type ResolvedStream = {
 type ResolveState =
   | { kind: 'resolving' } // carga inicial de la fuente
   | { kind: 'switching'; attempt: number; total: number } // probando otra fuente
-  | { kind: 'ready'; url: string; fileName?: string }
+  // `rawUrl` = la fuente (pre-redirección) que produjo esta `url` resuelta. El
+  // player se keya con ella (no con `url`): así una redirección que resuelve a
+  // otra URL firmada del CDN no destruye un player sano. Ver el <Player>.
+  | { kind: 'ready'; url: string; rawUrl: string; fileName?: string }
   | { kind: 'exhausted'; total: number } // todas las fuentes fallaron
   | { kind: 'error'; message: string }; // error duro (sin lista, sin URL)
 
@@ -712,36 +715,49 @@ export default function PlayerScreen() {
     };
   }, []);
 
+  // Bootstrap del auto-play: sin URL directa, elegimos la 1ª fuente de la lista.
+  // Depende de `sourcesQuery` porque su trabajo ES esperar y escoger esa fuente;
+  // en cuanto fija `rawUrl`, el efecto de resolución de abajo toma el relevo.
   useEffect(() => {
-    if (!rawUrl) {
-      // Sin URL directa: esperamos la 1ª fuente del auto-play.
-      if (!autoPlay || !mediaId) {
-        setState({ kind: 'error', message: 'Falta la URL del stream.' });
-        return;
-      }
-      if (sourcesQuery.isError) {
-        setState({
-          kind: 'error',
-          message:
-            sourcesQuery.error instanceof Error
-              ? sourcesQuery.error.message
-              : 'No pudimos cargar las fuentes.',
-        });
-        return;
-      }
-      const first = sourcesQuery.data?.sources[0];
-      if (first) {
-        setRawUrl(first.url); // re-dispara este efecto ya con URL.
-        return;
-      }
-      if (sourcesQuery.data) {
-        // Respondió, pero ningún addon devolvió fuentes.
-        setState({ kind: 'error', message: 'Sin fuentes disponibles' });
-        return;
-      }
-      setState({ kind: 'resolving' }); // fuentes aún cargando.
+    if (rawUrl) return; // ya hay fuente: la resuelve el efecto de abajo.
+    if (!autoPlay || !mediaId) {
+      setState({ kind: 'error', message: 'Falta la URL del stream.' });
       return;
     }
+    if (sourcesQuery.isError) {
+      setState({
+        kind: 'error',
+        message:
+          sourcesQuery.error instanceof Error
+            ? sourcesQuery.error.message
+            : 'No pudimos cargar las fuentes.',
+      });
+      return;
+    }
+    const first = sourcesQuery.data?.sources[0];
+    if (first) {
+      setRawUrl(first.url); // dispara el efecto de resolución ya con URL.
+      return;
+    }
+    if (sourcesQuery.data) {
+      // Respondió, pero ningún addon devolvió fuentes.
+      setState({ kind: 'error', message: 'Sin fuentes disponibles' });
+      return;
+    }
+    setState({ kind: 'resolving' }); // fuentes aún cargando.
+  }, [rawUrl, autoPlay, mediaId, sourcesQuery.isError, sourcesQuery.error, sourcesQuery.data]);
+
+  // Resuelve la URL cruda de la fuente ACTUAL (sigue la redirección al CDN). Solo
+  // depende de `rawUrl`: se re-resuelve ÚNICAMENTE cuando la fuente cambia de
+  // verdad (auto-fallback o cambio manual), no en cada cambio de identidad de
+  // `sourcesQuery` (refetch en segundo plano, etc.). Antes bootstrap y resolución
+  // compartían efecto y `sourcesQuery.data` estaba en sus deps: cada refetch
+  // volvía a resolver la MISMA fuente, el backend devolvía otra URL firmada del
+  // CDN, y como el player se montaba con esa URL resuelta se destruía y reiniciaba
+  // a mitad de reproducción (negro + rebuffer desde cero, sin fallback real).
+  // `advanceToNextSource` es estable (useCallback con deps [mediaType, mediaId]).
+  useEffect(() => {
+    if (!rawUrl) return;
     // No reseteamos a 'resolving' aquí: durante un salto el estado ya es
     // 'switching' (con su contador) y queremos conservarlo.
     let cancelled = false;
@@ -761,7 +777,9 @@ export default function PlayerScreen() {
           tookMs: redirect.tookMs,
           timeoutMs: STREAM_REDIRECT_TIMEOUT_MS,
         });
-        setState({ kind: 'ready', url, fileName });
+        // Guardamos también `rawUrl`: el player se keya con la fuente, no con la
+        // URL resuelta, para no remontarse si una re-resolución diera otra firma.
+        setState({ kind: 'ready', url, rawUrl, fileName });
       })
       .catch(() => {
         // Fallo al resolver (DNS/403 del backend): también dispara el fallback.
@@ -773,16 +791,7 @@ export default function PlayerScreen() {
     return () => {
       cancelled = true;
     };
-  }, [
-    rawUrl,
-    autoPlay,
-    mediaId,
-    mediaType,
-    sourcesQuery.isError,
-    sourcesQuery.error,
-    sourcesQuery.data,
-    advanceToNextSource,
-  ]);
+  }, [rawUrl, mediaType, mediaId, advanceToNextSource]);
 
   // useCallback (y no una arrow inline) porque `Player` lo mete en las
   // dependencias de sus handlers de <LibVlcPlayerView>: si cambiara de identidad,
@@ -798,7 +807,11 @@ export default function PlayerScreen() {
     <View style={styles.root}>
       {state.kind === 'ready' ? (
         <Player
-          key={state.url}
+          // Keyado por la FUENTE, no por la URL resuelta: si esa fuente vuelve a
+          // resolverse a otra URL firmada del CDN, el player NO se destruye ni
+          // reinicia. Solo un cambio de fuente real (fallback / cambio manual)
+          // remonta el player. `url` sí lleva la URL resuelta para reproducir.
+          key={state.rawUrl}
           url={state.url}
           title={title}
           subtitle={subtitle}
@@ -1138,12 +1151,16 @@ function Player({
 
   // Salvaguarda: si algún stream (p. ej. un directo) no reporta avance de
   // tiempo, marcamos el primer fotograma unos segundos después de que VLC
-  // empiece a reproducir, para que la carátula nunca se quede pegada.
+  // empiece a reproducir, para que la carátula nunca se quede pegada. Pero NO
+  // mientras la superficie sigue buffering: VLC emite "Playing" (hasPlayed=true)
+  // antes de pintar nada, así que revelar ahí fundiría la carátula sobre una
+  // pantalla aún en negro. Esperamos a que el buffering pare; cuando lo hace,
+  // este efecto se re-ejecuta (buffering está en las deps) y rearma el temporizador.
   useEffect(() => {
-    if (!hasPlayed || firstFrame) return;
+    if (!hasPlayed || firstFrame || buffering) return;
     const t = setTimeout(() => setFirstFrame(true), 4_000);
     return () => clearTimeout(t);
-  }, [hasPlayed, firstFrame]);
+  }, [hasPlayed, firstFrame, buffering]);
 
   // Primer fotograma real → sincronizamos el ref, cancelamos el watchdog y
   // avisamos al padre para que funda la carátula única (que vive en PlayerScreen).
