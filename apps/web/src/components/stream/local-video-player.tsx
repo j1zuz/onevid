@@ -81,7 +81,12 @@ function LocalPlayerStage({
   const hasError = isTranscoding && mediaBunny.status === "error";
   let activeSrc: string = src;
   if (isTranscoding) {
-    activeSrc = mediaBunny.status === "done" ? mediaBunny.src : "";
+    // `streaming` = reproducción progresiva ya en curso (MediaSource); `done`
+    // = transcode completo listo (blob). Ambos traen una `src` reproducible.
+    activeSrc =
+      mediaBunny.status === "streaming" || mediaBunny.status === "done"
+        ? mediaBunny.src
+        : "";
   }
   const activeMime = isTranscoding ? "video/mp4" : mimeType;
   const isLive = activeMime === "application/x-mpegURL";

@@ -127,7 +127,12 @@ export function StreamOnevid({
   );
   let activeSrc = sourceUrl ?? "";
   if (sourceUrl && needsMediaBunny(sourceFilename)) {
-    activeSrc = mediaBunny.status === "done" ? mediaBunny.src : "";
+    // `streaming` = reproducción progresiva ya en curso (MediaSource); `done`
+    // = transcode completo listo (blob). Ambos traen una `src` reproducible.
+    activeSrc =
+      mediaBunny.status === "streaming" || mediaBunny.status === "done"
+        ? mediaBunny.src
+        : "";
   }
   const { onTimeUpdate, onEnded, initialResume } = useWatchProgress({
     mediaId: contentId,
