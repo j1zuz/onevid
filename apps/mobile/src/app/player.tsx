@@ -186,6 +186,14 @@ const SEEK_STEP_MS = 10_000;
 const SEEK_HOLD_DELAY_MS = 320;
 const SEEK_HOLD_INTERVAL_MS = 180;
 const CONTROLS_HIDE_MS = 4_000;
+// Offset superior FIJO de la barra/botón "atrás" del reproductor. No usamos
+// insets.top a propósito: el player entra ROTANDO de vertical a horizontal (el
+// lock a landscape ocurre en useFocusEffect, tras el primer render en vertical),
+// así que insets.top pasa de ~24-30 (vertical, transitorio) a ~0 (horizontal,
+// estado final) y el botón "atrás" daba un SALTO al entrar. En horizontal el
+// inset superior es ~0, por lo que este 14 fijo coincide con el estado final y
+// elimina el salto. El notch lateral sí se respeta con insets.left/right.
+const PLAYER_CHROME_TOP = 14;
 // Watchdog en DOS fases (las fuentes debrid/torbox tardan en arrancar):
 //  • START: solo saltamos si en este tiempo NO hubo NINGUNA señal de vida (ni un
 //    onBuffering, ni pistas detectadas). Eso es un enlace muerto/colgado
@@ -898,11 +906,12 @@ export default function PlayerScreen() {
 
       {/* Botón de atrás mientras la carátula cubre (carga/error/buffering inicial);
           ya con vídeo visible vive en la barra superior de controles del player.
-          Lo separamos del borde igual que los controles (insets.top + 14): en
-          horizontal el inset superior es ~0 y se pegaba arriba. */}
+          Top FIJO (PLAYER_CHROME_TOP), NO insets.top: es lo único visible durante
+          la rotación vertical→horizontal de entrada, y usar insets.top lo hacía
+          saltar. Coincide con la barra de controles (mismo offset). */}
       {coverShown ? (
         <View
-          style={[styles.backWrap, { top: insets.top + 14, left: insets.left + 12 }]}
+          style={[styles.backWrap, { top: PLAYER_CHROME_TOP, left: insets.left + 12 }]}
           pointerEvents="box-none"
         >
           <Pressable onPress={() => router.back()} style={withRing(styles.backBtn)}>
@@ -1677,7 +1686,7 @@ function Player({
             style={[
               styles.topBar,
               {
-                paddingTop: insets.top + 14,
+                paddingTop: PLAYER_CHROME_TOP,
                 paddingLeft: insets.left + 12,
                 paddingRight: insets.right + 12,
               },

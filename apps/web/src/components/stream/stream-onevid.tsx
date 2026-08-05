@@ -229,7 +229,7 @@ export function StreamOnevid({
   if (!selectedSource) {
     return (
       <div
-        className="fixed inset-x-0 top-0 z-50 flex h-dvh flex-col items-center justify-center gap-4 bg-center bg-cover bg-no-repeat"
+        className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-center bg-cover bg-no-repeat"
         style={
           contentBackground
             ? { backgroundImage: `url(${contentBackground})` }
@@ -253,7 +253,7 @@ export function StreamOnevid({
 
   // Player
   return (
-    <div className="group/player fixed inset-x-0 top-0 z-50 flex h-dvh flex-col bg-gray-950">
+    <div className="group/player fixed inset-0 z-50 flex flex-col bg-gray-950">
       <PlayerTopBar
         backHref={backHref}
         contentTitle={contentTitle}
