@@ -120,6 +120,7 @@ export function SourcesList({
             <WatchProvidersNotice
               type={type}
               id={id}
+              hasAddons={data.totalAddonsTried > 0}
               fallback={
                 <>
                   <Typography type="h5" align="center">

@@ -862,6 +862,7 @@ export default function PlayerScreen() {
               <WatchProvidersNotice
                 type={mediaType}
                 id={mediaId}
+                hasAddons={(sourcesQuery.data?.totalAddonsTried ?? 0) > 0}
                 fallback={
                   <>
                     <Typography

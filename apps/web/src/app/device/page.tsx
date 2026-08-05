@@ -123,8 +123,13 @@ export default function DeviceVerifyPage() {
           >
             <InputOTP
               autoFocus
+              // El código es alfanumérico (p. ej. "N72D-AH3S"). Sin esto,
+              // input-otp usa inputMode="numeric" por defecto y en el móvil sale
+              // el teclado numérico, que no deja escribir letras.
+              inputMode="text"
               maxLength={USER_CODE_LENGTH}
               onChange={(value) => setCode(normalizeCode(value))}
+              pattern="[A-Za-z0-9]*"
               value={code}
             >
               <InputOTPGroup>

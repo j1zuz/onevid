@@ -184,6 +184,8 @@ export default function DiscoverTab() {
                 <FlatList
                   // RN exige re-montar el FlatList al cambiar numColumns.
                   key={posterColumns}
+                  // Evita celdas en gris al volver de otra pantalla en Android.
+                  removeClippedSubviews={false}
                   data={searchResults}
                   keyExtractor={(item) => `${item.type}:${item.id}`}
                   numColumns={posterColumns}

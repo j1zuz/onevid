@@ -62,6 +62,10 @@ export function PosterRow({ title, items, loading, onPressItem }: PosterRowProps
           <FlatList
             horizontal
             showsHorizontalScrollIndicator={false}
+            // En Android las celdas recortadas no siempre se re-adjuntan al
+            // volver de otra pantalla y quedan en gris; lo desactivamos (las
+            // filas son cortas, sin coste real de memoria).
+            removeClippedSubviews={false}
             data={items}
             keyExtractor={(it) => `${it.type}:${it.id}`}
             contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}

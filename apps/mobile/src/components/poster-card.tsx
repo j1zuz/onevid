@@ -44,6 +44,12 @@ export function PosterCard({
       >
         {imgPath ? (
           <Image
+            // `recyclingKey` atado al título: al volver del detalle/reproductor
+            // las FlatList reciclan estas celdas y, sin una clave estable,
+            // expo-image reutiliza la vista nativa con el bitmap ya liberado y
+            // se queda en gris. Con la clave, resetea y recarga la imagen del
+            // ítem correcto.
+            recyclingKey={`${item.type}:${item.id}`}
             source={tmdbImage(imgPath, imgSize) ?? imgPath}
             contentFit="cover"
             transition={150}

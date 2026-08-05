@@ -21,17 +21,27 @@ export function WatchProvidersNotice({
   title,
   year,
   fallback,
+  hasAddons = false,
 }: {
   type: "movie" | "series";
   id: string;
   title: string;
   year?: string;
   fallback: ReactNode;
+  /** Hay al menos un addon instalado → no mostramos "dónde ver". */
+  hasAddons?: boolean;
 }) {
   const [data, setData] = useState<WatchProviders | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Con addons instalados no se consulta nada, así que arrancamos sin loading
+  // para no parpadear el skeleton antes de mostrar el fallback.
+  const [loading, setLoading] = useState(!hasAddons);
 
   useEffect(() => {
+    // Con addons instalados no consultamos proveedores: se usa el fallback.
+    if (hasAddons) {
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setLoading(true);
     const params = new URLSearchParams({ type, id, title });
@@ -55,7 +65,7 @@ export function WatchProvidersNotice({
         setLoading(false);
       });
     return () => controller.abort();
-  }, [type, id, title, year]);
+  }, [type, id, title, year, hasAddons]);
 
   if (loading) {
     // Misma caja que el resultado final para que no haya salto visual.
