@@ -222,6 +222,7 @@ export default function DiscoverTab() {
                 : sections.map((section) => (
                     <PosterRow
                       items={section.items}
+                      href={section.href}
                       key={section.id}
                       onPressItem={handlePressItem}
                       title={section.title}
