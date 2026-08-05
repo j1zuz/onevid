@@ -1,6 +1,7 @@
 import { Button, Chip, Skeleton, Typography } from 'heroui-native';
 import { useTranslation } from 'react-i18next';
-import { Image, Pressable, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 import type { DeviceLogin } from '@/hooks/use-device-login';
 import { API_URL } from '@/lib/auth';
 
@@ -51,11 +52,18 @@ export function StreamLoginContent({
 
       {phase === 'waiting' && codeData ? (
         <View style={{ alignItems: 'center', gap: 20 }}>
-          <Image
-            source={require('@/assets/images/qr-code.png')}
-            style={{ width: 200, height: 200, borderRadius: 16 }}
-            resizeMode="contain"
-          />
+          {/* QR dinámico que codifica la URL de verificación CON el código, así
+              al escanearlo el móvil abre /device?user_code=... y el código queda
+              autocompletado (antes era una imagen fija que no llevaba el código).
+              Fondo blanco + padding para que sea escaneable. */}
+          <View style={{ padding: 12, borderRadius: 16, backgroundColor: '#fff' }}>
+            <QRCode
+              value={`${API_URL}/device?user_code=${encodeURIComponent(codeData.user_code)}`}
+              size={176}
+              backgroundColor="#fff"
+              color="#000"
+            />
+          </View>
           <View style={{ alignItems: 'center', gap: 10 }}>
             <Typography type="body-xs" color="muted" weight="medium">
               {t('INGRESA Y APRUEBA ESTE CÓDIGO')}
