@@ -187,33 +187,32 @@ const SEEK_HOLD_DELAY_MS = 320;
 const SEEK_HOLD_INTERVAL_MS = 180;
 const CONTROLS_HIDE_MS = 4_000;
 // Watchdog en DOS fases (las fuentes debrid/torbox tardan en arrancar):
-//  • START: si en este tiempo NO hay ni una señal de vida (ninguna pista
-//    detectada), la fuente está muerta/colgada → fallback.
+//  • START: solo saltamos si en este tiempo NO hubo NINGUNA señal de vida (ni un
+//    onBuffering, ni pistas detectadas). Eso es un enlace muerto/colgado
+//    (403/DNS/host caído) — esperar no lo arregla.
 //  • FIRST_FRAME: en cuanto VLC detecta pistas (onESAdded) la fuente es VÁLIDA y
 //    solo está buffering — le damos mucho más margen para el primer fotograma en
-//    vez de matarla. Antes un watchdog único de 10 s descartaba fuentes que SÍ
-//    abrían (detectaban pistas) pero tardaban 12-15 s en dar imagen.
-// 30 s (antes 20 s): medido en PostHog (jul-2026), el corte de 20 s saltaba
-// fuentes comprobadamente sanas (la sonda respondía 206 con el vídeo, incluso
-// el tail del MKV). En móviles gama baja el p50 de time-to-first-frame POR
-// FUENTE es 29.6 s (Redmi 9C); en TV el p50 es 15.1 s pero el p90 llega a
-// 93.9 s y 26 de 103 saltos en 30 días fueron de fuentes con probeOk=true.
-// La prórroga por buffering nunca llegó a activarse (0/180 saltos) — ver
-// bufferEventCountRef.
-const PLAYBACK_START_TIMEOUT_MS = 30_000;
-const PLAYBACK_FIRST_FRAME_TIMEOUT_MS = 30_000;
-// Prórrogas del watchdog de arranque cuando la descarga PROGRESA. Medido en
-// PostHog (build 27): el p50 de time-to-first-frame en TV es ~20.7 s, o sea la
-// mitad de los arranques legítimos moría justo en el corte de 20 s y el player
-// "saltaba los medios" en vez de reproducirlos. Solo prorrogamos si onBuffering
-// reportó progreso real hace poco (fuente viva en red lenta); una fuente muerta
-// (403/DNS/host colgado) no progresa y sigue saltando a los 20 s como siempre.
-const START_EXTENSION_MS = 20_000; // duración de cada prórroga
-const START_EXTENSION_WINDOW_MS = 12_000; // "hace poco" = progreso en esta ventana
-const MAX_START_EXTENSIONS = 2; // tope: 30 s + 2×20 s = 70 s máx por fuente
-// Elección manual del usuario: le damos mucho más margen "sin pistas" antes de
+//    vez de matarla.
+// 15 s (antes 30 s): medido en PostHog (ago-2026). Las fuentes vienen TODAS de
+// Torbox (cacheadas y válidas), así que un corte largo no ayudaba — al contrario,
+// mataba fuentes vivas y disparaba la cascada de reintentos. En los timeouts,
+// sawBuffering=true en el 100% (VLC SÍ leía datos) y la sonda que alcanzaba a
+// completar devolvía 206 con vídeo. El corte corto solo sirve para descartar
+// RÁPIDO un enlace sin vida; a las vivas-pero-lentas las salva la prórroga.
+const PLAYBACK_START_TIMEOUT_MS = 15_000;
+const PLAYBACK_FIRST_FRAME_TIMEOUT_MS = 20_000;
+// Prórrogas del watchdog cuando la fuente da SEÑAL DE VIDA (cualquier onBuffering
+// o pistas detectadas). Antes exigíamos progress>0, pero PostHog demostró que
+// libVLC emite onBuffering con progress clavado en 0 durante el arranque de estos
+// archivos grandes de Torbox (maxBufferProgress=0 en el 100% de los saltos), así
+// que la prórroga NUNCA se activaba (0/180). Ahora: si hubo cualquier buffering,
+// la fuente está viva y va a reproducir → la dejamos llegar hasta ~120 s (cubre
+// el p90 real de series). Una fuente muerta no bufferea nunca y salta al corte.
+const START_EXTENSION_MS = 15_000; // duración de cada prórroga
+const MAX_START_EXTENSIONS = 7; // tope: 15 s + 7×15 s = 120 s máx por fuente
+// Elección manual del usuario: le damos algo más de margen "sin pistas" antes de
 // saltar, porque pidió ESA fuente explícitamente (p. ej. torbox lento de arrancar).
-const PLAYBACK_MANUAL_TIMEOUT_MS = 35_000;
+const PLAYBACK_MANUAL_TIMEOUT_MS = 20_000;
 // Tipos de los payloads de los eventos de <LibVlcPlayerView>, derivados del propio
 // componente: así los handlers se pueden extraer a useCallback (identidad estable,
 // ver VLC_OPTIONS) sin duplicar a mano las formas de los eventos de la librería.
@@ -1213,17 +1212,17 @@ function Player({
   // buena. No-op si no hay manejador (sin fallback posible).
   const reportUnplayable = useCallback((reason: UnplayableReason = 'timeout') => {
     if (firedUnplayable.current || firstFrameRef.current) return;
-    // Prórroga: si la descarga progresó hace poco, la fuente está VIVA (red
-    // lenta, típico en TV) — matarla ahora sería saltarse un medio reproducible.
-    // Ver constantes START_EXTENSION_* para la evidencia medida en PostHog.
-    // Solo aplica cuando venció el watchdog: si VLC ya reportó un error duro
-    // (403/404/enlace muerto) esperar no lo arregla, y prorrogar quemaba hasta
-    // 60 s por fuente muerta — con 4 fuentes, minutos de "va pasando los medios".
+    // Prórroga: si la fuente dio CUALQUIER señal de vida (algún onBuffering o
+    // pistas detectadas), está viva y va a reproducir — matarla sería saltarse un
+    // medio válido. Todas vienen de Torbox (cacheadas), así que "vio buffering" =
+    // "reproducible". NO exigimos progress>0: libVLC lo deja en 0 al arrancar
+    // archivos grandes (ver handleBuffering y las constantes START_EXTENSION_*).
+    // Solo aplica cuando venció el watchdog: si VLC reportó un error duro
+    // (403/404/enlace muerto) esperar no lo arregla → saltar ya.
     if (
       reason === 'timeout' &&
       startExtensionsRef.current < MAX_START_EXTENSIONS &&
-      bufferGrowthAtRef.current > 0 &&
-      Date.now() - bufferGrowthAtRef.current < START_EXTENSION_WINDOW_MS
+      (sawBufferingRef.current || esAddedRef.current)
     ) {
       startExtensionsRef.current += 1;
       clearTimeout(startTimer.current);
@@ -1445,9 +1444,12 @@ function Player({
       if (progress > maxBufferProgressRef.current) {
         maxBufferProgressRef.current = progress;
       }
-      // Avance real de descarga (progress cambia y no es 0) → sella el momento;
-      // el watchdog lo usa para prorrogar fuentes vivas-pero-lentas. VLC
-      // reinicia progress a 0 en cada episodio, por eso "cambió y > 0".
+      // Avance real de descarga (progress cambia y no es 0) → sella el momento.
+      // Solo TELEMETRÍA (msSinceBufferGrowth en player_source_probe): la prórroga
+      // ya NO depende de esto — le basta cualquier buffering (ver
+      // reportUnplayable), porque libVLC deja progress en 0 al arrancar archivos
+      // grandes de Torbox. VLC reinicia progress a 0 en cada episodio, por eso
+      // "cambió y > 0".
       if (progress > 0 && progress !== lastBufferProgressRef.current) {
         lastBufferProgressRef.current = progress;
         bufferGrowthAtRef.current = Date.now();
