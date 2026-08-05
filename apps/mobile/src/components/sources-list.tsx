@@ -45,10 +45,13 @@ export function sourcesQueryOptions(
         method: 'POST',
         body: JSON.stringify({ id: compoundId, type }),
       }),
-    // Las URLs de addons/debrid pueden caducar o cambiar. No conservar listas
-    // de streams entre pantallas ni reutilizar un prefetch antiguo en el player.
-    staleTime: 0,
-    gcTime: 0,
+    // Las URLs de addons/debrid pueden caducar o cambiar, así que la ventana de
+    // reutilización es CORTA: 60 s. Es margen de sobra para el pre-warm (el
+    // detalle prefetchea la lista y el usuario le da Play poco después → arranque
+    // caliente) sin llegar a reutilizar un enlace viejo; pasado ese minuto se
+    // refresca sola. Antes era 0/0, lo que forzaba un refetch en cada pantalla.
+    staleTime: 60_000,
+    gcTime: 60_000,
   };
 }
 

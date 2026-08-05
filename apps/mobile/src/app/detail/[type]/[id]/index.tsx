@@ -24,6 +24,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { GlassIcon } from '@/components/glass-icon';
 import { PosterCard } from '@/components/poster-card';
+import { sourcesQueryOptions } from '@/components/sources-list';
 import { TrailerOverlay } from '@/components/trailer-overlay';
 import { useResponsive } from '@/hooks/use-responsive';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
@@ -241,6 +242,25 @@ export default function DetailPage() {
     }),
     [meta?.background, meta?.logo, meta?.name, meta?.poster, isLarge],
   );
+
+  // Pre-warm: en cuanto sabemos qué se va a reproducir (la peli, o el 1.er
+  // episodio de la temporada visible), pedimos su lista de fuentes en segundo
+  // plano para que al dar Play el reproductor la tenga caliente y arranque
+  // enseguida (ver staleTime en sourcesQueryOptions). No bloquea nada ni muestra
+  // errores; si falla o caduca, el player la vuelve a pedir como siempre.
+  const firstEpisode = seasonEpisodes[0];
+  useEffect(() => {
+    if (!id || !type) return;
+    if (type === 'series' && !firstEpisode) return; // aún sin temporada/episodio
+    queryClient.prefetchQuery(
+      sourcesQueryOptions(
+        type,
+        id,
+        firstEpisode ? String(firstEpisode.season) : undefined,
+        firstEpisode ? String(firstEpisode.number) : undefined,
+      ),
+    );
+  }, [id, type, firstEpisode, queryClient]);
 
   // Al reproducir vamos directo al player SIN `url`: esa ausencia es la señal de
   // "reproduce la 1ª fuente disponible". El player muestra su `LoadingArt`
