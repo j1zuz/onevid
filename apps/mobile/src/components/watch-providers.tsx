@@ -41,28 +41,37 @@ export function watchProvidersQueryOptions(
 }
 
 /**
- * Aviso "dónde ver" que reemplaza al mensaje de "sin fuentes disponibles":
- * cuando la app no tiene fuentes propias para reproducir, muestra en qué
- * plataformas de streaming está el título (datos de JustWatch vía TMDB).
+ * Aviso "dónde ver" que SOLO aparece cuando el usuario no tiene NINGÚN addon
+ * instalado: en ese caso, en vez del mensaje "sin fuentes", mostramos en qué
+ * plataformas de streaming está el título (datos vía TMDB).
  *
- * Si no hay proveedores para la región (o falla la consulta) cae en `fallback`,
- * que el llamador usa para conservar el mensaje original (p. ej. "no tienes
- * addons instalados").
+ * Si ya hay addons configurados (aunque no devuelvan fuentes para este título)
+ * pasamos `hasAddons`, y el componente conserva el mensaje original (`fallback`)
+ * sin consultar proveedores. También cae en `fallback` cuando no hay proveedores
+ * para la región o falla la consulta.
  */
 export function WatchProvidersNotice({
   type,
   id,
   fallback,
+  hasAddons = false,
 }: {
   type: 'movie' | 'series';
   id: string;
   fallback?: ReactNode;
+  /** Hay al menos un addon instalado → no mostramos "dónde ver". */
+  hasAddons?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const query = useQuery({
     ...watchProvidersQueryOptions(type, id, i18n.language),
-    enabled: Boolean(id),
+    enabled: Boolean(id) && !hasAddons,
   });
+
+  // Con addons instalados no mostramos "dónde ver": solo el mensaje original.
+  if (hasAddons) {
+    return <>{fallback ?? null}</>;
+  }
 
   if (query.isLoading) {
     return (
@@ -118,9 +127,6 @@ export function WatchProvidersNotice({
           <ProviderLogo key={p.id} provider={p} onPress={openLink} />
         ))}
       </View>
-      <Typography type="body-xs" color="muted" align="center">
-        {t('Datos de JustWatch')}
-      </Typography>
     </View>
   );
 }

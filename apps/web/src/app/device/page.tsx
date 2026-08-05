@@ -15,6 +15,7 @@ import {
   InputOTPSlot,
 } from "@workspace/ui/components/input-otp";
 import { Skeleton } from "@workspace/ui/components/skeleton";
+import { REGEXP_ONLY_DIGITS_AND_CHARS } from "input-otp";
 import { LoaderIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -123,8 +124,14 @@ export default function DeviceVerifyPage() {
           >
             <InputOTP
               autoFocus
+              // El código es alfanumérico (p. ej. "N72D-AH3S"). input-otp usa
+              // inputMode="numeric" por defecto y en el móvil saca el teclado
+              // numérico, que no deja escribir letras: forzamos "text" para el
+              // teclado y el patrón alfanumérico estándar para los caracteres.
+              inputMode="text"
               maxLength={USER_CODE_LENGTH}
               onChange={(value) => setCode(normalizeCode(value))}
+              pattern={REGEXP_ONLY_DIGITS_AND_CHARS}
               value={code}
             >
               <InputOTPGroup>

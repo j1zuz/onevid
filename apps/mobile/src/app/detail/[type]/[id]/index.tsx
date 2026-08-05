@@ -446,6 +446,10 @@ export default function DetailPage() {
                 variant="primary"
                 onPress={handlePlay}
                 {...playFocus.focusProps}
+                // Foco inicial en TV sobre "Reproducir" (no el botón de atrás):
+                // al terminar de cargar el detalle, este botón monta y reclama
+                // el foco preferente.
+                hasTVPreferredFocus={isTV}
                 style={[
                   {
                     flex: 1,

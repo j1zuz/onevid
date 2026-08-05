@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { Card, Chip, PressableFeedback, Skeleton, Typography } from 'heroui-native';
-import { Check, Globe2, HardDrive } from 'lucide-react-native';
+import { Card, PressableFeedback, Skeleton, Typography } from 'heroui-native';
+import { Check, Globe2 } from 'lucide-react-native';
 import { ScrollView, View } from 'react-native';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { apiFetch } from '@/lib/api';
@@ -120,6 +120,7 @@ export function SourcesList({
             <WatchProvidersNotice
               type={type}
               id={id}
+              hasAddons={data.totalAddonsTried > 0}
               fallback={
                 <>
                   <Typography type="h5" align="center">
@@ -175,9 +176,10 @@ function SourceCard({
   onPress: () => void;
   selected?: boolean;
 }) {
-  // `behaviors` trae las líneas de detalle del addon (códec, idiomas, tamaño,
-  // uploader, etc.) que el backend reenvía desde `metadata`. Sin esto la tarjeta
-  // se ve vacía aunque la info ya llegue.
+  // `behaviors` trae las líneas de detalle del addon (códec, calidad, tamaño,
+  // idiomas, uploader, etc.) ya formateadas por el propio addon. No añadimos
+  // chips de calidad/tamaño/addon encima: esa info ya viene en estas líneas y
+  // duplicarla se veía redundante.
   const behaviors = source.behaviors ?? [];
   const lines = [
     source.title,
@@ -185,69 +187,44 @@ function SourceCard({
     source.name,
     ...behaviors,
   ].filter((l): l is string => Boolean(l));
-  const haystack = `${source.title} ${source.description ?? ''} ${behaviors.join(' ')}`;
-  const quality = extractQuality(source.title);
-  const size = extractSize(haystack);
   const { focused, focusProps } = useTvFocus();
 
   return (
     <PressableFeedback onPress={onPress} {...focusProps}>
-      <Card
-        style={[
-          tvFocusRing(focused),
-          selected ? { borderWidth: 1.5, borderColor: '#7CFC9B' } : null,
-        ]}
-      >
+      <Card style={tvFocusRing(focused)}>
         <Card.Body className="gap-2">
-          <View
-            style={{
-              flexDirection: 'row',
-              gap: 8,
-              flexWrap: 'wrap',
-              alignItems: 'center',
-            }}
-          >
-            {selected ? (
-              <View
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-              >
-                <Check size={14} color="#7CFC9B" />
-                <Typography
-                  type="body-xs"
-                  weight="semibold"
-                  style={{ color: '#7CFC9B' }}
-                >
-                  Reproduciendo
-                </Typography>
-              </View>
-            ) : null}
-            {quality ? (
-              <Chip variant="primary" size="sm">
-                <Chip.Label>{quality}</Chip.Label>
-              </Chip>
-            ) : null}
-            {size ? (
-              <Chip variant="soft" size="sm">
-                <HardDrive size={12} color="#fff" />
-                <Chip.Label>{size}</Chip.Label>
-              </Chip>
-            ) : null}
-            <Chip variant="soft" size="sm">
-              <Globe2 size={12} color="#fff" />
-              <Chip.Label>{source.addonName}</Chip.Label>
-            </Chip>
-          </View>
           {lines.map((line, i) => (
             <Typography
               // biome-ignore lint/suspicious/noArrayIndexKey: static text
               key={i}
               type="body-sm"
               color={i === 0 ? 'default' : 'muted'}
+              // Deja hueco para el chulito de "seleccionado" en la 1ª línea.
+              style={i === 0 && selected ? { paddingRight: 28 } : undefined}
             >
               {line}
             </Typography>
           ))}
         </Card.Body>
+        {/* Fuente en reproducción: solo un chulito en la esquina, sin teñir toda
+            la tarjeta de verde. */}
+        {selected ? (
+          <View
+            style={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              width: 24,
+              height: 24,
+              borderRadius: 12,
+              backgroundColor: '#7CFC9B',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Check size={16} color="#0a0a0a" strokeWidth={3} />
+          </View>
+        ) : null}
       </Card>
     </PressableFeedback>
   );
@@ -273,14 +250,4 @@ function humanizeAddonError(error: string): string {
     return 'no responde (sin conexión)';
   }
   return 'no devolvió resultados';
-}
-
-function extractQuality(s: string): string | null {
-  const m = s.match(/\b(4K|2160p|1080p|720p|480p|HD)\b/i);
-  return m ? m[1].toUpperCase() : null;
-}
-
-function extractSize(s: string): string | null {
-  const m = s.match(/(\d+(?:\.\d+)?\s?(?:GB|MB))/i);
-  return m ? m[1] : null;
 }

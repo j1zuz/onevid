@@ -50,6 +50,8 @@ export function ContinueWatchingRow({
         <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
+          // Evita celdas en gris al volver de otra pantalla en Android.
+          removeClippedSubviews={false}
           data={items}
           keyExtractor={(it) => `${it.type}:${it.id}`}
           contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}

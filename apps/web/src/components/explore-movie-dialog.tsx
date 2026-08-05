@@ -231,6 +231,9 @@ function MovieDialogContent({
   const [sources, setSources] = useState<StreamWithAddon[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(false);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
+  // Nº de addons que se consultaron: si es 0, no hay ningún addon instalado y
+  // mostramos "dónde ver"; si hay al menos uno, solo el mensaje de "sin fuentes".
+  const [totalAddonsTried, setTotalAddonsTried] = useState(0);
   const sourcesAbortRef = useRef<AbortController | null>(null);
 
   // Episode selected state — show sources inline
@@ -476,8 +479,10 @@ function MovieDialogContent({
         if (res.ok) {
           const data = (await res.json()) as {
             sources?: StreamWithAddon[];
+            totalAddonsTried?: number;
           };
           setSources(data.sources ?? []);
+          setTotalAddonsTried(data.totalAddonsTried ?? 0);
           setSourcesLoaded(true);
         }
       } catch {
@@ -732,6 +737,7 @@ function MovieDialogContent({
                               </p>
                             </div>
                           }
+                          hasAddons={totalAddonsTried > 0}
                           id={movie.id}
                           title={movie.name}
                           type={movie.type}
@@ -910,6 +916,7 @@ function MovieDialogContent({
                         </p>
                       </div>
                     }
+                    hasAddons={totalAddonsTried > 0}
                     id={movie.id}
                     title={movie.name}
                     type={movie.type}
