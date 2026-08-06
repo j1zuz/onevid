@@ -100,7 +100,14 @@ export default function SettingsTab() {
   // depende de `loading` está gateado por `authed === true`, así que no hace falta
   // tocar `loading` cuando no hay sesión.
   useEffect(() => {
-    if (authed !== true) return;
+    if (authed !== true) {
+      // Sin sesión no hay email que mostrar: limpiamos el user para que la
+      // tarjeta de email desaparezca de inmediato al cerrar sesión (antes se
+      // quedaba pegada hasta reiniciar la app, porque este efecto salía sin
+      // resetear `user`).
+      setUser(null);
+      return;
+    }
     let cancelled = false;
     apiFetch<SessionResponse | null>('/api/auth/get-session')
       .then((data) => {
@@ -122,6 +129,11 @@ export default function SettingsTab() {
   const handleLogout = async () => {
     await clearActiveProfile();
     await clearAccessToken();
+    // Reseteo síncrono del estado local + revalidación de la sesión para que la
+    // UI refleje el logout al instante (email/perfil desaparecen sin reiniciar).
+    setUser(null);
+    setProfile(null);
+    surface?.refresh();
     router.replace('/home');
   };
 

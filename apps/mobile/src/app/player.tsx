@@ -54,7 +54,10 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  initialWindowMetrics,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { EpisodePicker } from '@/components/episode-picker';
 import {
   SourcesList,
@@ -66,6 +69,7 @@ import { tvFocusRing } from '@/hooks/use-tv-focus';
 import { useWatchProgress } from '@/hooks/use-watch-progress';
 import { track } from '@/lib/analytics';
 import { API_URL, appClientHeaders, getAccessToken } from '@/lib/auth';
+import { bumpImageGeneration } from '@/lib/image-refresh';
 
 // Aplica el anillo de foco de TV a un Pressable sin estado de foco propio: usa
 // el render-prop de Pressable (`state.focused`, disponible en TV). Fuera de TV
@@ -186,14 +190,16 @@ const SEEK_STEP_MS = 10_000;
 const SEEK_HOLD_DELAY_MS = 320;
 const SEEK_HOLD_INTERVAL_MS = 180;
 const CONTROLS_HIDE_MS = 4_000;
-// Offset superior FIJO de la barra/botón "atrás" del reproductor. No usamos
-// insets.top a propósito: el player entra ROTANDO de vertical a horizontal (el
-// lock a landscape ocurre en useFocusEffect, tras el primer render en vertical),
-// así que insets.top pasa de ~24-30 (vertical, transitorio) a ~0 (horizontal,
-// estado final) y el botón "atrás" daba un SALTO al entrar. En horizontal el
-// inset superior es ~0, por lo que este 14 fijo coincide con el estado final y
-// elimina el salto. El notch lateral sí se respeta con insets.left/right.
-const PLAYER_CHROME_TOP = 14;
+// Offset superior del botón "atrás" del reproductor. Es el MISMO valor que usa
+// el botón "atrás" de la pantalla de detalle (la altura de la barra de estado en
+// vertical), para que al entrar al reproductor el botón no dé un SALTO de
+// posición. Lo tomamos de `initialWindowMetrics` (constante nativa medida en
+// vertical, el arranque de la app) y NO de useSafeAreaInsets(): este último
+// colapsa de ~24-30 a ~0 mientras el player rota vertical→horizontal, lo que
+// causaba el salto. Al ser una constante estable, coincide con detalle y no se
+// mueve durante la rotación. Mín. 14 como piso. El notch lateral sí se respeta
+// con insets.left/right.
+const PLAYER_CHROME_TOP = Math.max(initialWindowMetrics?.insets.top ?? 0, 14);
 // Watchdog en DOS fases (las fuentes debrid/torbox tardan en arrancar):
 //  • START: solo saltamos si en este tiempo NO hubo NINGUNA señal de vida (ni un
 //    onBuffering, ni pistas detectadas). Eso es un enlace muerto/colgado
@@ -702,6 +708,11 @@ export default function PlayerScreen() {
       };
     }, []),
   );
+
+  // Al salir del reproductor forzamos recargar las carátulas del Inicio/detalle:
+  // la superficie de vídeo (SurfaceView de LibVLC) libera sus bitmaps en GPU en
+  // Android y quedaban en gris. Ver src/lib/image-refresh.
+  useEffect(() => () => bumpImageGeneration(), []);
 
   // Pantalla completa inmersiva: oculta barra de estado y de navegación mientras
   // el reproductor está montado; las restaura al salir.
@@ -2207,15 +2218,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 17,
     fontWeight: '700',
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowRadius: 6,
   },
   topSubtitle: {
     color: 'rgba(255,255,255,0.8)',
     fontSize: 12,
     marginTop: 2,
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowRadius: 6,
   },
   topActions: {
     flexDirection: 'row',

@@ -24,7 +24,6 @@ import { useLanguageOverride } from '@/lib/i18n/language-preference';
 import { useDeviceLocale } from '@/lib/i18n/use-device-locale';
 import { type AppMode, loadAppMode } from '@/lib/app-mode';
 import { validateSession } from '@/lib/auth';
-import { loadActiveProfile } from '@/lib/profiles';
 import { queryClient } from '@/lib/query';
 import { COLORS } from '@/lib/theme';
 
@@ -61,7 +60,6 @@ if (Platform.OS === 'android') {
 export default function RootLayout() {
   const [authReady, setAuthReady] = useState(false);
   const [hasToken, setHasToken] = useState(false);
-  const [hasProfile, setHasProfile] = useState(false);
   const [appMode, setMode] = useState<AppMode>('stream');
   const [splashDone, setSplashDone] = useState(false);
 
@@ -93,10 +91,8 @@ export default function RootLayout() {
       // validateSession limpia el token y caemos al login limpiamente en lugar
       // de entrar a la app con un token muerto.
       const [valid, mode] = await Promise.all([validateSession(), loadAppMode()]);
-      const profile = valid ? await loadActiveProfile() : null;
       if (cancelled) return;
       setHasToken(valid);
-      setHasProfile(Boolean(profile));
       setMode(mode);
       setAuthReady(true);
       // El splash nativo lo oculta AnimatedSplash.onLayoutReady, no aquí, para
@@ -117,10 +113,13 @@ export default function RootLayout() {
 
   if (!authReady) return null;
 
-  // La app abre SIEMPRE en los tabs (sin muro de QR). El tab Inicio muestra
-  // "Reproducir video" cuando no hay sesión, o el catálogo cuando la hay. Único
-  // caso aparte: con sesión pero sin perfil activo, vamos a elegir perfil.
-  const initialRoute = hasToken && !hasProfile ? 'profiles' : '(tabs)';
+  // Con sesión en modo stream abrimos SIEMPRE en la selección de perfil: en cada
+  // arranque en frío se elige perfil (y se pide su PIN si lo tiene), en vez de
+  // recordar el último indefinidamente. Sin sesión, o en modo local (el usuario
+  // eligió "sin cuenta"/local), abrimos directo en los tabs. `initialRouteName`
+  // solo aplica al lanzar, así que el picker no reaparece al cambiar de tab.
+  const initialRoute =
+    hasToken && appMode === 'stream' ? 'profiles' : '(tabs)';
 
   return (
     <PostHogProvider client={posthog}>

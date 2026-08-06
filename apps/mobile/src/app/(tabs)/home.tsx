@@ -16,11 +16,8 @@ import { LocalVideoPicker } from '@/components/local-video-picker';
 import { SetupPrompt, useSetupStatus } from '@/components/setup-prompt';
 import { StreamLoginScreen } from '@/components/stream-login-screen';
 import { useAppSurface } from '@/hooks/use-app-surface';
-import {
-  apiFetch,
-  type FeedSectionsResponse,
-  type MediaMeta,
-} from '@/lib/api';
+import { type MediaMeta } from '@/lib/api';
+import { continueWatchingQuery, feedSectionsQuery } from '@/lib/home-feed';
 import { navigateToDetail } from '@/lib/detail-nav';
 import { COLORS } from '@/lib/theme';
 
@@ -50,11 +47,7 @@ export default function HomeTab() {
 
   const queryClient = useQueryClient();
   const continueQuery = useQuery({
-    queryKey: ['continue-watching', lang],
-    queryFn: () =>
-      apiFetch<{ results: ContinueWatchingItem[] }>(
-        '/api/onevid-progress',
-      ).then((r) => r.results ?? []),
+    ...continueWatchingQuery(lang),
     enabled: catalogEnabled,
   });
   const continueItems = continueQuery.data ?? [];
@@ -71,9 +64,7 @@ export default function HomeTab() {
   // usuario configuró en la web (más el hero) y las devuelve ya con sus items,
   // en vez de que la app pida fila por fila.
   const feedQuery = useQuery({
-    queryKey: ['feed-sections', lang],
-    queryFn: () =>
-      apiFetch<FeedSectionsResponse>('/api/onevid-feed/sections'),
+    ...feedSectionsQuery(lang),
     enabled: catalogEnabled,
   });
 

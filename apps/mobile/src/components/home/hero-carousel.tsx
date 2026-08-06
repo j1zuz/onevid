@@ -15,6 +15,7 @@ import {
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { apiFetch, type MediaMeta, tmdbImage } from '@/lib/api';
+import { useImageGeneration } from '@/lib/image-refresh';
 import { navigateToDetail } from '@/lib/detail-nav';
 import { COLORS } from '@/lib/theme';
 
@@ -141,6 +142,8 @@ function HeroSlide({
 }) {
   const { t } = useTranslation();
   const playFocus = useTvFocus();
+  // Fuerza recargar el backdrop al volver del reproductor (ver image-refresh).
+  const imgGen = useImageGeneration();
   // En TV alineamos el contenido a la izquierda (estilo Netflix/Apple TV) y
   // mostramos la sinopsis. En móvil se mantiene centrado y sin descripción.
   const isTV = Platform.isTV;
@@ -167,7 +170,7 @@ function HeroSlide({
       {bg ? (
         <Image
           source={bg}
-          recyclingKey={bg}
+          recyclingKey={`${imgGen}:${bg}`}
           placeholder={lowRes}
           placeholderContentFit="cover"
           contentFit="cover"
