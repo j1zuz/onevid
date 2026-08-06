@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import {
@@ -8,10 +9,12 @@ import {
 } from 'heroui-native';
 import { Lock, Pencil, Plus, XCircle } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { BackHandler, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { avatarSource } from '@/lib/avatars';
+import { prefetchHome } from '@/lib/home-feed';
 import {
   type Profile,
   listProfiles,
@@ -28,6 +31,8 @@ const NAME_AREA_H = 39;
 
 export default function ProfilesScreen() {
   const { manage } = useLocalSearchParams<{ manage?: string }>();
+  const queryClient = useQueryClient();
+  const { i18n } = useTranslation();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [max, setMax] = useState(5);
   const [loading, setLoading] = useState(true);
@@ -55,13 +60,20 @@ export default function ProfilesScreen() {
     }, [load]),
   );
 
-  const enter = useCallback((p: Profile) => {
-    // setActiveProfile fija el id en memoria de forma síncrona (apiFetch ya lo
-    // usa) y persiste en SecureStore en segundo plano; navegamos de inmediato
-    // para no mostrar la grilla un instante antes del home.
-    void setActiveProfile(p);
-    router.replace('/home');
-  }, []);
+  const enter = useCallback(
+    (p: Profile) => {
+      // setActiveProfile fija el id en memoria de forma síncrona (apiFetch ya lo
+      // usa) y persiste en SecureStore en segundo plano; navegamos de inmediato
+      // para no mostrar la grilla un instante antes del home.
+      void setActiveProfile(p);
+      // Con el perfil ya activo (header X-Profile-Id correcto) precalentamos el
+      // feed del Inicio en segundo plano, para que al montar Inicio las
+      // carátulas ya estén y no se vea el fallback gris.
+      void prefetchHome(queryClient, i18n.language);
+      router.replace('/home');
+    },
+    [queryClient, i18n.language],
+  );
 
   const handlePick = useCallback(
     (p: Profile) => {

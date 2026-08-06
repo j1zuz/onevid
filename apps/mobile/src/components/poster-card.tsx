@@ -3,6 +3,7 @@ import { PressableFeedback, Typography } from 'heroui-native';
 import { View } from 'react-native';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { type MediaMeta, tmdbImage } from '@/lib/api';
+import { useImageGeneration } from '@/lib/image-refresh';
 
 interface PosterCardProps {
   item: MediaMeta;
@@ -27,6 +28,9 @@ export function PosterCard({
 }: PosterCardProps) {
   const containerStyle = width != null ? { width } : undefined;
   const { focused, focusProps } = useTvFocus();
+  // Cambia al salir del reproductor: fuerza a expo-image a recargar la carátula
+  // (que en Android queda en gris tras la superficie de vídeo). Ver image-refresh.
+  const imgGen = useImageGeneration();
   // En modo horizontal usamos el backdrop; si falta, caemos al póster (recortado
   // a 16/9 con cover).
   const imgPath = landscape ? (item.background ?? item.poster) : item.poster;
@@ -48,8 +52,9 @@ export function PosterCard({
             // las FlatList reciclan estas celdas y, sin una clave estable,
             // expo-image reutiliza la vista nativa con el bitmap ya liberado y
             // se queda en gris. Con la clave, resetea y recarga la imagen del
-            // ítem correcto.
-            recyclingKey={`${item.type}:${item.id}`}
+            // ítem correcto. El prefijo de generación fuerza además una recarga
+            // al volver del reproductor (bitmap liberado por la GPU en Android).
+            recyclingKey={`${imgGen}:${item.type}:${item.id}`}
             source={tmdbImage(imgPath, imgSize) ?? imgPath}
             contentFit="cover"
             transition={150}
