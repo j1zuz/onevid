@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Constants from 'expo-constants';
 import { Stack } from 'expo-router';
 import { NavigationBar } from 'expo-navigation-bar';
+import { ObserveRoot, useObserve } from 'expo-observe';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
@@ -57,11 +58,16 @@ if (Platform.OS === 'android') {
   NavigationBar.setStyle('light');
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const [authReady, setAuthReady] = useState(false);
   const [hasToken, setHasToken] = useState(false);
   const [appMode, setMode] = useState<AppMode>('stream');
   const [splashDone, setSplashDone] = useState(false);
+
+  // EAS Observe: markInteractive marca el momento en que la UI real queda
+  // visible y usable (Time to Interactive). Lo llamamos al terminar el overlay
+  // AnimatedSplash. Es idempotente: solo la primera llamada registra la medición.
+  const { markInteractive } = useObserve();
 
   // Idioma efectivo: si el usuario eligió uno en Perfil (override) manda ése; si
   // no, seguimos el idioma del dispositivo. Así no forzamos idioma por defecto,
@@ -146,7 +152,10 @@ export default function RootLayout() {
               {!splashDone ? (
                 <AnimatedSplash
                   onLayoutReady={handleSplashLayoutReady}
-                  onFinish={() => setSplashDone(true)}
+                  onFinish={() => {
+                    setSplashDone(true);
+                    markInteractive();
+                  }}
                 />
               ) : null}
             </HeroUINativeProvider>
@@ -156,3 +165,7 @@ export default function RootLayout() {
     </PostHogProvider>
   );
 }
+
+// ObserveRoot.wrap instrumenta el layout raíz de expo-router para que EAS Observe
+// mida automáticamente el Time to First Render de la app en producción.
+export default ObserveRoot.wrap(RootLayout);
