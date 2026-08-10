@@ -80,14 +80,17 @@ export default function ProfilesScreen() {
   }, [queryClient, i18n.language]);
 
   const enter = useCallback(
-    (p: Profile) => {
-      // setActiveProfile fija el id en memoria de forma síncrona (apiFetch ya lo
-      // usa) y persiste en SecureStore en segundo plano; navegamos de inmediato
-      // para no mostrar la grilla un instante antes del home.
-      void setActiveProfile(p);
+    async (p: Profile) => {
+      // Esperamos a que el cambio de perfil termine ANTES de navegar:
+      // setActiveProfile fija el id en memoria (apiFetch ya lo usa), vacía el
+      // cache de React Query del perfil anterior si cambió (así el Inicio nunca
+      // alcanza a pintar las filas de otro perfil) y persiste en SecureStore.
+      await setActiveProfile(p);
       // Con el perfil ya activo (header X-Profile-Id correcto) precalentamos el
-      // feed del Inicio en segundo plano, para que al montar Inicio las
-      // carátulas ya estén y no se vea el fallback gris.
+      // Inicio completo en segundo plano, para que al montar las carátulas ya
+      // estén y no se vea el fallback gris. Si el perfil no cambió, el catálogo
+      // ya viene caliente del prefetch de arriba; si cambió, se acaba de limpiar
+      // el cache y esto lo vuelve a llenar con los datos del perfil elegido.
       void prefetchHome(queryClient, i18n.language);
       router.replace('/home');
     },
@@ -104,7 +107,7 @@ export default function ProfilesScreen() {
         setPinFor(p);
         return;
       }
-      enter(p);
+      void enter(p);
     },
     [editing, enter],
   );
@@ -206,7 +209,7 @@ export default function ProfilesScreen() {
           onSuccess={() => {
             // Navegar directo; la pantalla se desmonta con el replace, así no
             // se ve la grilla de perfiles entre medio.
-            if (pinFor) enter(pinFor);
+            if (pinFor) void enter(pinFor);
           }}
         />
       ) : null}

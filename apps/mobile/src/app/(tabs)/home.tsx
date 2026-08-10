@@ -1,4 +1,8 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { ScrollShadow, Skeleton, Typography } from 'heroui-native';
@@ -49,6 +53,11 @@ export default function HomeTab() {
   const continueQuery = useQuery({
     ...continueWatchingQuery(lang),
     enabled: catalogEnabled,
+    // Al re-habilitarse la query o cambiar el idioma, conservamos los datos
+    // previos en vez de volver a `isLoading` (que dejaría el Inicio en skeleton
+    // completo). En un cambio de perfil no hay datos previos que conservar
+    // (setActiveProfile vacía el cache), así que ahí sí se re-pide desde cero.
+    placeholderData: keepPreviousData,
   });
   const continueItems = continueQuery.data ?? [];
   // Al volver al Inicio (p. ej. tras salir del reproductor) refrescamos las
@@ -66,6 +75,9 @@ export default function HomeTab() {
   const feedQuery = useQuery({
     ...feedSectionsQuery(lang),
     enabled: catalogEnabled,
+    // Mismo motivo que continueQuery: evitar el skeleton de pantalla completa
+    // cuando la query se re-habilita al volver al Inicio o al cambiar de idioma.
+    placeholderData: keepPreviousData,
   });
 
   const sections = feedQuery.data?.sections ?? [];
