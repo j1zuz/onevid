@@ -21,15 +21,14 @@ export const continueWatchingQuery = (lang: string) => ({
 });
 
 /**
- * Precalienta el feed del Inicio (JSON + primeros backdrops) para que, al entrar
- * desde la selección de perfil, las carátulas ya estén listas y no se vea el
- * fallback gris. Best-effort: cualquier fallo (p. ej. setup incompleto → 4xx) se
- * ignora en silencio. Debe llamarse DESPUÉS de fijar el perfil activo, porque el
- * feed va con el header X-Profile-Id.
+ * Precalienta SOLO el catálogo del Inicio (JSON del feed + primeros backdrops).
+ * No toca datos por-perfil ("Continuar viendo"), así que es seguro llamarlo de
+ * forma especulativa mientras se muestra el selector de perfiles, antes de que el
+ * usuario elija. Best-effort: cualquier fallo (p. ej. setup incompleto → 4xx) se
+ * ignora en silencio.
  */
-export async function prefetchHome(qc: QueryClient, lang: string): Promise<void> {
+export async function prefetchFeed(qc: QueryClient, lang: string): Promise<void> {
   const feed = await qc.fetchQuery(feedSectionsQuery(lang)).catch(() => null);
-  qc.prefetchQuery(continueWatchingQuery(lang)).catch(() => undefined);
   if (!feed) return;
   const items = [
     ...(feed.hero ?? []),
@@ -42,4 +41,15 @@ export async function prefetchHome(qc: QueryClient, lang: string): Promise<void>
   if (urls.length > 0) {
     Image.prefetch(urls, { cachePolicy: 'memory-disk' }).catch(() => undefined);
   }
+}
+
+/**
+ * Precalienta el Inicio completo (catálogo + "Continuar viendo") para que, al
+ * entrar desde la selección de perfil, todo esté listo y no se vea el fallback
+ * gris. Debe llamarse DESPUÉS de fijar el perfil activo, porque "Continuar
+ * viendo" va con el header X-Profile-Id del perfil elegido.
+ */
+export async function prefetchHome(qc: QueryClient, lang: string): Promise<void> {
+  qc.prefetchQuery(continueWatchingQuery(lang)).catch(() => undefined);
+  await prefetchFeed(qc, lang);
 }

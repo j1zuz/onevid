@@ -14,10 +14,11 @@ import { BackHandler, Pressable, ScrollView, TextInput, View } from 'react-nativ
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { avatarSource } from '@/lib/avatars';
-import { prefetchHome } from '@/lib/home-feed';
+import { prefetchFeed, prefetchHome } from '@/lib/home-feed';
 import {
   type Profile,
   listProfiles,
+  loadActiveProfile,
   setActiveProfile,
   verifyProfilePin,
 } from '@/lib/profiles';
@@ -59,6 +60,24 @@ export default function ProfilesScreen() {
       load();
     }, [load]),
   );
+
+  // Netflix-style: mientras el usuario elige perfil, precalentamos el catálogo
+  // del Inicio (JSON del feed + primeras carátulas) en segundo plano y sin
+  // spinner, para que al entrar el Inicio ya tenga contenido en cache. Primero
+  // rehidratamos el último perfil usado (loadActiveProfile fija el header
+  // X-Profile-Id) por si el feed va scopeado; NO precargamos "Continuar viendo"
+  // aquí para no traer datos de un perfil que quizá no sea el que se elija.
+  useEffect(() => {
+    let cancelled = false;
+    loadActiveProfile()
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) void prefetchFeed(queryClient, i18n.language);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [queryClient, i18n.language]);
 
   const enter = useCallback(
     (p: Profile) => {
