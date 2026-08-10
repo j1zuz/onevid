@@ -1,7 +1,8 @@
 import * as SecureStore from 'expo-secure-store';
-import { setActiveProfileId } from './active-profile';
+import { getActiveProfileId, setActiveProfileId } from './active-profile';
 import { apiFetch } from './api';
 import type { AvatarKey } from './avatars';
+import { queryClient } from './query';
 
 export interface Profile {
   id: string;
@@ -36,7 +37,16 @@ export async function loadActiveProfile(): Promise<Profile | null> {
 }
 
 export async function setActiveProfile(p: Profile): Promise<void> {
+  const previousId = getActiveProfileId();
   setActiveProfileId(p.id);
+  // `apiFetch` manda `X-Profile-Id` en cada llamada, así que la MISMA query key
+  // (p. ej. ['continue-watching', lang] o ['feed-sections', lang], que no
+  // incluyen el perfil) tiene una respuesta distinta por perfil. Con el
+  // staleTime de 5 min de lib/query.ts, sin limpiar el cache un perfil podría
+  // ver las filas cacheadas de otro perfil de la casa ("Continuar viendo"
+  // ajeno). Al cambiar de perfil vaciamos el cache para que cada pantalla vuelva
+  // a pedir los datos del perfil activo en vez de servir los del anterior.
+  if (previousId !== p.id) queryClient.clear();
   await SecureStore.setItemAsync(ACTIVE_KEY, JSON.stringify(p));
 }
 
