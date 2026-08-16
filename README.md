@@ -1,5 +1,7 @@
 # onevid
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/j1zuz/onevid)
+
 Reproductor de vídeo.
 
 ![onevid](./docs/screenshot.webp)
