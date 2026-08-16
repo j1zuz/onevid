@@ -530,6 +530,19 @@ function mapTvToMeta(
   };
 }
 
+// ─── Filtro de contenido infantil ───────────────────────────────────
+// TMDB marca las series para niños con el género "Kids" (id 10762): Bluey,
+// Peppa Pig, Paw Patrol, CoComelon, etc. Las excluimos del catálogo de series
+// para que no se cuelen dentro del top 100 de populares. El endpoint /discover
+// las filtra en el servidor vía `without_genres`; /trending no acepta ese
+// parámetro, así que ahí se descartan en el cliente sobre `genre_ids`.
+const KIDS_TV_GENRE_IDS = [10762];
+
+function isKidsTv(item: TmdbTvResult): boolean {
+  const ids = item.genre_ids ?? item.genres?.map((g) => g.id) ?? [];
+  return ids.some((id) => KIDS_TV_GENRE_IDS.includes(id));
+}
+
 // ─── Discover ────────────────────────────────────────────────────────
 
 export async function discoverMovies(
@@ -611,6 +624,8 @@ export async function discoverTv(
     sort_by: tmdbSortBy || "popularity.desc",
     page: String(page || 1),
     "vote_count.gte": sortBy === "vote_average.desc" ? "200" : "0",
+    // Excluye series para niños (género "Kids") del catálogo de populares.
+    without_genres: KIDS_TV_GENRE_IDS.join("|"),
   };
 
   if (networkId) {
@@ -666,9 +681,12 @@ export async function trendingTv(
     { language: locale || "es-MX", page: String(page || 1) },
     300
   );
-  return (data.results ?? []).map((item) =>
-    mapTvToMeta(item as TmdbTvResult, genreMap)
-  );
+  // /trending no acepta `without_genres`, así que descartamos las series para
+  // niños en el cliente sobre `genre_ids` antes de mapear.
+  return (data.results ?? [])
+    .map((item) => item as TmdbTvResult)
+    .filter((item) => !isKidsTv(item))
+    .map((item) => mapTvToMeta(item, genreMap));
 }
 
 // ─── Credits / Related ───────────────────────────────────────────────

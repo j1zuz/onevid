@@ -66,12 +66,15 @@ export async function fetchCatalogResultsAtLeast(
   opts: Omit<Parameters<typeof fetchCatalogResults>[0], "page">,
   minCount: number
 ): Promise<MediaMeta[]> {
-  const pagesNeeded = Math.max(1, Math.ceil(minCount / TMDB_PAGE_SIZE));
+  // Pedimos una página extra de margen: al excluir el contenido infantil una
+  // página puede devolver menos de 20 resultados, así que sobre-traemos para
+  // seguir llegando a `minCount` y recortamos al final.
+  const pagesNeeded = Math.max(1, Math.ceil(minCount / TMDB_PAGE_SIZE)) + 1;
   const firstPage = await fetchCatalogResults({ ...opts, page: 1 });
 
   if (pagesNeeded <= 1 || firstPage.length < TMDB_PAGE_SIZE) {
     // TMDB ya no tiene más resultados que ofrecer (o con la primera alcanza).
-    return firstPage;
+    return firstPage.slice(0, minCount);
   }
 
   const extraPages = await Promise.allSettled(
@@ -87,7 +90,7 @@ export async function fetchCatalogResultsAtLeast(
   // páginas distintas, así que un mismo título a veces aparece en dos páginas
   // a la vez — sin deduplicar, React se queja de keys repetidas en la grilla.
   const seen = new Set<string>();
-  return [...firstPage, ...rest].filter((item) => {
+  const deduped = [...firstPage, ...rest].filter((item) => {
     const key = `${item.type}-${item.id}`;
     if (seen.has(key)) {
       return false;
@@ -95,4 +98,5 @@ export async function fetchCatalogResultsAtLeast(
     seen.add(key);
     return true;
   });
+  return deduped.slice(0, minCount);
 }
