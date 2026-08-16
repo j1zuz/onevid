@@ -54,7 +54,9 @@ export default async function RootPage() {
         <div className="flex items-center justify-between gap-4 rounded-xl border border-dashed border-border px-6 py-5">
           <Link
             className="text-muted-foreground text-xs hover:text-foreground"
-            href="/docs"
+            href="http://deepwiki.com/j1zuz/onevid"
+            rel="noopener noreferrer"
+            target="_blank"
           >
             Documentación
           </Link>
