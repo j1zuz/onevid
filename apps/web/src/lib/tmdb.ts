@@ -530,6 +530,33 @@ function mapTvToMeta(
   };
 }
 
+// ─── Filtro de contenido infantil ───────────────────────────────────
+// Excluimos el contenido para niños del catálogo de populares para que no se
+// cuele dentro del top 100. TMDB lo marca por género: en series con "Kids"
+// (id 10762) — Bluey, Peppa Pig, Paw Patrol, CoComelon, etc. — y en películas
+// con "Family" (id 10751), que es el género infantil equivalente (las
+// películas no tienen "Kids"). El endpoint /discover lo filtra en el servidor
+// vía `without_genres`; /trending no acepta ese parámetro, así que ahí se
+// descarta en el cliente sobre `genre_ids`.
+const KIDS_TV_GENRE_IDS = [10762];
+const KIDS_MOVIE_GENRE_IDS = [10751];
+
+function hasAnyGenre(
+  item: TmdbMovieResult | TmdbTvResult,
+  genreIds: number[]
+): boolean {
+  const ids = item.genre_ids ?? item.genres?.map((g) => g.id) ?? [];
+  return ids.some((id) => genreIds.includes(id));
+}
+
+function isKidsTv(item: TmdbTvResult): boolean {
+  return hasAnyGenre(item, KIDS_TV_GENRE_IDS);
+}
+
+function isKidsMovie(item: TmdbMovieResult): boolean {
+  return hasAnyGenre(item, KIDS_MOVIE_GENRE_IDS);
+}
+
 // ─── Discover ────────────────────────────────────────────────────────
 
 export async function discoverMovies(
@@ -547,6 +574,8 @@ export async function discoverMovies(
     sort_by: sortBy || "popularity.desc",
     page: String(page || 1),
     "vote_count.gte": sortBy === "vote_average.desc" ? "200" : "0",
+    // Excluye películas para niños (género "Family") del catálogo de populares.
+    without_genres: KIDS_MOVIE_GENRE_IDS.join("|"),
   };
 
   if (sortBy === "primary_release_date.desc") {
@@ -611,6 +640,8 @@ export async function discoverTv(
     sort_by: tmdbSortBy || "popularity.desc",
     page: String(page || 1),
     "vote_count.gte": sortBy === "vote_average.desc" ? "200" : "0",
+    // Excluye series para niños (género "Kids") del catálogo de populares.
+    without_genres: KIDS_TV_GENRE_IDS.join("|"),
   };
 
   if (networkId) {
@@ -649,9 +680,12 @@ export async function trendingMovies(
     { language: locale || "es-MX", page: String(page || 1) },
     300
   );
-  return (data.results ?? []).map((item) =>
-    mapMovieToMeta(item as TmdbMovieResult, genreMap)
-  );
+  // /trending no acepta `without_genres`, así que descartamos las películas
+  // para niños en el cliente sobre `genre_ids` antes de mapear.
+  return (data.results ?? [])
+    .map((item) => item as TmdbMovieResult)
+    .filter((item) => !isKidsMovie(item))
+    .map((item) => mapMovieToMeta(item, genreMap));
 }
 
 export async function trendingTv(
@@ -666,9 +700,12 @@ export async function trendingTv(
     { language: locale || "es-MX", page: String(page || 1) },
     300
   );
-  return (data.results ?? []).map((item) =>
-    mapTvToMeta(item as TmdbTvResult, genreMap)
-  );
+  // /trending no acepta `without_genres`, así que descartamos las series para
+  // niños en el cliente sobre `genre_ids` antes de mapear.
+  return (data.results ?? [])
+    .map((item) => item as TmdbTvResult)
+    .filter((item) => !isKidsTv(item))
+    .map((item) => mapTvToMeta(item, genreMap));
 }
 
 // ─── Credits / Related ───────────────────────────────────────────────
