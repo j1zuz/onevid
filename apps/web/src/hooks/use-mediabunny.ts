@@ -43,6 +43,39 @@ const MAX_QUOTA_RETRIES = 8;
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
+ * Builds the options for mediabunny's `UrlSource`, which reads the remote stream
+ * over parallel HTTP Range requests deep inside the library. When the connection
+ * drops, `fetch` rejects with a bare, stack-less error (Firefox:
+ * `TypeError: NetworkError when attempting to fetch resource.`) that our
+ * `try/catch` around `execute()` cannot reach, so it escapes to
+ * `unhandledrejection`.
+ *
+ * The `fetchFn` wrapper intercepts every read so a genuine failure is re-thrown
+ * as an `Error` that carries the URL. That travels the normal conversion-error
+ * path (→ `setState({ status: "error" })`) with real context. A read that fails
+ * only because the component unmounted mid-request keeps its original bare shape,
+ * so the `before_send` filter in instrumentation-client.ts drops it as noise
+ * instead of it becoming a stack-carrying issue of its own.
+ */
+function urlSourceOptions(url: string, abortedRef: { current: boolean }) {
+  return {
+    fetchFn: async (input: RequestInfo | URL, init?: RequestInit) => {
+      try {
+        return await fetch(input, init);
+      } catch (error) {
+        if (abortedRef.current) {
+          throw error;
+        }
+        const cause = error instanceof Error ? error : new Error(String(error));
+        throw new Error(`Range read failed for ${url}: ${cause.message}`, {
+          cause,
+        });
+      }
+    },
+  };
+}
+
+/**
  * Bridges MediaBunny's `StreamTarget` chunks to an OPFS writable. The MP4 muxer
  * emits chunks at arbitrary positions, so each write seeks first.
  */
@@ -159,7 +192,9 @@ async function transcodeToMp4(
   // Range, so it can seek backward without buffering everything). This is what
   // avoids the "Read is before the cached region" error.
   const inputSource =
-    typeof source === "string" ? new UrlSource(source) : new BlobSource(source);
+    typeof source === "string"
+      ? new UrlSource(source, urlSourceOptions(source, abortedRef))
+      : new BlobSource(source);
 
   const root = await navigator.storage.getDirectory();
   const fileHandle = await root.getFileHandle(opfsName, { create: true });
@@ -258,7 +293,9 @@ async function runProgressivePlayback(opts: {
   registerAc3Decoder();
 
   const inputSource =
-    typeof source === "string" ? new UrlSource(source) : new BlobSource(source);
+    typeof source === "string"
+      ? new UrlSource(source, urlSourceOptions(source, abortedRef))
+      : new BlobSource(source);
   const input = new Input({ source: inputSource, formats: ALL_FORMATS });
 
   // Probamos las pistas para armar el mime de MSE ANTES de crear el
