@@ -9,7 +9,8 @@
  * Auth:     Authorization: Bearer <apiKey>  (token= en /requestdl)
  */
 
-import { safeFetch } from "@/utils/ssrf-guard";
+import { isSafeFetchUrl, safeFetch } from "@/utils/ssrf-guard";
+import { isTorboxRedirectUrl } from "@/utils/stream-codec";
 
 const MAIN_BASE = "https://api.torbox.app/v1/api";
 
@@ -165,4 +166,78 @@ export async function resolveTorboxStream(params: {
     fileName: typeof best.name === "string" ? best.name : undefined,
     fileSize: typeof best.size === "number" ? best.size : undefined,
   };
+}
+
+/**
+ * Sigue la cadena de redirects de TorBox desde el server (sin CORS) hasta la
+ * URL final del CDN, que el browser sí puede leer con `fetch()` (refleja
+ * ACAO + soporta Range). `api.torbox.app/requestdl` con `redirect=true` ya
+ * devuelve la URL del CDN en su cabecera `Location`, así que basta con no
+ * seguirlo automáticamente y leer el `Location` del 3xx.
+ *
+ * Devuelve `null` si la URL no es un redirect TorBox, o si la cadena no termina
+ * en una URL jugable (timeout, demasiados hops, o destino no permitido). El
+ * SSRF guard se aplica a cada hop: nunca fetchamos un host privado/loopback.
+ */
+export { isTorboxRedirectUrl } from "@/utils/stream-codec";
+
+const MAX_REDIRECT_HOPS = 6;
+
+export async function resolveTorboxRedirect(
+  rawUrl: string
+): Promise<string | null> {
+  if (!isTorboxRedirectUrl(rawUrl)) {
+    return null;
+  }
+
+  let current = rawUrl;
+  for (let i = 0; i < MAX_REDIRECT_HOPS; i++) {
+    // Validamos cada hop contra el SSRF guard; no limitamos el host de destino
+    // porque los CDN de TorBox rotan (*.tb-cdn.io, etc.), pero sí rechazamos
+    // IPs privadas/loopback.
+    const check = isSafeFetchUrl(current);
+    if (!check.ok) {
+      return null;
+    }
+
+    // Si la URL actual ya no es un endpoint que sabemos que redirige (la API
+    // de TorBox o un addon debrid con `/resolve/torbox/`), entonces es el CDN
+    // final: lo devolvemos SIN fetchearlo (pesa GB y no hace falta — solo
+    // queremos la URL). Cortar acá evita descargar el archivo entero por el
+    // server.
+    if (!isTorboxRedirectUrl(current)) {
+      return current;
+    }
+
+    // Forzamos `redirect: "manual"` para leer el `Location` nosotros: así no
+    // dejamos que fetch siga el 307 del endpoint de descarga (que rompe CORS en
+    // el browser) y nos quedamos con la URL del CDN a la que apunta. Usamos
+    // HEAD para no descargar body — solo queremos el status/Location del
+    // redirect.
+    const res = await safeFetch(current, {
+      method: "HEAD",
+      redirect: "manual",
+      headers: { accept: "application/json, */*" },
+    });
+
+    // 3xx: leer el Location y continuar la cadena al próximo hop.
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get("location");
+      if (!location) {
+        return null;
+      }
+      try {
+        current = new URL(location, current).toString();
+      } catch {
+        return null;
+      }
+      continue;
+    }
+
+    // 2xx desde un endpoint que redirige no es un CDN jugable (no debería
+    // pasar — estos endpoints siempre redirigen); 4xx/5xx = cadena rota.
+    return null;
+  }
+
+  return null;
 }
