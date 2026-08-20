@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { needsMediaBunny } from "@/utils/stream-codec";
+import { isTorboxRedirectUrl, needsMediaBunny } from "@/utils/stream-codec";
 
 export type MediaBunnyState =
   | { status: "idle" }
@@ -581,10 +581,41 @@ export function useMediaBunny(
     const opfsName = `mb-${Date.now()}.mp4`;
 
     (async () => {
+      // Algunas fuentes de TorBox llegan como URLs de "resolve" (un addon debrid
+      // con `/resolve/torbox/...` o el endpoint `requestdl` de la API de TorBox)
+      // cuyo hop intermedio responde un 3xx SIN `Access-Control-Allow-Origin`,
+      // así que `fetch()` aborta acá ("Failed to fetch") antes de llegar al CDN.
+      // El server resuelve la cadena y nos devuelve la URL final del CDN, que
+      // el browser sí puede leer (refleja ACAO + soporta Range). Si la
+      // resolución falla, caemos a la URL original: mejor intentar (algún CDN de
+      // TorBox refleja ACAO y andaría igual) que rendir con error antes de
+      // probar. Solo aplica a strings; un `File` local no tiene redirect.
+      let resolvedSource = source;
+      if (typeof source === "string" && isTorboxRedirectUrl(source)) {
+        try {
+          const res = await fetch("/api/stream/resolve", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ url: source }),
+          });
+          if (res.ok) {
+            const data = (await res.json()) as { url?: string };
+            if (typeof data.url === "string" && data.url) {
+              resolvedSource = data.url;
+            }
+          }
+        } catch {
+          /* resolution failed → fall back to the original URL */
+        }
+        if (abortedRef.current) {
+          return;
+        }
+      }
+
       // 1) Camino preferido: reproducción progresiva mientras se transcodifica.
       try {
         await runProgressivePlayback({
-          source,
+          source: resolvedSource,
           onProgress: (progress) => {
             if (!abortedRef.current && streamUrlRef.current) {
               setState({
@@ -640,7 +671,7 @@ export function useMediaBunny(
       opfsNameRef.current = opfsName;
       try {
         const file = await transcodeToMp4(
-          source,
+          resolvedSource,
           opfsName,
           (progress) => {
             if (!abortedRef.current) {

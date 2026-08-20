@@ -172,6 +172,39 @@ const UNSUPPORTED_AUDIO_CODECS = /ac-?3|eac-?3|ddp|dd\+|dts|truehd/;
 const WEBM_EXTENSION = /\.webm$/;
 
 /**
+ * Endpoints cuyo `url` es un redirect opaco al CDN de TorBox que el browser
+ * NO puede seguir con `fetch()`: responden un 3xx con
+ * `Access-Control-Allow-Credentials: true` pero SIN `Access-Control-Allow-Origin`,
+ * así que el fetch aborta en ese hop ("Failed to fetch") antes de llegar al CDN
+ * (que sí refleja ACAO + soporta Range). El server lo resuelve y devuelve la URL
+ * final del CDN. Ver `resolveTorboxRedirect` en src/lib/torbox.ts y el hook
+ * use-mediabunny.
+ *
+ * Cubre dos formas:
+ *  - el endpoint `requestdl` de la API de TorBox (host `api.torbox.app` con
+ *    `redirect=true`), que responde el 307 que rompe CORS;
+ *  - cualquier addon debrid que resuelva a TorBox (pathname con
+ *    `/resolve/torbox/...`), que redirige a ese mismo endpoint.
+ */
+const TORBOX_API_HOST = "api.torbox.app";
+const TORBOX_RESOLVE_PATH = "/resolve/torbox/";
+const TORBOX_REQUESTDL_PATH = "/torrents/requestdl";
+
+/** ¿Esta URL es un redirect opaco al CDN de TorBox que el browser no puede seguir? */
+export function isTorboxRedirectUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const isResolvePath = parsed.pathname.includes(TORBOX_RESOLVE_PATH);
+    const isRequestdl =
+      parsed.hostname === TORBOX_API_HOST &&
+      parsed.pathname.includes(TORBOX_REQUESTDL_PATH);
+    return isResolvePath || isRequestdl;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Detects if a file/URL needs MediaBunny transcoding to be playable in the browser.
  * Triggered by:
  *  - Unsupported containers (MKV, MOV, TS, AVI…)
