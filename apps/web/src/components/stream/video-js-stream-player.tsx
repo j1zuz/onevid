@@ -1,7 +1,7 @@
 "use client";
 
 import { createPlayer, videoFeatures } from "@videojs/react";
-import { HlsVideo } from "@videojs/react/media/hls-video";
+import { HlsJsVideo } from "@videojs/react/media/hlsjs-video";
 import { Video, VideoSkin } from "@videojs/react/video";
 import { useEffect, useState } from "react";
 import "@videojs/react/video/skin.css";
@@ -30,7 +30,7 @@ interface VideoJsStreamPlayerProps {
   src: string;
 }
 
-const Player = createPlayer({ features: videoFeatures });
+const { Player } = createPlayer({ features: videoFeatures });
 
 export function VideoJsStreamPlayer({
   src,
@@ -54,7 +54,7 @@ export function VideoJsStreamPlayer({
   // and they can read its audio/text track lists.
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
   // HLS (streams en vivo o .m3u8 bajo demanda) necesita hls.js para MSE: un
-  // <video> nativo solo lo reproduce en Safari. HlsVideo decide internamente
+  // <video> nativo solo lo reproduce en Safari. HlsJsVideo decide internamente
   // MSE vs. nativo según soporte del navegador.
   const isHls = mimeType === "application/x-mpegURL";
 
@@ -104,10 +104,10 @@ export function VideoJsStreamPlayer({
 
   return (
     <div className={rootClassName}>
-      <Player.Provider>
+      <Player>
         <VideoSkin>
           {isHls ? (
-            <HlsVideo
+            <HlsJsVideo
               autoPlay={autoPlay}
               controls={controls}
               onClick={handleTogglePlay}
@@ -121,13 +121,12 @@ export function VideoJsStreamPlayer({
               poster={poster}
               preload={preload}
               ref={setVideoEl}
-              src={src}
               // @videojs/core detecta HLS comparando contra su propio string
               // interno ("application/vnd.apple.mpegurl"), distinto del que
               // usa este proyecto ("application/x-mpegURL"). Pasar el
               // mimeType tal cual rompería la detección y haría caer siempre
               // al delegate nativo (sin hls.js).
-              type="application/vnd.apple.mpegurl"
+              source={{ src, type: "application/vnd.apple.mpegurl" }}
             />
           ) : (
             <Video
@@ -153,7 +152,7 @@ export function VideoJsStreamPlayer({
               our menu cluster on top of it would just look broken. */}
           {!controls && <MediaTrackControls video={videoEl} />}
         </VideoSkin>
-      </Player.Provider>
+      </Player>
     </div>
   );
 }
