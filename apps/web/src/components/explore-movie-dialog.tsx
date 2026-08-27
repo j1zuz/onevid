@@ -521,7 +521,13 @@ function MovieDialogContent({
   }, [seasonDropdownOpen]);
 
   const handlePlay = (source: StreamWithAddon) => {
-    const playId = selectedEpisode?.id ?? movie.id;
+    // `selectedEpisode.id` es "imdbId:season:episode" (lo necesita el addon de
+    // streams), pero la página de detalle espera "tmdbId:season:episode" para
+    // poder pedirle el detalle a TMDB (que rechaza IDs de IMDb en /tv/{id}).
+    // Por eso el prefijo acá siempre es `movie.id` (el TMDB id numérico).
+    const playId = selectedEpisode
+      ? `${movie.id}:${selectedEpisode.season}:${selectedEpisode.number}`
+      : movie.id;
     const key = `stream-source-${movie.type}-${playId}`;
     sessionStorage.setItem(key, JSON.stringify(source));
     if (selectedEpisode) {

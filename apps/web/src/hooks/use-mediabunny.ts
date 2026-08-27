@@ -181,11 +181,25 @@ async function transcodeToMp4(
       ALL_FORMATS,
       Mp4OutputFormat,
       StreamTarget,
+      canEncodeAudio,
     },
     { registerAc3Decoder },
-  ] = await Promise.all([import("mediabunny"), import("@mediabunny/ac3")]);
+    { registerDtsDecoder },
+    { registerAacEncoder },
+  ] = await Promise.all([
+    import("mediabunny"),
+    import("@mediabunny/ac3"),
+    import("@mediabunny/dts"),
+    import("@mediabunny/aac-encoder"),
+  ]);
 
   registerAc3Decoder();
+  registerDtsDecoder();
+  // Solo usamos el polyfill si el navegador no puede encodear AAC nativo
+  // (algunos, como Firefox, no lo soportan en WebCodecs).
+  if (!(await canEncodeAudio("aac"))) {
+    registerAacEncoder();
+  }
 
   // Random-access source: `BlobSource` for a local `File` (already fully
   // available) and `UrlSource` for a remote URL (fetches byte ranges via HTTP
@@ -286,11 +300,25 @@ async function runProgressivePlayback(opts: {
       ALL_FORMATS,
       Mp4OutputFormat,
       StreamTarget,
+      canEncodeAudio,
     },
     { registerAc3Decoder },
-  ] = await Promise.all([import("mediabunny"), import("@mediabunny/ac3")]);
+    { registerDtsDecoder },
+    { registerAacEncoder },
+  ] = await Promise.all([
+    import("mediabunny"),
+    import("@mediabunny/ac3"),
+    import("@mediabunny/dts"),
+    import("@mediabunny/aac-encoder"),
+  ]);
 
   registerAc3Decoder();
+  registerDtsDecoder();
+  // Solo usamos el polyfill si el navegador no puede encodear AAC nativo
+  // (algunos, como Firefox, no lo soportan en WebCodecs).
+  if (!(await canEncodeAudio("aac"))) {
+    registerAacEncoder();
+  }
 
   const inputSource =
     typeof source === "string"
@@ -515,7 +543,7 @@ async function runProgressivePlayback(opts: {
 }
 
 /**
- * Transcodes unsupported media (MKV, EAC-3, AC-3…) for browser playback.
+ * Transcodes unsupported media (MKV, EAC-3, AC-3, DTS…) for browser playback.
  *
  * Intenta primero REPRODUCCIÓN PROGRESIVA (MediaSource): el <video> arranca en
  * cuanto llega el primer fragmento, mientras el resto se sigue transcodificando
@@ -642,10 +670,18 @@ export function useMediaBunny(
           setState({ status: "done", src: streamUrlRef.current });
         }
         return;
-      } catch {
+      } catch (progressiveError) {
         if (abortedRef.current) {
           return;
         }
+        // Logueamos el motivo real de la caída al camino OPFS completo (video
+        // HEVC, mime no soportado por MediaSource, fallo de red/CORS al leer
+        // la fuente, etc.) — sin esto no había forma de diagnosticar desde la
+        // consola por qué una fuente concreta tarda en mostrarse.
+        console.warn(
+          "[mediabunny] progressive playback failed, falling back to full transcode:",
+          progressiveError
+        );
         // Progressive no fue posible / falló → limpiar MSE y caer al camino
         // OPFS completo. Cancelamos la conversión progresiva para liberar sus
         // sesiones de WebCodecs antes de arrancar la de fallback.
