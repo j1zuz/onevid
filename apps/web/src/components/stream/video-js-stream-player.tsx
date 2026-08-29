@@ -96,7 +96,15 @@ export function VideoJsStreamPlayer({
       return;
     }
     if (videoEl.paused || videoEl.ended) {
-      videoEl.play();
+      // A tap that pauses while the play() request is still pending rejects the
+      // returned promise with an AbortError. That is benign — playback recovers
+      // on its own — so swallow it and only report real failures.
+      videoEl.play().catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        handleError(error);
+      });
     } else {
       videoEl.pause();
     }
