@@ -94,6 +94,10 @@ export function HeroCarousel({ items }: { items: MediaMeta[] }) {
             // la cara/sujeto principal arriba, y con "center" el recorte a
             // 16:9/21:9 se la comía por igual arriba y abajo.
             className="absolute inset-0 h-full w-full object-cover object-top"
+            // El backdrop del hero es el elemento LCP de /home: se descarga con
+            // prioridad alta para que gane la carrera a las carátulas (lazy) y
+            // demás recursos.
+            fetchPriority="high"
             key={activeKey}
             loading="eager"
             src={art}

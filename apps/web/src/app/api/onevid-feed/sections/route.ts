@@ -5,7 +5,9 @@
  * usuario configuró en la web, y resolverlo desde el cliente serían 1 + N
  * requests (una por fila, hasta FEED_MAX_ROWS) cada una repitiendo sesión y
  * token TMDB. En una TV con wifi lenta eso se nota, así que la orquestación se
- * queda en el servidor, compartida con /home vía `resolveFeed`.
+ * queda en el servidor. Aquí `resolveFeed` entrega hero + filas en una sola
+ * espera; /home usa las piezas por separado (`resolveHero` +
+ * `resolveFeedSections`) para transmitir las filas sin bloquear su LCP.
  */
 
 import { eq } from "drizzle-orm";

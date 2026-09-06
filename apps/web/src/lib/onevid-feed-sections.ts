@@ -135,7 +135,77 @@ export function interleaveMediaMeta(
   return out;
 }
 
-export async function resolveFeed({
+export interface HeroResult {
+  /** true cuando el token TMDB murió al pedir el hero: hay que reconfigurar. */
+  authFailed: boolean;
+  hero: MediaMeta[];
+}
+
+export interface FeedSectionsResult {
+  /** true cuando TODAS las filas fallaron por red (no auth): el feed va vacío. */
+  allRowsFailed: boolean;
+  /** true cuando el token TMDB murió: el feed va vacío y hay que reconfigurar. */
+  authFailed: boolean;
+  sections: FeedSection[];
+}
+
+/** true si alguna promesa fue rechazada por un token TMDB inválido. */
+function hasAuthRejection(results: PromiseSettledResult<unknown>[]): boolean {
+  return results.some(
+    (result) =>
+      result.status === "rejected" && result.reason instanceof TmdbAuthError
+  );
+}
+
+/**
+ * Carrusel destacado (trending película/serie intercalados). Es lo primero que
+ * pinta /home (el elemento LCP), así que se resuelve aparte de las filas para
+ * poder esperarlo solo a él y no bloquear el pintado con las N filas. Un token
+ * muerto se reporta como dato (`authFailed`); un fallo de red solo deja el hero
+ * vacío.
+ */
+export async function resolveHero({
+  tmdbLocale,
+  tmdbRegion,
+  token,
+}: {
+  tmdbLocale: string;
+  tmdbRegion: string;
+  token: string;
+}): Promise<HeroResult> {
+  const settled = await Promise.allSettled([
+    fetchCatalogResults({
+      catalog: "trending",
+      tmdbLocale,
+      tmdbRegion,
+      token,
+      type: "movie",
+    }),
+    fetchCatalogResults({
+      catalog: "trending",
+      tmdbLocale,
+      tmdbRegion,
+      token,
+      type: "series",
+    }),
+  ]);
+
+  const [movies, series] = settled;
+  const heroMovies = movies.status === "fulfilled" ? movies.value : [];
+  const heroSeries = series.status === "fulfilled" ? series.value : [];
+  return {
+    authFailed: hasAuthRejection(settled),
+    hero: interleaveMediaMeta(heroMovies, heroSeries).slice(0, HERO_TAKE),
+  };
+}
+
+/**
+ * Filas configuradas → filas con sus items de TMDB. Se resuelve aparte del hero
+ * para poder transmitirse (stream) por debajo del carrusel sin bloquear el
+ * primer pintado de /home. Un token muerto se reporta como dato (`authFailed`);
+ * una fila caída por red desaparece.
+ */
+export async function resolveFeedSections({
   addonsById,
   itemsPerRow,
   networksById,
@@ -144,49 +214,17 @@ export async function resolveFeed({
   tmdbLocale,
   tmdbRegion,
   token,
-}: ResolveFeedOptions): Promise<ResolvedFeed> {
-  const [settled, heroMovies, heroSeries] = await Promise.all([
-    Promise.allSettled(
-      rows.map((row) =>
-        resolveRow(row, addonsById, networksById, tmdbLocale, tmdbRegion, token)
-      )
-    ),
-    // El hero es independiente de las filas configuradas (que pueden estar
-    // todas acotadas a una cadena); si falla, simplemente no se muestra. El
-    // fallo real de auth lo detectan las filas del feed más abajo.
-    fetchCatalogResults({
-      catalog: "trending",
-      tmdbLocale,
-      tmdbRegion,
-      token,
-      type: "movie",
-    }).catch((error) => {
-      console.warn("[onevid] hero (trending movie) falló:", error);
-      return [];
-    }),
-    fetchCatalogResults({
-      catalog: "trending",
-      tmdbLocale,
-      tmdbRegion,
-      token,
-      type: "series",
-    }).catch((error) => {
-      console.warn("[onevid] hero (trending series) falló:", error);
-      return [];
-    }),
-  ]);
-
-  const hero = interleaveMediaMeta(heroMovies, heroSeries).slice(0, HERO_TAKE);
+}: ResolveFeedOptions): Promise<FeedSectionsResult> {
+  const settled = await Promise.allSettled(
+    rows.map((row) =>
+      resolveRow(row, addonsById, networksById, tmdbLocale, tmdbRegion, token)
+    )
+  );
 
   // El token muerto se detecta ANTES de descartar filas: si falla la auth hay
   // que volver a mostrar el stepper, no un feed a medias.
-  if (
-    settled.some(
-      (result) =>
-        result.status === "rejected" && result.reason instanceof TmdbAuthError
-    )
-  ) {
-    return { error: "auth", hero, sections: [] };
+  if (hasAuthRejection(settled)) {
+    return { allRowsFailed: false, authFailed: true, sections: [] };
   }
 
   const sections = settled.flatMap((result, index) => {
@@ -224,8 +262,36 @@ export async function resolveFeed({
   const rejected = settled.filter(
     (result) => result.status === "rejected"
   ).length;
-  const error =
-    settled.length > 0 && rejected === settled.length ? "network" : null;
+  const allRowsFailed = settled.length > 0 && rejected === settled.length;
 
-  return { error, hero, sections };
+  return { allRowsFailed, authFailed: false, sections };
+}
+
+/**
+ * Feed completo (hero + filas) en una sola espera. Lo usa `/api/onevid-feed/
+ * sections`, que sirve el mismo inicio a la app mobile en una respuesta. La web
+ * (`/home`) NO lo usa: transmite las filas con `resolveHero` + `resolveFeedSections`
+ * por separado para no bloquear el LCP.
+ */
+export async function resolveFeed(
+  options: ResolveFeedOptions
+): Promise<ResolvedFeed> {
+  const [sectionsResult, heroResult] = await Promise.all([
+    resolveFeedSections(options),
+    resolveHero(options),
+  ]);
+
+  const { hero } = heroResult;
+
+  // La auth la deciden las filas: el hero puede venir vacío por red sin que eso
+  // signifique que el token murió.
+  if (sectionsResult.authFailed) {
+    return { error: "auth", hero, sections: [] };
+  }
+
+  return {
+    error: sectionsResult.allRowsFailed ? "network" : null,
+    hero,
+    sections: sectionsResult.sections,
+  };
 }

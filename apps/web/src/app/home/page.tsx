@@ -33,7 +33,7 @@ import {
   getFeedRowTitle,
   parseFeedRows,
 } from "@/lib/onevid-feed";
-import { resolveFeed } from "@/lib/onevid-feed-sections";
+import { resolveFeedSections, resolveHero } from "@/lib/onevid-feed-sections";
 import { getServerT } from "@/lib/server-t";
 import {
   getCatalogOptions,
@@ -279,7 +279,7 @@ export default async function OneVidPage({
   // Modo "Ver todo": una grilla; modo feed: N filas en paralelo.
   let posters: MediaMeta[] | undefined;
   let viewAllTitle: string | undefined;
-  let feedSections: FeedSection[] | undefined;
+  let feedSectionsPromise: Promise<FeedSection[]> | undefined;
   let heroItems: MediaMeta[] = [];
   let loadError: "auth" | "network" | null = null;
 
@@ -351,7 +351,11 @@ export default async function OneVidPage({
       }
     }
   } else {
-    const feed = await resolveFeed({
+    // Las filas arrancan ya, concurrentes con el hero, pero se transmiten
+    // (stream) por debajo del carrusel: el cliente las envuelve en <Suspense>,
+    // así el primer pintado no espera a las N filas de TMDB. Cualquier fallo
+    // deja el feed vacío en vez de propagar al cliente.
+    const rowsPromise = resolveFeedSections({
       addonsById,
       itemsPerRow: FEED_ROW_ITEM_LIMIT,
       networksById,
@@ -360,10 +364,20 @@ export default async function OneVidPage({
       tmdbLocale,
       tmdbRegion,
       token,
-    });
-    feedSections = feed.sections;
-    heroItems = feed.hero;
-    loadError = feed.error;
+    })
+      .then((result) => result.sections)
+      .catch(() => [] as FeedSection[]);
+
+    // El hero (elemento LCP) se espera aparte: es lo primero que pinta /home y
+    // sirve de sonda de auth (mismo token que las filas). Un token muerto lleva
+    // al stepper; si no, se transmiten las filas.
+    const heroResult = await resolveHero({ tmdbLocale, tmdbRegion, token });
+    heroItems = heroResult.hero;
+    if (heroResult.authFailed) {
+      loadError = "auth";
+    } else {
+      feedSectionsPromise = rowsPromise;
+    }
   }
 
   if (loadError === "auth") {
@@ -425,7 +439,7 @@ export default async function OneVidPage({
         discoverRows={discoverRows}
         feedConfigured={feedConfigured}
         feedRows={feedRows}
-        feedSections={feedSections}
+        feedSectionsPromise={feedSectionsPromise}
         hasTorboxKey={Boolean(torboxKey)}
         heroItems={heroItems}
         initialProfiles={profiles}
