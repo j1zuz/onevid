@@ -24,7 +24,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { useOneVidProfiles } from "@/components/stream/onevid-profile-context";
+import { useOptionalOneVidProfiles } from "@/components/stream/onevid-profile-context";
 import { PosterCard } from "@/components/stream/poster-card";
 import { WatchProvidersNotice } from "@/components/watch-providers-notice";
 import type { MediaMeta } from "@/lib/tmdb";
@@ -240,7 +240,9 @@ function MovieDialogContent({
   pageMode?: boolean;
 }) {
   const { push } = useRouter();
-  const { activeProfileId } = useOneVidProfiles();
+  // The dialog can mount on the player route, which has no profile provider, so
+  // read the context tolerantly and fall back to no active profile there.
+  const activeProfileId = useOptionalOneVidProfiles()?.activeProfileId ?? null;
 
   // Series state
   const [seasons, setSeasons] = useState<number[]>([]);

@@ -259,3 +259,11 @@ export function useOneVidProfiles(): OneVidProfileContextValue {
   }
   return ctx;
 }
+
+// Same read, but returns null instead of throwing when no provider is above the
+// caller. Use this from components that can mount outside the provider (e.g. the
+// player route, which renders the movie dialog with no OneVidProfileProvider)
+// and can degrade gracefully without an active profile.
+export function useOptionalOneVidProfiles(): OneVidProfileContextValue | null {
+  return use(OneVidProfileContext);
+}
