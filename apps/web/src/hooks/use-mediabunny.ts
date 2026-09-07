@@ -80,6 +80,7 @@ function urlSourceOptions(url: string, abortedRef: { current: boolean }) {
  * emits chunks at arbitrary positions, so each write seeks first.
  */
 function createOpfsWriteStream(opfsWritable: FileSystemWritableFileStream) {
+  let settled = false;
   return new WritableStream({
     async write(chunk: { data: Uint8Array; position: number }) {
       await opfsWritable.seek(chunk.position);
@@ -88,9 +89,13 @@ function createOpfsWriteStream(opfsWritable: FileSystemWritableFileStream) {
       );
     },
     close() {
+      if (settled) return;
+      settled = true;
       return opfsWritable.close();
     },
     abort() {
+      if (settled) return;
+      settled = true;
       return opfsWritable.abort();
     },
   });
@@ -114,7 +119,11 @@ function waitForUpdateEnd(sb: SourceBuffer): Promise<void> {
     };
     const onFail = () => {
       cleanup();
-      reject(new Error("SourceBuffer error"));
+      reject(
+        new Error(
+          `SourceBuffer error (${sb.buffered.length} buffered ranges, updating=${sb.updating})`
+        )
+      );
     };
     sb.addEventListener("updateend", onDone, { once: true });
     sb.addEventListener("error", onFail, { once: true });
@@ -250,7 +259,20 @@ async function transcodeToMp4(
     await conversion.cancel();
   }
   conversion.onProgress = onProgress;
-  await conversion.execute();
+  try {
+    await conversion.execute();
+  } catch (error) {
+    // A SourceBuffer failure rejects a pending write. Cancel the conversion
+    // without allowing StreamTarget's follow-up close to become an
+    // unhandled "Cannot close a ERRORED writable stream" rejection.
+    try {
+      await conversion.cancel();
+    } catch {
+      // The stream is already errored; the original SourceBuffer error is the
+      // actionable failure and is rethrown below.
+    }
+    throw error;
+  }
   return await fileHandle.getFile();
 }
 
@@ -327,26 +349,40 @@ async function runProgressivePlayback(opts: {
   const input = new Input({ source: inputSource, formats: ALL_FORMATS });
 
   // Probamos las pistas para armar el mime de MSE ANTES de crear el
-  // SourceBuffer (que lo exige por adelantado). El video debe pasar sin
-  // re-encodear: solo así conocemos su codec string exacto (avc1.*) de antemano.
+  // SourceBuffer (que lo exige por adelantado). Los códecs compatibles pasan
+  // sin re-encodear; los demás se convierten a AVC dentro del mismo stream.
   const videoTrack = await input.getPrimaryVideoTrack();
   const videoCodec = videoTrack ? await videoTrack.getCodec() : null;
-  if (!(videoTrack && videoCodec && PASSTHROUGH_VIDEO_CODECS.has(videoCodec))) {
-    throw new Error("Progressive playback requires a passthrough video codec");
+  if (!videoTrack) {
+    throw new Error("La fuente no contiene una pista de video");
   }
-  const videoCodecString = await videoTrack.getCodecParameterString();
+  const canPassthroughVideo = Boolean(
+    videoCodec && PASSTHROUGH_VIDEO_CODECS.has(videoCodec)
+  );
+  // Mediabunny emite AVC en el mismo Output cuando el códec de entrada no se
+  // puede pasar directamente. Este codec string permite crear el SourceBuffer
+  // antes de que llegue el primer fragmento codificado.
+  const videoCodecString = canPassthroughVideo
+    ? await videoTrack.getCodecParameterString()
+    : "avc1.4d401f";
   if (!videoCodecString) {
     throw new Error("Unknown video codec string");
   }
 
   const audioTrack = await input.getPrimaryAudioTrack();
   let audioCodecString: string | null = null;
+  let canPassThroughAudio = Boolean(
+    audioTrack && (await audioTrack.getCodec()) === "aac"
+  );
   if (audioTrack) {
-    const audioCodec = await audioTrack.getCodec();
-    audioCodecString =
-      audioCodec && PASSTHROUGH_AUDIO_CODECS.has(audioCodec)
-        ? await audioTrack.getCodecParameterString()
-        : "opus"; // el audio incompatible se re-encodea a Opus (codec conocido)
+    // MSE requires the codec string in the SourceBuffer to match the actual
+    // initialization segment. Only pass through AAC when its exact string is
+    // available; incompatible audio is discarded for the progressive video
+    // path and remains available through the complete transcode fallback.
+    if (canPassThroughAudio) {
+      audioCodecString = await audioTrack.getCodecParameterString();
+      canPassThroughAudio = Boolean(audioCodecString);
+    }
   }
 
   const codecList = audioCodecString
@@ -486,14 +522,26 @@ async function runProgressivePlayback(opts: {
     }
   };
 
+  let progressiveError: Error | null = null;
   const writable = new WritableStream({
     async write(chunk: { data: Uint8Array; position: number }) {
       if (abortedRef.current) {
         return;
       }
-      await appendInOrder(chunk.data);
-      if (sourceBuffer) {
-        await applyBackpressure(sourceBuffer);
+      try {
+        await appendInOrder(chunk.data);
+        if (sourceBuffer) {
+          await applyBackpressure(sourceBuffer);
+        }
+      } catch (error) {
+        // Do not reject the WritableStream after MSE fails. StreamTarget can
+        // still call close() during cancellation, and closing an errored
+        // writer causes the secondary "Cannot close a ERRORED writable
+        // stream" error. Keep the stream writable, cancel the conversion, and
+        // surface the original SourceBuffer error after execute() unwinds.
+        progressiveError =
+          error instanceof Error ? error : new Error(String(error));
+        void conversionRef.current?.cancel().catch(() => undefined);
       }
     },
   });
@@ -511,12 +559,7 @@ async function runProgressivePlayback(opts: {
       const codec = await track.getCodec();
       return codec && PASSTHROUGH_VIDEO_CODECS.has(codec) ? {} : { codec: "avc" };
     },
-    audio: async (track) => {
-      const codec = await track.getCodec();
-      return codec && PASSTHROUGH_AUDIO_CODECS.has(codec)
-        ? {}
-        : { codec: "opus", numberOfChannels: 2, sampleRate: 48_000 };
-    },
+    audio: canPassThroughAudio ? {} : { discard: true },
   });
 
   if (!conversion.isValid) {
@@ -530,7 +573,14 @@ async function runProgressivePlayback(opts: {
     return;
   }
   conversion.onProgress = onProgress;
-  await conversion.execute();
+  try {
+    await conversion.execute();
+  } catch (error) {
+    if (progressiveError) {
+      throw progressiveError;
+    }
+    throw error;
+  }
 
   // Cierra el stream para que el <video> obtenga duración/fin definitivos.
   if (!abortedRef.current && mediaSource.readyState === "open") {
@@ -678,10 +728,18 @@ export function useMediaBunny(
         // HEVC, mime no soportado por MediaSource, fallo de red/CORS al leer
         // la fuente, etc.) — sin esto no había forma de diagnosticar desde la
         // consola por qué una fuente concreta tarda en mostrarse.
-        console.warn(
-          "[mediabunny] progressive playback failed, falling back to full transcode:",
-          progressiveError
-        );
+        const message =
+          progressiveError instanceof Error ? progressiveError.message : "";
+        if (message === "Progressive playback requires a passthrough video codec") {
+          console.info(
+            "[mediabunny] source video codec requires full transcode; falling back"
+          );
+        } else {
+          console.warn(
+            "[mediabunny] progressive playback failed, falling back to full transcode:",
+            progressiveError
+          );
+        }
         // Progressive no fue posible / falló → limpiar MSE y caer al camino
         // OPFS completo. Cancelamos la conversión progresiva para liberar sus
         // sesiones de WebCodecs antes de arrancar la de fallback.
@@ -739,7 +797,7 @@ export function useMediaBunny(
       // OPFS file out from under it. If `conversion` hasn't been created yet,
       // the abortedRef check inside the pipeline cancels it as soon as it is.
       if (conversionRef.current) {
-        conversionRef.current.cancel().finally(cleanup);
+        void conversionRef.current.cancel().then(cleanup, cleanup);
       } else {
         cleanup();
       }

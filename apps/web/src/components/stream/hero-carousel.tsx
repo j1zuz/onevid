@@ -3,8 +3,8 @@
 import { cn } from "@workspace/ui/lib/utils";
 import { PlayIcon } from "lucide-react";
 import { useEffect, useState } from "react";
-import { ExploreMovieDialog } from "@/components/explore-movie-dialog";
 import { tmdbImage, type MediaMeta } from "@/lib/tmdb";
+import Link from "next/link";
 
 const AUTOPLAY_MS = 5000;
 // w1280 (no "original"): banners grandes pero sin bajar backdrops de varios MB.
@@ -81,7 +81,7 @@ export function HeroCarousel({ items }: { items: MediaMeta[] }) {
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
-      <ExploreMovieDialog movie={active}>
+      <Link href={`/home/detail/${active.type}/${encodeURIComponent(active.id)}`}>
         <div className="relative h-full w-full">
           {/* Sin motion/react para esto: la imagen siempre visible de
               entrada (opacity-100 fijo), sin depender de que una animación
@@ -128,7 +128,7 @@ export function HeroCarousel({ items }: { items: MediaMeta[] }) {
             </span>
           </div>
         </div>
-      </ExploreMovieDialog>
+      </Link>
 
       {items.length > 1 && (
         <div className="absolute inset-x-0 bottom-3 z-10 flex justify-center gap-1.5">

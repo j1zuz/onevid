@@ -10,6 +10,70 @@ import "./video-js-player-overrides.css";
 import { MediaTrackControls } from "@/components/stream/media-track-controls";
 import type { MimeType } from "@/types/stream";
 
+function serializePlaybackError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message || error.name;
+  }
+  if (typeof HTMLVideoElement !== "undefined" && error && typeof error === "object") {
+    const eventLike = error as {
+      target?: unknown;
+      currentTarget?: unknown;
+      type?: unknown;
+    };
+    const video =
+      eventLike.target instanceof HTMLVideoElement
+        ? eventLike.target
+        : eventLike.currentTarget instanceof HTMLVideoElement
+          ? eventLike.currentTarget
+          : null;
+    const mediaError = video?.error;
+    if (mediaError) {
+      const details = mediaError.message ? `: ${mediaError.message}` : "";
+      return `Video playback error (code ${mediaError.code})${details}`;
+    }
+    if (typeof eventLike.type === "string") {
+      return `Video playback error (${eventLike.type})`;
+    }
+  }
+  if (!error || typeof error !== "object") {
+    return String(error || "Unknown error");
+  }
+
+  const value = error as {
+    message?: unknown;
+    error?: unknown;
+    code?: unknown;
+  };
+  if (typeof value.message === "string" && value.message) {
+    return value.message;
+  }
+  if (typeof value.error === "string" && value.error) {
+    return value.error;
+  }
+  if (typeof value.code === "number") {
+    return `Media playback error (code ${value.code})`;
+  }
+
+  try {
+    const seen = new WeakSet<object>();
+    const serialized = JSON.stringify(error, (_key, nestedValue: unknown) => {
+      if (typeof nestedValue === "object" && nestedValue !== null) {
+        if (seen.has(nestedValue)) {
+          return "[Circular]";
+        }
+        seen.add(nestedValue);
+      }
+      if (typeof Element !== "undefined" && nestedValue instanceof Element) {
+        return `[${nestedValue.tagName.toLowerCase()} element]`;
+      }
+      return nestedValue;
+    });
+    return serialized || "Unknown playback error";
+  } catch {
+    return Object.prototype.toString.call(error);
+  }
+}
+
 interface VideoJsStreamPlayerProps {
   autoPlay?: boolean;
   className?: string;
@@ -72,10 +136,8 @@ export function VideoJsStreamPlayer({
   }, [src, mimeType, onSourceInfo]);
 
   const handleError = (error: unknown) => {
-    const err =
-      error instanceof Error
-        ? error
-        : new Error(String(error || "Unknown error"));
+    const message = serializePlaybackError(error);
+    const err = error instanceof Error ? error : new Error(message);
     console.error("Playback error:", err);
     onError?.(err);
   };

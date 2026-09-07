@@ -4,7 +4,7 @@ import { buttonVariants } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
 import { ChevronRightIcon } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   type ReactNode,
   type RefObject,
@@ -13,7 +13,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { ExploreMovieDialog } from "@/components/explore-movie-dialog";
 import { ExploreMovieGrid } from "@/components/explore-movie-grid";
 import type { OneVidAddonSummary } from "@/components/stepper-onevid";
 import { ContinueWatchingRow } from "@/components/stream/continue-watching-row";
@@ -27,8 +26,6 @@ import {
 import type { FeedSurface, OneVidFeedRow } from "@/lib/onevid-feed";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { MediaMeta } from "@/lib/tmdb";
-
-type CatalogType = "movie" | "series";
 
 // Top-edge fade, cheap version: the shadcn `scroll-fade-t` utility masks
 // (`mask-image`) whatever element it's applied to and re-evaluates that mask
@@ -147,57 +144,12 @@ export function OneVidPageClient({
   // Vista completa de Continuar viendo (navegada desde su propio "Ver todo").
   // No depende del server: los datos de progreso ya se piden en el cliente.
   const continueViewAll = searchParams.get("view") === "continuing";
-  const [searchMovie, setSearchMovie] = useState<MediaMeta | null>(null);
-  const [drawerKey, setDrawerKey] = useState(0);
-  const consumedReopenRef = useRef(false);
+  const router = useRouter();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   const handleMovieSelect = useCallback((movie: MediaMeta) => {
-    setSearchMovie(movie);
-    setDrawerKey((k) => k + 1);
-  }, []);
-
-  // Reopen movie drawer when returning from the player via ?movie=&movieType=
-  useEffect(() => {
-    if (consumedReopenRef.current) {
-      return;
-    }
-    const movieId = searchParams.get("movie");
-    const movieTypeParam = searchParams.get("movieType");
-    if (!movieId) {
-      return;
-    }
-    consumedReopenRef.current = true;
-    const movieType: CatalogType =
-      movieTypeParam === "series" ? "series" : "movie";
-    // Aquí solo tenemos el id, así que pedimos la ficha para que el drawer abra
-    // con título y arte. Si falla, se abre igual (el diálogo resuelve logo,
-    // tráiler y streams por id) como hacía antes.
-    handleMovieSelect({ id: movieId, type: movieType, name: "" });
-    fetch(
-      `${movieType === "series" ? "/api/series-meta" : "/api/movie-meta"}?id=${encodeURIComponent(movieId)}`
-    )
-      .then((res) => (res.ok ? (res.json() as Promise<MediaMeta>) : null))
-      .then((meta) => {
-        if (meta?.name) {
-          setSearchMovie(meta);
-        }
-      })
-      .catch(() => {
-        /* se queda el fallback */
-      });
-
-    // Strip the params from the URL via the native History API instead of
-    // router.replace: this avoids a second Next.js soft-navigation (RSC
-    // round-trip) stacked right on top of the one that brought us back from
-    // the player, which was leaving the lazy-loaded poster grid in a broken,
-    // blank-canvas state.
-    const next = new URLSearchParams(searchParams.toString());
-    next.delete("movie");
-    next.delete("movieType");
-    const qs = next.toString();
-    window.history.replaceState(null, "", qs ? `/home?${qs}` : "/home");
-  }, [searchParams, handleMovieSelect]);
+    router.push(`/home/detail/${movie.type}/${encodeURIComponent(movie.id)}`);
+  }, [router]);
 
   let mainContent: ReactNode;
   if (feedSections?.length) {
@@ -280,14 +232,6 @@ export function OneVidPageClient({
         </div>
       </div>
 
-      {searchMovie && (
-        <ExploreMovieDialog
-          defaultOpen
-          key={`search-${drawerKey}-${searchMovie.id}`}
-          movie={searchMovie}
-          onPlay={() => setSearchMovie(null)}
-        />
-      )}
     </OneVidProfileProvider>
   );
 }

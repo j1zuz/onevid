@@ -2,7 +2,7 @@
 
 import { cn } from "@workspace/ui/lib/utils";
 import { Play } from "lucide-react";
-import { ExploreMovieDialog } from "@/components/explore-movie-dialog";
+import Link from "next/link";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { MediaMeta } from "@/lib/tmdb";
 
@@ -34,17 +34,13 @@ export function PosterCard({
 }: PosterCardProps) {
   const { t } = useTranslation();
   const horizontal = orientation === "horizontal";
+  const detailHref = `/home/detail/${item.type}/${encodeURIComponent(item.id)}`;
   // En horizontal preferimos el backdrop (16:9); si no hay, caemos al póster
   // para no dejar la tarjeta vacía.
   const art = horizontal ? (item.background ?? item.poster) : item.poster;
 
   return (
-    <ExploreMovieDialog
-      movie={item}
-      onPlay={() => {
-        /* no-op */
-      }}
-    >
+    <Link href={detailHref}>
       <article className="group block h-full">
         <div
           className={cn(
@@ -99,6 +95,6 @@ export function PosterCard({
           </p>
         </div>
       </article>
-    </ExploreMovieDialog>
+    </Link>
   );
 }

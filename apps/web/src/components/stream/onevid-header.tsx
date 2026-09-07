@@ -65,7 +65,6 @@ interface OneVidHeaderProps {
 }
 
 export function OneVidHeader({
-  onMovieSelect,
   surface = "home",
 }: OneVidHeaderProps) {
   const { t: rawT } = useTranslation();
@@ -163,25 +162,11 @@ export function OneVidHeader({
           // son por colección, así que una película y una serie pueden
           // compartir el mismo número y colisionar como key.
           <li key={`${item.type ?? "movie"}:${item.id}`}>
-            <button
+            <Link
               className="flex w-full items-center gap-3 rounded-md border border-transparent px-3 py-2 text-left transition-colors"
               data-dpad-focusable
-              onClick={() => {
-                // Pasamos el objeto completo del /api/search: así el diálogo
-                // abre con título y arte sin tener que buscar el item en una
-                // lista de la página (que con el feed ya no es única).
-                onMovieSelect?.({
-                  background: item.background,
-                  id: item.id,
-                  imdbRating: item.imdbRating,
-                  name: item.name,
-                  poster: item.poster,
-                  type: item.type === "series" ? "series" : "movie",
-                  year: item.year,
-                });
-                clearSearch();
-              }}
-              type="button"
+              href={`/home/detail/${item.type === "series" ? "series" : "movie"}/${encodeURIComponent(item.id)}`}
+              onClick={clearSearch}
             >
               {item.background || item.poster ? (
                 /* biome-ignore lint/performance/noImgElement: external CDN art */
@@ -211,7 +196,7 @@ export function OneVidHeader({
                   )}
                 </p>
               </div>
-            </button>
+            </Link>
           </li>
         ))}
       </ul>
