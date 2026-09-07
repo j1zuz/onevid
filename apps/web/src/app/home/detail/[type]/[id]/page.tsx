@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { StreamOnevid } from "@/components/stream/stream-onevid";
 import { auth } from "@/lib/auth";
 import { oneVid } from "@/lib/auth-schema";
@@ -27,6 +28,11 @@ export async function generateMetadata(_props: {
   return { title: "Detalle" };
 }
 
+/**
+ * Thin shell: only does auth + redirect (fast — reads a cookie/JWT).
+ * The TMDB fetch lives in <StreamDetailContent> inside <Suspense> so
+ * Next.js can prefetch the loading.tsx shell on <Link> hover.
+ */
 export default async function StreamDetailPage({ params }: { params: Params }) {
   const session = await auth.api.getSession({ headers: await headers() });
 
@@ -34,6 +40,20 @@ export default async function StreamDetailPage({ params }: { params: Params }) {
     redirect("/");
   }
 
+  return (
+    <Suspense>
+      <StreamDetailContent params={params} userId={session.user.id} />
+    </Suspense>
+  );
+}
+
+async function StreamDetailContent({
+  params,
+  userId,
+}: {
+  params: Params;
+  userId: string;
+}) {
   const { type: typeParam, id: rawId } = await params;
   const id = decodeURIComponent(rawId);
   const { locale: appLocale } = await getServerT();
@@ -41,20 +61,18 @@ export default async function StreamDetailPage({ params }: { params: Params }) {
 
   const contentType: CatalogType = typeParam === "series" ? "series" : "movie";
 
-  const [oneVidRow] = await Promise.all([
-    db
-      .select({
-        tmdbUserAccessToken: oneVid.tmdbUserAccessToken,
-        tmdbReadAccessToken: oneVid.tmdbReadAccessToken,
-      })
-      .from(oneVid)
-      .where(eq(oneVid.userId, session.user.id))
-      .limit(1),
-  ]);
+  const [oneVidRow] = await db
+    .select({
+      tmdbUserAccessToken: oneVid.tmdbUserAccessToken,
+      tmdbReadAccessToken: oneVid.tmdbReadAccessToken,
+    })
+    .from(oneVid)
+    .where(eq(oneVid.userId, userId))
+    .limit(1);
 
   // Prefer the OAuth token (tmdbUserAccessToken); fall back to the legacy one.
   const tmdbToken =
-    oneVidRow[0]?.tmdbUserAccessToken ?? oneVidRow[0]?.tmdbReadAccessToken;
+    oneVidRow?.tmdbUserAccessToken ?? oneVidRow?.tmdbReadAccessToken;
 
   if (!tmdbToken) {
     redirect("/home");

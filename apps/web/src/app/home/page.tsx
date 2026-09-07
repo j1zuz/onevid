@@ -12,6 +12,7 @@ import { desc, eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { SetupStepper } from "@/components/stepper-onevid";
 import type { FeedSection } from "@/components/stream/feed-row";
 import { OneVidHeader } from "@/components/stream/onevid-header";
@@ -65,7 +66,12 @@ type SearchParams = Promise<{
   addonCatalogId?: string;
 }>;
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: catalog page with setup gating, token fallback and TMDB error handling
+/**
+ * Thin shell: only does auth + redirect (fast — reads a cookie/JWT).
+ * All heavy DB queries and TMDB fetches live in <OneVidContent> which is
+ * wrapped in <Suspense> by the loading.tsx segment, enabling Next.js to
+ * prefetch the loading shell on <Link> hover for instant navigations.
+ */
 export default async function OneVidPage({
   searchParams,
 }: {
@@ -77,6 +83,22 @@ export default async function OneVidPage({
     redirect("/");
   }
 
+  // Pass the resolved session userId down so OneVidContent doesn't need to
+  // re-authenticate (avoids a second cookie read inside the Suspense boundary).
+  return (
+    <Suspense>
+      <OneVidContent searchParams={searchParams} userId={session.user.id} />
+    </Suspense>
+  );
+}
+
+async function OneVidContent({
+  searchParams,
+  userId,
+}: {
+  searchParams: SearchParams;
+  userId: string;
+}) {
   const { locale: appLocale, t } = await getServerT();
 
   const [params, oneVidRow, addonRows, profileRows] = await Promise.all([
@@ -91,7 +113,7 @@ export default async function OneVidPage({
         discoverRows: oneVid.discoverRows,
       })
       .from(oneVid)
-      .where(eq(oneVid.userId, session.user.id))
+      .where(eq(oneVid.userId, userId))
       .limit(1),
     db
       .select({
@@ -104,7 +126,7 @@ export default async function OneVidPage({
         catalogs: oneVidAddon.catalogs,
       })
       .from(oneVidAddon)
-      .where(eq(oneVidAddon.userId, session.user.id))
+      .where(eq(oneVidAddon.userId, userId))
       .orderBy(desc(oneVidAddon.createdAt)),
     db
       .select({
@@ -115,7 +137,7 @@ export default async function OneVidPage({
         pinHash: oneVidProfile.pinHash,
       })
       .from(oneVidProfile)
-      .where(eq(oneVidProfile.userId, session.user.id))
+      .where(eq(oneVidProfile.userId, userId))
       .orderBy(oneVidProfile.createdAt),
   ]);
 
