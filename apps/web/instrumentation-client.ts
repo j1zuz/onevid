@@ -16,6 +16,22 @@ const ABORT_FETCH_MESSAGES = [
   "The operation was aborted", // AbortError
 ];
 
+// A developer's localhost crash must never reach the production project. Check
+// both signals: `NODE_ENV` catches the dev server, and the browser host catches
+// a production build served locally, where `NODE_ENV` still reads "production".
+function isDevelopmentHost(): boolean {
+  if (process.env.NODE_ENV === "development") {
+    return true;
+  }
+  const hostname =
+    typeof window === "undefined" ? "" : window.location.hostname;
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "[::1]"
+  );
+}
+
 function isAbortShapedFetchException(exception: {
   type?: string;
   value?: string;
@@ -46,6 +62,11 @@ posthog.init(process.env.NEXT_PUBLIC_POSTHOG_TOKEN as string, {
   opt_out_persistence_by_default: true,
   before_send: (event: CaptureResult | null) => {
     if (event?.event === "$exception") {
+      // Drop crashes from local development so they never open a high-severity
+      // issue in the production project.
+      if (isDevelopmentHost()) {
+        return null;
+      }
       const list = event.properties?.$exception_list;
       if (
         Array.isArray(list) &&
