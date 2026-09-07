@@ -120,37 +120,39 @@ export function MediaTrackControls({ video }: MediaTrackControlsProps) {
     });
 
   return (
-    <Controls.Root
-      className="media-surface stream-track-controls"
-      // Keeps the cluster (and the cursor) alive while a menu is open, which
-      // the skin's 2s idle timer would otherwise hide out from under the user.
-      data-menu-open={openMenu ? "" : undefined}
-    >
-      <Controls.Group className="media-button-group">
-        {showAudio && (
-          <TrackMenu
-            activeId={activeAudioId}
-            icon={<LanguagesIcon className="media-icon" />}
-            label="Idioma del audio"
-            onOpenChange={toggleMenu("audio")}
-            onSelect={(id) => id && selectAudio(id)}
-            open={openMenu === "audio"}
-            tracks={audioTracks}
-          />
-        )}
-        {showSubtitles && (
-          <TrackMenu
-            activeId={activeSubtitleId}
-            icon={<CaptionsIcon className="media-icon" />}
-            label="Subtítulos"
-            offLabel="Desactivados"
-            onOpenChange={toggleMenu("subtitles")}
-            onSelect={selectSubtitle}
-            open={openMenu === "subtitles"}
-            tracks={subtitleTracks}
-          />
-        )}
-      </Controls.Group>
+    <Controls.Root>
+      <Controls.Content
+        className="media-surface stream-track-controls"
+        // Keeps the cluster (and the cursor) alive while a menu is open, which
+        // the skin's 2s idle timer would otherwise hide out from under the user.
+        data-menu-open={openMenu ? "" : undefined}
+      >
+        <Controls.Group className="media-button-group">
+          {showAudio && (
+            <TrackMenu
+              activeId={activeAudioId}
+              icon={<LanguagesIcon className="media-icon" />}
+              label="Idioma del audio"
+              onOpenChange={toggleMenu("audio")}
+              onSelect={(id) => id && selectAudio(id)}
+              open={openMenu === "audio"}
+              tracks={audioTracks}
+            />
+          )}
+          {showSubtitles && (
+            <TrackMenu
+              activeId={activeSubtitleId}
+              icon={<CaptionsIcon className="media-icon" />}
+              label="Subtítulos"
+              offLabel="Desactivados"
+              onOpenChange={toggleMenu("subtitles")}
+              onSelect={selectSubtitle}
+              open={openMenu === "subtitles"}
+              tracks={subtitleTracks}
+            />
+          )}
+        </Controls.Group>
+      </Controls.Content>
     </Controls.Root>
   );
 }

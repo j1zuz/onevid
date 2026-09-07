@@ -1,7 +1,7 @@
 "use client";
 
 import { createPlayer, videoFeatures } from "@videojs/react";
-import { HlsVideo } from "@videojs/react/media/hls-video";
+import { HlsJsVideo } from "@videojs/react/media/hlsjs-video";
 import { Video, VideoSkin } from "@videojs/react/video";
 import { useEffect, useState } from "react";
 import "@videojs/react/video/skin.css";
@@ -9,6 +9,70 @@ import { cn } from "@workspace/ui/lib/utils";
 import "./video-js-player-overrides.css";
 import { MediaTrackControls } from "@/components/stream/media-track-controls";
 import type { MimeType } from "@/types/stream";
+
+function serializePlaybackError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message || error.name;
+  }
+  if (typeof HTMLVideoElement !== "undefined" && error && typeof error === "object") {
+    const eventLike = error as {
+      target?: unknown;
+      currentTarget?: unknown;
+      type?: unknown;
+    };
+    const video =
+      eventLike.target instanceof HTMLVideoElement
+        ? eventLike.target
+        : eventLike.currentTarget instanceof HTMLVideoElement
+          ? eventLike.currentTarget
+          : null;
+    const mediaError = video?.error;
+    if (mediaError) {
+      const details = mediaError.message ? `: ${mediaError.message}` : "";
+      return `Video playback error (code ${mediaError.code})${details}`;
+    }
+    if (typeof eventLike.type === "string") {
+      return `Video playback error (${eventLike.type})`;
+    }
+  }
+  if (!error || typeof error !== "object") {
+    return String(error || "Unknown error");
+  }
+
+  const value = error as {
+    message?: unknown;
+    error?: unknown;
+    code?: unknown;
+  };
+  if (typeof value.message === "string" && value.message) {
+    return value.message;
+  }
+  if (typeof value.error === "string" && value.error) {
+    return value.error;
+  }
+  if (typeof value.code === "number") {
+    return `Media playback error (code ${value.code})`;
+  }
+
+  try {
+    const seen = new WeakSet<object>();
+    const serialized = JSON.stringify(error, (_key, nestedValue: unknown) => {
+      if (typeof nestedValue === "object" && nestedValue !== null) {
+        if (seen.has(nestedValue)) {
+          return "[Circular]";
+        }
+        seen.add(nestedValue);
+      }
+      if (typeof Element !== "undefined" && nestedValue instanceof Element) {
+        return `[${nestedValue.tagName.toLowerCase()} element]`;
+      }
+      return nestedValue;
+    });
+    return serialized || "Unknown playback error";
+  } catch {
+    return Object.prototype.toString.call(error);
+  }
+}
 
 interface VideoJsStreamPlayerProps {
   autoPlay?: boolean;
@@ -30,7 +94,7 @@ interface VideoJsStreamPlayerProps {
   src: string;
 }
 
-const Player = createPlayer({ features: videoFeatures });
+const { Player } = createPlayer({ features: videoFeatures });
 
 export function VideoJsStreamPlayer({
   src,
@@ -54,7 +118,7 @@ export function VideoJsStreamPlayer({
   // and they can read its audio/text track lists.
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
   // HLS (streams en vivo o .m3u8 bajo demanda) necesita hls.js para MSE: un
-  // <video> nativo solo lo reproduce en Safari. HlsVideo decide internamente
+  // <video> nativo solo lo reproduce en Safari. HlsJsVideo decide internamente
   // MSE vs. nativo según soporte del navegador.
   const isHls = mimeType === "application/x-mpegURL";
 
@@ -72,10 +136,8 @@ export function VideoJsStreamPlayer({
   }, [src, mimeType, onSourceInfo]);
 
   const handleError = (error: unknown) => {
-    const err =
-      error instanceof Error
-        ? error
-        : new Error(String(error || "Unknown error"));
+    const message = serializePlaybackError(error);
+    const err = error instanceof Error ? error : new Error(message);
     console.error("Playback error:", err);
     onError?.(err);
   };
@@ -112,10 +174,10 @@ export function VideoJsStreamPlayer({
 
   return (
     <div className={rootClassName}>
-      <Player.Provider>
+      <Player>
         <VideoSkin>
           {isHls ? (
-            <HlsVideo
+            <HlsJsVideo
               autoPlay={autoPlay}
               controls={controls}
               onClick={handleTogglePlay}
@@ -129,13 +191,12 @@ export function VideoJsStreamPlayer({
               poster={poster}
               preload={preload}
               ref={setVideoEl}
-              src={src}
               // @videojs/core detecta HLS comparando contra su propio string
               // interno ("application/vnd.apple.mpegurl"), distinto del que
               // usa este proyecto ("application/x-mpegURL"). Pasar el
               // mimeType tal cual rompería la detección y haría caer siempre
               // al delegate nativo (sin hls.js).
-              type="application/vnd.apple.mpegurl"
+              source={{ src, type: "application/vnd.apple.mpegurl" }}
             />
           ) : (
             <Video
@@ -161,7 +222,7 @@ export function VideoJsStreamPlayer({
               our menu cluster on top of it would just look broken. */}
           {!controls && <MediaTrackControls video={videoEl} />}
         </VideoSkin>
-      </Player.Provider>
+      </Player>
     </div>
   );
 }

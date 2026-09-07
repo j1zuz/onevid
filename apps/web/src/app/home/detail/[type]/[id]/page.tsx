@@ -2,9 +2,12 @@ import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { StreamOnevid } from "@/components/stream/stream-onevid";
+import { Suspense } from "react";
+import { MovieDetailPage } from "@/components/explore-movie-dialog";
+import { OneVidHeader } from "@/components/stream/onevid-header";
+import { OneVidProfileProvider } from "@/components/stream/onevid-profile-context";
 import { auth } from "@/lib/auth";
-import { oneVid } from "@/lib/auth-schema";
+import { oneVid, oneVidProfile } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
 import { getServerT } from "@/lib/server-t";
 import {
@@ -27,7 +30,20 @@ export async function generateMetadata(_props: {
   return { title: "Detalle" };
 }
 
-export default async function StreamDetailPage({ params }: { params: Params }) {
+/**
+ * Thin shell: only does auth + redirect (fast — reads a cookie/JWT).
+ * The TMDB fetch lives in <StreamDetailContent> inside <Suspense> so
+ * Next.js can prefetch the loading.tsx shell on <Link> hover.
+ */
+export default function StreamDetailPage({ params }: { params: Params }) {
+  return (
+    <Suspense>
+      <StreamDetailContent params={params} />
+    </Suspense>
+  );
+}
+
+async function StreamDetailContent({ params }: { params: Params }) {
   const session = await auth.api.getSession({ headers: await headers() });
 
   if (!session?.user?.id) {
@@ -41,7 +57,7 @@ export default async function StreamDetailPage({ params }: { params: Params }) {
 
   const contentType: CatalogType = typeParam === "series" ? "series" : "movie";
 
-  const [oneVidRow] = await Promise.all([
+  const [[oneVidRow], profileRows] = await Promise.all([
     db
       .select({
         tmdbUserAccessToken: oneVid.tmdbUserAccessToken,
@@ -50,11 +66,22 @@ export default async function StreamDetailPage({ params }: { params: Params }) {
       .from(oneVid)
       .where(eq(oneVid.userId, session.user.id))
       .limit(1),
+    db
+      .select({
+        id: oneVidProfile.id,
+        name: oneVidProfile.name,
+        avatar: oneVidProfile.avatar,
+        isKids: oneVidProfile.isKids,
+        pinHash: oneVidProfile.pinHash,
+      })
+      .from(oneVidProfile)
+      .where(eq(oneVidProfile.userId, session.user.id))
+      .orderBy(oneVidProfile.createdAt),
   ]);
 
   // Prefer the OAuth token (tmdbUserAccessToken); fall back to the legacy one.
   const tmdbToken =
-    oneVidRow[0]?.tmdbUserAccessToken ?? oneVidRow[0]?.tmdbReadAccessToken;
+    oneVidRow?.tmdbUserAccessToken ?? oneVidRow?.tmdbReadAccessToken;
 
   if (!tmdbToken) {
     redirect("/home");
@@ -71,15 +98,31 @@ export default async function StreamDetailPage({ params }: { params: Params }) {
     console.error("Failed to fetch movie detail:", error);
   }
 
+  if (!meta) {
+    redirect("/home");
+  }
+
   return (
-    <StreamOnevid
-      contentBackground={meta?.background}
-      contentId={baseId}
-      contentLogo={meta?.logo}
-      contentPoster={meta?.poster}
-      contentTitle={meta?.name ?? ""}
-      contentType={contentType}
-      rawId={id}
-    />
+    <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
+      <OneVidProfileProvider
+        initialProfiles={profileRows.map(({ pinHash, ...profile }) => ({
+          ...profile,
+          hasPin: Boolean(pinHash),
+        }))}
+      >
+        <OneVidHeader
+          addons={[]}
+          discoverRows={[]}
+          feedConfigured={false}
+          feedRows={[]}
+          hasTorboxKey={false}
+          linked={true}
+          setupCompleted={true}
+        />
+        <div className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto py-4">
+          <MovieDetailPage movie={meta} />
+        </div>
+      </OneVidProfileProvider>
+    </main>
   );
 }

@@ -89,7 +89,7 @@ export function StreamOnevid({
   const season = rawParts.length >= 3 ? Number(rawParts[1]) || 0 : 0;
   const episode = rawParts.length >= 3 ? Number(rawParts[2]) || 0 : 0;
   const router = useRouter();
-  const backHref = `/home?movie=${encodeURIComponent(contentId)}&movieType=${contentType}`;
+  const backHref = "/home";
   const handleBack = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement>) => {
       e.preventDefault();
@@ -268,7 +268,7 @@ export function StreamOnevid({
               // biome-ignore lint/performance/noImgElement: external CDN background
               <img
                 alt=""
-                className="absolute inset-0 size-full object-cover opacity-40 blur-xl"
+                className="absolute inset-0 size-full object-cover opacity-40"
                 height={1080}
                 src={contentBackground}
                 width={1920}

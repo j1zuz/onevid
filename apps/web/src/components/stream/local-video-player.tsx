@@ -168,7 +168,7 @@ export function LocalVideoPlayer() {
   const [urlInput, setUrlInput] = useState("");
   const [error, setError] = useState("");
 
-  // MediaBunny: transcode unsupported formats (MKV, AC-3, DDP…) in-browser.
+  // MediaBunny: transcode unsupported formats (MKV, AC-3, DDP, DTS…) in-browser.
   // Con un `File` local usamos el archivo directo; con una URL remota, la URL.
   const mbSource = file ?? src;
   const mediaBunny = useMediaBunny(
