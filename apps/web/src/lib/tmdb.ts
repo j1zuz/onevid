@@ -188,6 +188,13 @@ export class TmdbNetworkError extends Error {
 
 const TMDB_FETCH_TIMEOUT_MS = 8000;
 
+// Vida de caché (Next Data Cache) de las filas de catálogo (discover/trending).
+// El feed de /home vuelve a pedir TODAS sus filas a TMDB cada vez que expira,
+// y ese render en frío es el que dispara el p75 de LCP. Trending es semanal y
+// la popularidad de discover cambia despacio, así que 30 min recorta mucho la
+// frecuencia de renders en frío sin que el catálogo se sienta viejo.
+const CATALOG_REVALIDATE_SECONDS = 1800;
+
 async function tmdbFetch<T>(
   token: string,
   path: string,
@@ -591,7 +598,7 @@ export async function discoverMovies(
       token,
       "/3/discover/movie",
       { ...baseParams, ...extraParams },
-      300
+      CATALOG_REVALIDATE_SECONDS
     );
     return (data.results ?? []).map((item) =>
       mapMovieToMeta(item as TmdbMovieResult, genreMap)
@@ -658,7 +665,7 @@ export async function discoverTv(
     token,
     "/3/discover/tv",
     params,
-    300
+    CATALOG_REVALIDATE_SECONDS
   );
 
   return (data.results ?? []).map((item) =>
@@ -678,7 +685,7 @@ export async function trendingMovies(
     token,
     "/3/trending/movie/week",
     { language: locale || "es-MX", page: String(page || 1) },
-    300
+    CATALOG_REVALIDATE_SECONDS
   );
   // /trending no acepta `without_genres`, así que descartamos las películas
   // para niños en el cliente sobre `genre_ids` antes de mapear.
@@ -698,7 +705,7 @@ export async function trendingTv(
     token,
     "/3/trending/tv/week",
     { language: locale || "es-MX", page: String(page || 1) },
-    300
+    CATALOG_REVALIDATE_SECONDS
   );
   // /trending no acepta `without_genres`, así que descartamos las series para
   // niños en el cliente sobre `genre_ids` antes de mapear.
