@@ -66,6 +66,10 @@ async function PlayerContent({
 
   return (
     <StreamOnevid
+      // Saltar al siguiente episodio navega a esta misma ruta con otro `id`.
+      // Sin `key` React reutilizaría la instancia y su estado: el guard que
+      // solo lee `sessionStorage` una vez impediría cargar el medio nuevo.
+      key={id}
       contentBackground={meta?.background}
       contentId={baseId}
       contentLogo={meta?.logo}

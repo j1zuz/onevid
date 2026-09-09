@@ -393,8 +393,8 @@ export interface ContinueWatchingItem {
 
 /**
  * Upsert a title's playback position for a profile. Ignores sub-threshold
- * positions (accidental starts) and, once the title is effectively finished,
- * removes the row so it drops out of "Continue watching".
+ * positions (accidental starts) and keeps completed titles as finished rows so
+ * the UI can show them as watched while excluding them from "Continue watching".
  */
 export async function setProfileProgress(
   profileId: string,
@@ -407,22 +407,7 @@ export async function setProfileProgress(
   const finished =
     durationSec > 0 && positionSec / durationSec >= PROGRESS_DONE_RATIO;
 
-  if (finished) {
-    await db
-      .delete(oneVidProfileProgress)
-      .where(
-        and(
-          eq(oneVidProfileProgress.profileId, profileId),
-          eq(oneVidProfileProgress.mediaType, input.mediaType),
-          eq(oneVidProfileProgress.mediaId, input.mediaId),
-          eq(oneVidProfileProgress.season, season),
-          eq(oneVidProfileProgress.episode, episode)
-        )
-      );
-    return;
-  }
-
-  if (positionSec < PROGRESS_MIN_SEC) {
+  if (!finished && positionSec < PROGRESS_MIN_SEC) {
     return;
   }
 
@@ -437,7 +422,7 @@ export async function setProfileProgress(
       episode,
       positionSec,
       durationSec,
-      finished: false,
+      finished,
       name: input.name ?? null,
       poster: input.poster ?? null,
       background: input.background ?? null,
@@ -457,7 +442,7 @@ export async function setProfileProgress(
       set: {
         positionSec,
         durationSec,
-        finished: false,
+        finished,
         name: input.name ?? null,
         poster: input.poster ?? null,
         background: input.background ?? null,

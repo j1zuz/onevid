@@ -83,7 +83,9 @@ function getDisplayNames(): Intl.DisplayNames | null {
 }
 
 function languageName(code: string | undefined): string | null {
-  if (!code) {
+  // "und" es el código de "sin determinar" de los contenedores MP4/MKV, y
+  // `Intl.DisplayNames` lo traduce a "root", que no le dice nada a nadie.
+  if (!code || code === "und") {
     return null;
   }
   try {
@@ -97,7 +99,12 @@ function languageName(code: string | undefined): string | null {
   }
 }
 
-function trackLabel(
+/**
+ * Etiqueta legible de una pista. Se exporta para las pistas que no vienen del
+ * navegador — las de mediabunny en la ruta MSE — y así se nombran igual que las
+ * nativas y las de HLS.
+ */
+export function trackLabel(
   label: string | undefined,
   language: string | undefined,
   index: number,
