@@ -13,6 +13,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
+import HomeLoading from "@/app/home/loading";
 import { SetupStepper } from "@/components/stepper-onevid";
 import type { FeedSection } from "@/components/stream/feed-row";
 import { OneVidHeader } from "@/components/stream/onevid-header";
@@ -86,7 +87,7 @@ export default async function OneVidPage({
   // Pass the resolved session userId down so OneVidContent doesn't need to
   // re-authenticate (avoids a second cookie read inside the Suspense boundary).
   return (
-    <Suspense>
+    <Suspense fallback={<HomeLoading />}>
       <OneVidContent searchParams={searchParams} userId={session.user.id} />
     </Suspense>
   );

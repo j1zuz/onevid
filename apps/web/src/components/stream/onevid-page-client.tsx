@@ -8,7 +8,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   type ReactNode,
-  type RefObject,
   Suspense,
   use,
   useCallback,
@@ -22,6 +21,7 @@ import { ContinueWatchingRow } from "@/components/stream/continue-watching-row";
 import { type FeedSection, FeedRow } from "@/components/stream/feed-row";
 import { HeroCarousel } from "@/components/stream/hero-carousel";
 import { OneVidHeader } from "@/components/stream/onevid-header";
+import { ScrollTopFade } from "@/components/stream/scroll-top-fade";
 import {
   type OneVidProfile,
   OneVidProfileProvider,
@@ -34,58 +34,6 @@ import {
 } from "@/lib/onevid-feed";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { MediaMeta } from "@/lib/tmdb";
-
-// Top-edge fade, cheap version: the shadcn `scroll-fade-t` utility masks
-// (`mask-image`) whatever element it's applied to and re-evaluates that mask
-// every scroll frame via a CSS scroll-driven animation. Applied directly to
-// the scrollable container (dozens of poster `<img>`s), that forced the
-// browser to re-rasterize the whole grid on every scroll tick.
-//
-// This component owns its `isScrolled` state itself, attaching the scroll
-// listener directly to the DOM node via an effect, instead of lifting that
-// state into `OneVidPageClient`. Lifting it up made the WHOLE page
-// (including `OneVidProfileProvider` and everything under it) re-render on
-// every scroll-direction toggle, even though nothing about the catalog
-// itself changed — react-scan flagged this as dozens of "no changes
-// detected" renders. Keeping the state here means only this tiny overlay
-// re-renders when scrolling.
-function ScrollTopFade({
-  scrollAreaRef,
-}: {
-  scrollAreaRef: RefObject<HTMLDivElement | null>;
-}) {
-  const [isScrolled, setIsScrolled] = useState(false);
-
-  useEffect(() => {
-    const el = scrollAreaRef.current;
-    if (!el) {
-      return;
-    }
-    let ticking = false;
-    const handleScroll = () => {
-      if (ticking) {
-        return;
-      }
-      ticking = true;
-      requestAnimationFrame(() => {
-        ticking = false;
-        setIsScrolled(el.scrollTop > 0);
-      });
-    };
-    el.addEventListener("scroll", handleScroll, { passive: true });
-    return () => el.removeEventListener("scroll", handleScroll);
-  }, [scrollAreaRef]);
-
-  return (
-    <div
-      aria-hidden="true"
-      className={cn(
-        "pointer-events-none absolute inset-x-0 top-0 z-10 h-10 bg-gradient-to-b from-background to-transparent transition-opacity duration-150",
-        isScrolled ? "opacity-100" : "opacity-0"
-      )}
-    />
-  );
-}
 
 // Encabezado de las vistas "salidas del feed" ("Ver todo" de una fila, o
 // "Ver todo" de Continuar viendo): título + botón para volver, con el mismo

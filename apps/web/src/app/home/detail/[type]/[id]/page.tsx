@@ -3,7 +3,9 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
+import DetailLoading from "@/app/home/detail/[type]/[id]/loading";
 import { MovieDetailPage } from "@/components/explore-movie-dialog";
+import { DetailScrollContainer } from "@/components/stream/detail-scroll-container";
 import { OneVidHeader } from "@/components/stream/onevid-header";
 import { OneVidProfileProvider } from "@/components/stream/onevid-profile-context";
 import { auth } from "@/lib/auth";
@@ -37,7 +39,7 @@ export async function generateMetadata(_props: {
  */
 export default function StreamDetailPage({ params }: { params: Params }) {
   return (
-    <Suspense>
+    <Suspense fallback={<DetailLoading />}>
       <StreamDetailContent params={params} />
     </Suspense>
   );
@@ -103,24 +105,26 @@ async function StreamDetailContent({ params }: { params: Params }) {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
+    <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col overflow-hidden border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
       <OneVidProfileProvider
         initialProfiles={profileRows.map(({ pinHash, ...profile }) => ({
           ...profile,
           hasPin: Boolean(pinHash),
         }))}
       >
-        <OneVidHeader
-          addons={[]}
-          discoverRows={[]}
-          feedConfigured={false}
-          feedRows={[]}
-          hasTorboxKey={false}
-          linked={true}
-          setupCompleted={true}
-        />
-        <div className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto py-4">
-          <MovieDetailPage movie={meta} />
+        <div className="flex h-full min-h-0 flex-1 flex-col">
+          <OneVidHeader
+            addons={[]}
+            discoverRows={[]}
+            feedConfigured={false}
+            feedRows={[]}
+            hasTorboxKey={false}
+            linked={true}
+            setupCompleted={true}
+          />
+          <DetailScrollContainer>
+            <MovieDetailPage movie={meta} />
+          </DetailScrollContainer>
         </div>
       </OneVidProfileProvider>
     </main>

@@ -9,7 +9,7 @@ import { Skeleton } from "@workspace/ui/components/skeleton";
 export default function HomeLoading() {
   return (
     <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
-      <header className="-mx-4 md:-mx-6 sticky top-0 z-20 flex items-center justify-between gap-4 border-border border-b border-dashed bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:px-6">
+      <header className="-mx-4 mb-6 md:-mx-6 sticky top-0 z-20 flex items-center justify-between gap-4 border-border border-b border-dashed bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:px-6">
         <div className="flex items-center gap-3">
           <Skeleton className="size-8 rounded-md" />
           <div className="flex items-center gap-1">
@@ -25,7 +25,9 @@ export default function HomeLoading() {
       </header>
 
       <div className="no-scrollbar flex min-h-0 flex-1 flex-col gap-8 overflow-hidden py-4">
-        <Skeleton className="-mt-4 mb-2 aspect-video min-h-56 w-full rounded-(--radius) md:aspect-[21/9] md:min-h-96" />
+        <div className="-mt-4">
+          <Skeleton className="mb-2 aspect-video min-h-56 w-full rounded-(--radius) md:aspect-[21/9] md:min-h-96" />
+        </div>
         <ContinueRowSkeleton />
         <FeedRowSkeleton />
         <FeedRowSkeleton />

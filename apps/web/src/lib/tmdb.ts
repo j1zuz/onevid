@@ -1204,7 +1204,8 @@ export async function fetchTvSeason(
 export async function fetchTvSeriesMeta(
   token: string,
   tmdbId: string,
-  locale?: string
+  locale?: string,
+  requestedSeason?: number
 ): Promise<SeriesMetaResponse> {
   const [meta, detail] = await Promise.all([
     fetchTvDetail(token, tmdbId, locale),
@@ -1221,17 +1222,13 @@ export async function fetchTvSeriesMeta(
     .map((s) => s.season_number)
     .filter((n) => n > 0);
 
-  // Fetch all seasons in parallel
-  const seasonResults = await Promise.allSettled(
-    seasonNumbers.map((n) => fetchTvSeason(token, tmdbId, n, imdbId, locale))
-  );
-
-  const episodes: EpisodeItem[] = [];
-  for (const result of seasonResults) {
-    if (result.status === "fulfilled") {
-      episodes.push(...result.value);
-    }
-  }
+  const seasonNumber =
+    requestedSeason && seasonNumbers.includes(requestedSeason)
+      ? requestedSeason
+      : seasonNumbers[0];
+  const episodes = seasonNumber
+    ? await fetchTvSeason(token, tmdbId, seasonNumber, imdbId, locale)
+    : [];
 
   return {
     name: meta.name,

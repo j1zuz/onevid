@@ -40,7 +40,7 @@ export function PosterCard({
   const art = horizontal ? (item.background ?? item.poster) : item.poster;
 
   return (
-    <Link href={detailHref}>
+    <Link data-dpad-focusable href={detailHref}>
       <article className="group block h-full">
         <div
           className={cn(
@@ -57,7 +57,7 @@ export function PosterCard({
               // biome-ignore lint/performance/noImgElement: external CDN art
               <img
                 alt={item.name}
-                className="h-full w-full object-cover"
+                className="h-full w-full object-cover transition-[filter] duration-200 group-hover:brightness-125"
                 height={0}
                 loading="lazy"
                 src={art}

@@ -211,14 +211,15 @@ export function isTorboxRedirectUrl(url: string): boolean {
  *  - Unsupported audio codecs in the filename (AC-3, DDP, DTS, TrueHD)
  *  - No recognizable extension (e.g. TorBox UUID paths) — format unknown, probe needed
  */
-export function needsMediaBunny(filename: string): boolean {
+export function needsMediaBunny(filename: string, codecHint = ""): boolean {
   const lower = filename.toLowerCase();
+  const codecHintLower = codecHint.toLowerCase();
   // Unsupported containers
   if (UNSUPPORTED_CONTAINERS.test(lower)) {
     return true;
   }
   // Unsupported audio codecs in the filename/title
-  if (UNSUPPORTED_AUDIO_CODECS.test(lower)) {
+  if (UNSUPPORTED_AUDIO_CODECS.test(`${lower} ${codecHintLower}`)) {
     return true;
   }
   // No recognized native extension (e.g. UUID paths from TorBox) → probe with MediaBunny

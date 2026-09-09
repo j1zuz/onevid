@@ -8,6 +8,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { VideoJsStreamPlayer } from "@/components/stream/video-js-stream-player";
 import { useMediaBunny } from "@/hooks/use-mediabunny";
 import { useWatchProgress } from "@/hooks/use-video-progress";
+import { getTmdbLogo } from "@/lib/tmdb-logo-client";
 import type { MimeType, StreamWithAddon } from "@/types/stream";
 import { getMimeType, needsMediaBunny } from "@/utils/stream-codec";
 
@@ -121,12 +122,18 @@ export function StreamOnevid({
         }
       })()
     : "";
+  const sourceCodecHint =
+    typeof selectedSource?.title === "string" ? selectedSource.title : "";
+  const shouldUseMediaBunny = Boolean(
+    sourceUrl && needsMediaBunny(sourceFilename, sourceCodecHint)
+  );
   const mediaBunny = useMediaBunny(
-    sourceUrl && needsMediaBunny(sourceFilename) ? sourceUrl : null,
-    sourceFilename
+    shouldUseMediaBunny ? sourceUrl : null,
+    sourceFilename,
+    sourceCodecHint
   );
   let activeSrc = sourceUrl ?? "";
-  if (sourceUrl && needsMediaBunny(sourceFilename)) {
+  if (shouldUseMediaBunny) {
     // `streaming` = reproducción progresiva ya en curso (MediaSource); `done`
     // = transcode completo listo (blob). Ambos traen una `src` reproducible.
     activeSrc =
@@ -173,13 +180,10 @@ export function StreamOnevid({
       return;
     }
 
-    fetch(
-      `/api/tmdb-logo?id=${encodeURIComponent(contentId)}&type=${contentType}`
-    )
-      .then((res) => (res.ok ? res.json() : { logo: null }))
-      .then((data: { logo: string | null }) => {
-        if (data.logo) {
-          setLogo(data.logo);
+    getTmdbLogo(contentType, contentId)
+      .then((logoResult) => {
+        if (logoResult) {
+          setLogo(logoResult);
         }
       })
       .catch(() => {
@@ -331,7 +335,7 @@ export function StreamOnevid({
             fullscreenOnPlay={false}
             isPlayMode={true}
             mimeType={
-              needsMediaBunny(sourceFilename) ? "video/mp4" : selectedMimeType
+              shouldUseMediaBunny ? "video/mp4" : selectedMimeType
             }
             onEnded={onEnded}
             onLoadStart={() => setIsBuffering(true)}

@@ -3,6 +3,7 @@
 import { cn } from "@workspace/ui/lib/utils";
 import { PlayIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { getTmdbLogo } from "@/lib/tmdb-logo-client";
 import { tmdbImage, type MediaMeta } from "@/lib/tmdb";
 import Link from "next/link";
 
@@ -46,13 +47,10 @@ export function HeroCarousel({ items }: { items: MediaMeta[] }) {
       return;
     }
     let cancelled = false;
-    fetch(
-      `/api/tmdb-logo?type=${active.type}&id=${encodeURIComponent(active.id)}`
-    )
-      .then((res) => (res.ok ? (res.json() as Promise<{ logo: string | null }>) : null))
+    getTmdbLogo(active.type, active.id)
       .then((data) => {
         if (!cancelled) {
-          setLogoByKey((prev) => ({ ...prev, [activeKey]: data?.logo ?? null }));
+          setLogoByKey((prev) => ({ ...prev, [activeKey]: data }));
         }
       })
       .catch(() => {
@@ -81,7 +79,11 @@ export function HeroCarousel({ items }: { items: MediaMeta[] }) {
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
-      <Link href={`/home/detail/${active.type}/${encodeURIComponent(active.id)}`}>
+      <Link
+        className="block h-full"
+        data-dpad-focusable
+        href={`/home/detail/${active.type}/${encodeURIComponent(active.id)}`}
+      >
         <div className="relative h-full w-full">
           {/* Sin motion/react para esto: la imagen siempre visible de
               entrada (opacity-100 fijo), sin depender de que una animación

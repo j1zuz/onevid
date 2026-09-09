@@ -27,7 +27,8 @@ import { toast } from "sonner";
 import { useOptionalOneVidProfiles } from "@/components/stream/onevid-profile-context";
 import { PosterCard } from "@/components/stream/poster-card";
 import { WatchProvidersNotice } from "@/components/watch-providers-notice";
-import type { MediaMeta } from "@/lib/tmdb";
+import { getTmdbLogo } from "@/lib/tmdb-logo-client";
+import { tmdbImage, type MediaMeta } from "@/lib/tmdb";
 import type { StreamWithAddon } from "@/types/stream";
 
 interface EpisodeItem {
@@ -299,32 +300,24 @@ function MovieDialogContent({
     if (!isOpen || logoLoaded) {
       return;
     }
-    const controller = new AbortController();
-    fetch(
-      `/api/tmdb-logo?id=${encodeURIComponent(movie.id)}&type=${movie.type}`,
-      {
-        signal: controller.signal,
-      }
-    )
-      .then((res) => (res.ok ? res.json() : { logo: null }))
-      .then((data: { logo: string | null }) => {
-        if (data.logo) {
-          setLogo(data.logo);
+    let cancelled = false;
+    getTmdbLogo(movie.type, movie.id)
+      .then((logoResult) => {
+        if (!cancelled && logoResult) {
+          setLogo(logoResult);
         }
-        setLogoLoaded(true);
+        if (!cancelled) {
+          setLogoLoaded(true);
+        }
       })
-      .catch((err: unknown) => {
-        // An aborted fetch (StrictMode's dev-only mount→cleanup→remount, or a
-        // real unmount) must NOT mark this loaded — a fresh, un-aborted fetch
-        // is about to run right after and needs the chance to actually
-        // resolve. Locking logoLoaded=true here permanently blanks the logo,
-        // since the effect bails out early on every future run once it's set.
-        if (err instanceof DOMException && err.name === "AbortError") {
-          return;
+      .catch(() => {
+        if (!cancelled) {
+          setLogoLoaded(true);
         }
-        setLogoLoaded(true);
       });
-    return () => controller.abort();
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, logoLoaded, movie.id, movie.type]);
 
   // Fetch trailer key when dialog opens.
@@ -503,6 +496,25 @@ function MovieDialogContent({
     return null;
   }, [episodes, movie.id, seriesLoaded, seriesLoading]);
 
+  const loadSeasonEpisodes = useCallback(
+    async (season: number) => {
+      setSeriesLoading(true);
+      try {
+        const res = await fetch(
+          `/api/series-meta?id=${encodeURIComponent(movie.id)}&season=${season}`
+        );
+        if (!res.ok) {
+          return;
+        }
+        const data = (await res.json()) as { episodes: EpisodeItem[] };
+        setEpisodes(data.episodes);
+      } finally {
+        setSeriesLoading(false);
+      }
+    },
+    [movie.id]
+  );
+
   // Load streams for a given ID
   const loadSources = useCallback(
     async (streamId: string) => {
@@ -655,37 +667,42 @@ function MovieDialogContent({
   return (
     <>
       {pageMode && (
-        <section className="relative mb-6 aspect-video min-h-56 overflow-hidden rounded-(--radius) border border-border/70 bg-muted md:aspect-[21/9] md:min-h-80">
-          {movie.background ? (
-            // biome-ignore lint/performance/noImgElement: external CDN backdrop
-            <img
-              alt=""
-              className="absolute inset-0 h-full w-full object-cover object-top"
-              src={movie.background}
-            />
-          ) : (
-            <div className="absolute inset-0 bg-muted" />
-          )}
-          <div className="absolute inset-0 bg-gradient-to-t from-background via-background/25 to-transparent" />
-          <div className="absolute inset-x-0 bottom-0 flex flex-col items-start gap-2 p-5 md:p-8">
-            {movie.logo ? (
-              // biome-ignore lint/performance/noImgElement: external CDN logo
+        <div className="-mt-4">
+          <section
+            className="relative mb-2 aspect-video min-h-56 overflow-hidden rounded-(--radius) border border-border/70 bg-muted transition-[filter] duration-200 hover:brightness-125 md:aspect-[21/9] md:min-h-96"
+          >
+            {movie.background ? (
+              // biome-ignore lint/performance/noImgElement: external CDN backdrop
               <img
-                alt={movie.name}
-                className="max-h-14 max-w-64 object-contain drop-shadow-2xl md:max-h-20 md:max-w-96"
-                src={movie.logo}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover object-top"
+                fetchPriority="high"
+                loading="eager"
+                src={tmdbImage(movie.background, "w1280")}
               />
             ) : (
-              <h1 className="font-bold text-2xl text-white drop-shadow-2xl md:text-4xl">
-                {movie.name}
-              </h1>
+              <div className="absolute inset-0 bg-muted" />
             )}
-            {movie.description && (
-              <p className="line-clamp-2 max-w-2xl text-sm text-white/90 drop-shadow-lg md:text-base">
-                {movie.description}
-              </p>
-            )}
-            <div className="pointer-events-auto flex flex-wrap items-center gap-2">
+            <div className="absolute inset-0 bg-gradient-to-t from-background via-background/10 to-transparent" />
+            <div className="absolute inset-x-0 bottom-0 flex flex-col items-start gap-3 p-5 md:p-10">
+              {movie.logo ? (
+                // biome-ignore lint/performance/noImgElement: external CDN logo
+                <img
+                  alt={movie.name}
+                  className="max-h-14 max-w-64 object-contain drop-shadow-lg md:max-h-24 md:max-w-96"
+                  src={movie.logo}
+                />
+              ) : (
+                <h1 className="max-w-lg font-bold text-white text-xl drop-shadow-lg md:text-4xl">
+                  {movie.name}
+                </h1>
+              )}
+              {movie.description && (
+                <p className="line-clamp-2 max-w-lg text-sm text-white/90 drop-shadow-lg md:line-clamp-3 md:text-base">
+                  {movie.description}
+                </p>
+              )}
+              <div className="pointer-events-auto flex flex-wrap items-center gap-2">
               <Button
                 className="btn-primary"
                 data-dpad-focusable
@@ -739,14 +756,15 @@ function MovieDialogContent({
                   Tráiler
                 </Button>
               )}
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
       )}
       <div
         className={cn(
-          "mx-auto flex w-full flex-col overflow-hidden",
-          pageMode ? "max-w-none" : "max-w-sm"
+          "mx-auto flex w-full flex-col",
+          pageMode ? "max-w-none shrink-0" : "max-w-sm overflow-hidden"
         )}
         style={pageMode ? undefined : { height: "min(80vh, 100dvh - 3rem)" }}
       >
@@ -756,7 +774,7 @@ function MovieDialogContent({
           </DrawerHeader>
         ) : null}
         {pageMode ? (
-          <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pt-0 pb-6 md:px-8">
+          <div className="px-0 pt-0 pb-6">
             <DetailBody />
           </div>
         ) : (
@@ -1089,6 +1107,9 @@ function MovieDialogContent({
                                       onClick={() => {
                                         setSelectedSeason(s);
                                         setSeasonDropdownOpen(false);
+                                        if (s !== selectedSeason) {
+                                          void loadSeasonEpisodes(s);
+                                        }
                                       }}
                                       type="button"
                                     >
@@ -1117,11 +1138,12 @@ function MovieDialogContent({
                             {filteredEpisodes.map((ep) => (
                               <button
                                 className={cn(
-                                  "group/episode relative rounded-(--radius) border border-border/70 bg-muted/40 p-1 text-left transition-[border-color,box-shadow,filter] duration-200 hover:border-primary/70 hover:shadow-md",
+                                  "group/episode relative rounded-(--radius) border border-border/70 bg-muted/40 p-1 text-left transition-[border-color,box-shadow,filter] duration-200 hover:border-primary hover:brightness-125 hover:shadow-md hover:shadow-zinc-950/30",
                                   pageMode
                                     ? "block w-full"
                                     : "flex w-full items-center gap-3"
                                 )}
+                                data-dpad-focusable
                                 disabled={Boolean(startingEpisodeId)}
                                 key={ep.id}
                                 onClick={() => handleEpisodeClick(ep)}
@@ -1250,7 +1272,10 @@ function MovieDialogContent({
               </div>
             )}
 
-            {pageMode && movie.related && movie.related.length > 0 && (
+            {pageMode &&
+              (!isSeries || seriesLoaded) &&
+              movie.related &&
+              movie.related.length > 0 && (
               <section className="space-y-3 pt-4">
                 <h2 className="font-semibold text-lg">Relacionadas</h2>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">

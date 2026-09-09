@@ -132,10 +132,10 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply min-h-dvh bg-background text-foreground;
   }
   html {
-    @apply scrollbar-thin scrollbar-thumb-[color-mix(in_oklch,var(--foreground)_35%,transparent)] scrollbar-track-transparent font-sans;
+    @apply min-h-full bg-background scrollbar-thin scrollbar-thumb-[color-mix(in_oklch,var(--foreground)_35%,transparent)] scrollbar-track-transparent font-sans;
   }
   /* Make chat scrollbars thin without extra logic */
   [data-stream-chat-scope] * {
