@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
-import Script from "next/script";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import "@workspace/ui/globals.css";
 import { Toaster } from "@workspace/ui/components/sonner";
@@ -77,15 +76,6 @@ export default async function RootLayout({
       className={`dark ${geistSans.variable} ${geistMono.variable}`}
       suppressHydrationWarning
     >
-      <head>
-        {process.env.NODE_ENV === "development" && (
-          <Script
-            crossOrigin="anonymous"
-            src="//unpkg.com/react-grab/dist/index.global.js"
-            strategy="beforeInteractive"
-          />
-        )}
-      </head>
       <body className="antialiased">
         {process.env.NODE_ENV === "development" && <ReactScan />}
         <DpadNavigation />

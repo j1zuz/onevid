@@ -1,6 +1,7 @@
 "use client";
 
 import { buttonVariants } from "@workspace/ui/components/button";
+import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
 import { ChevronRightIcon } from "lucide-react";
 import Link from "next/link";
@@ -8,6 +9,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   type ReactNode,
   type RefObject,
+  Suspense,
+  use,
   useCallback,
   useEffect,
   useRef,
@@ -23,7 +26,12 @@ import {
   type OneVidProfile,
   OneVidProfileProvider,
 } from "@/components/stream/onevid-profile-context";
-import type { FeedSurface, OneVidFeedRow } from "@/lib/onevid-feed";
+import { HORIZONTAL_POSTER_GRID_CLASS } from "@/components/stream/poster-card";
+import {
+  FEED_ROW_ITEM_LIMIT,
+  type FeedSurface,
+  type OneVidFeedRow,
+} from "@/lib/onevid-feed";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { MediaMeta } from "@/lib/tmdb";
 
@@ -103,13 +111,57 @@ function BackToHomeHeader({ title }: { title: string }) {
   );
 }
 
+function NoFeedResults() {
+  return (
+    <section className="rounded-xl border bg-card p-8 text-center">
+      <p className="text-muted-foreground text-sm">
+        No se encontraron resultados.
+      </p>
+    </section>
+  );
+}
+
+// Filas del feed transmitidas por el server: `use()` suspende hasta que el
+// promise resuelve, y el <Suspense> de arriba muestra el esqueleto mientras
+// tanto. Así el hero (LCP) pinta sin esperar a las N filas de TMDB.
+function StreamedFeedRows({ promise }: { promise: Promise<FeedSection[]> }) {
+  const sections = use(promise);
+  if (!sections.length) {
+    return <NoFeedResults />;
+  }
+  return sections.map((section) => (
+    <FeedRow key={section.id} section={section} />
+  ));
+}
+
+const FEED_SKELETON_ROWS = 3;
+
+function FeedRowsSkeleton() {
+  return Array.from({ length: FEED_SKELETON_ROWS }).map((_, rowIndex) => (
+    <section
+      className="container mx-auto flex flex-col gap-3 px-2"
+      key={`feed-skeleton-${rowIndex.toString()}`}
+    >
+      <Skeleton className="h-7 w-40" />
+      <div className={HORIZONTAL_POSTER_GRID_CLASS}>
+        {Array.from({ length: FEED_ROW_ITEM_LIMIT }).map((_, cardIndex) => (
+          <Skeleton
+            className="aspect-video w-full rounded-(--radius)"
+            key={`feed-skeleton-${rowIndex.toString()}-${cardIndex.toString()}`}
+          />
+        ))}
+      </div>
+    </section>
+  ));
+}
+
 interface OneVidPageClientProps {
   addons: OneVidAddonSummary[];
   discoverRows: OneVidFeedRow[];
   feedConfigured: boolean;
   feedRows: OneVidFeedRow[];
-  /** Modo feed: filas ya resueltas por el server. */
-  feedSections?: FeedSection[];
+  /** Modo feed: filas que el server transmite (stream) por debajo del hero. */
+  feedSectionsPromise?: Promise<FeedSection[]>;
   hasTorboxKey: boolean;
   /** Hero destacado (trending película/serie), solo modo feed. */
   heroItems: MediaMeta[];
@@ -128,7 +180,7 @@ export function OneVidPageClient({
   discoverRows,
   feedConfigured,
   feedRows,
-  feedSections,
+  feedSectionsPromise,
   hasTorboxKey,
   heroItems,
   initialProfiles,
@@ -152,20 +204,18 @@ export function OneVidPageClient({
   }, [router]);
 
   let mainContent: ReactNode;
-  if (feedSections?.length) {
-    mainContent = feedSections.map((section) => (
-      <FeedRow key={section.id} section={section} />
-    ));
+  if (feedSectionsPromise) {
+    // Las filas llegan por streaming: hasta que resuelven se muestra el
+    // esqueleto, que reserva su alto para no mover el hero (evita CLS).
+    mainContent = (
+      <Suspense fallback={<FeedRowsSkeleton />}>
+        <StreamedFeedRows promise={feedSectionsPromise} />
+      </Suspense>
+    );
   } else if (posters?.length) {
     mainContent = <ExploreMovieGrid posters={posters} />;
   } else {
-    mainContent = (
-      <section className="rounded-xl border bg-card p-8 text-center">
-        <p className="text-muted-foreground text-sm">
-          No se encontraron resultados.
-        </p>
-      </section>
-    );
+    mainContent = <NoFeedResults />;
   }
 
   return (

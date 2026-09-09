@@ -397,8 +397,16 @@ async function runProgressivePlayback(opts: {
   const objectUrl = URL.createObjectURL(mediaSource);
   let sourceBuffer: SourceBuffer | null = null;
   let objectUrlRevoked = false;
+  // Timer del timeout de `sourceopen`. Se guarda fuera de la promesa `ready`
+  // para que `cleanup` pueda cancelarlo al abortar: si no, sigue vivo ~15s y
+  // rechaza `ready` cuando ya no queda nadie esperándola.
+  let sourceOpenTimer: ReturnType<typeof setTimeout> | null = null;
 
   opts.cleanupRef.current = () => {
+    if (sourceOpenTimer !== null) {
+      clearTimeout(sourceOpenTimer);
+      sourceOpenTimer = null;
+    }
     if (!objectUrlRevoked) {
       objectUrlRevoked = true;
       try {
@@ -415,16 +423,22 @@ async function runProgressivePlayback(opts: {
   // defensivo: si `sourceopen` nunca dispara, rechazamos para caer al camino
   // OPFS en vez de colgarnos.
   const ready = new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(
+    sourceOpenTimer = setTimeout(
       () => reject(new Error("MediaSource sourceopen timed out")),
       15_000
     );
     const settleResolve = () => {
-      clearTimeout(timer);
+      if (sourceOpenTimer !== null) {
+        clearTimeout(sourceOpenTimer);
+        sourceOpenTimer = null;
+      }
       resolve();
     };
     const settleReject = (error: unknown) => {
-      clearTimeout(timer);
+      if (sourceOpenTimer !== null) {
+        clearTimeout(sourceOpenTimer);
+        sourceOpenTimer = null;
+      }
       reject(error as Error);
     };
     mediaSource.addEventListener(
@@ -451,6 +465,15 @@ async function runProgressivePlayback(opts: {
       },
       { once: true }
     );
+  });
+  // Nadie espera `ready` hasta el primer `write()` del muxer; si el stream se
+  // aborta antes (unmount o conversión cancelada), su rechazo — p.ej. el
+  // timeout de `sourceopen` — se queda sin `await` y llega a
+  // `unhandledrejection`, que posthog registra como crash. Un catch no-op lo
+  // silencia; el camino real sigue esperando `ready` en `appendInOrder` y
+  // recibe igual el rechazo para caer a OPFS.
+  ready.catch(() => {
+    /* aborted before anyone awaited it */
   });
 
   // Publica la fuente reproducible AHORA: el player monta el <video>, que
