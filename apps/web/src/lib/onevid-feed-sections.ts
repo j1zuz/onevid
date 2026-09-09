@@ -18,7 +18,7 @@ import {
   type NetworkOption,
   type OneVidFeedRow,
 } from "@/lib/onevid-feed";
-import { type MediaMeta, TmdbAuthError } from "@/lib/tmdb";
+import { trendingAll, type MediaMeta, TmdbAuthError } from "@/lib/tmdb";
 import { fetchCatalogResults } from "@/lib/tmdb-catalog";
 
 /** Un addon tal cual lo necesita `resolveFeed` para las filas "addon". */
@@ -36,6 +36,10 @@ export interface FeedSection {
   href: string;
   id: string;
   items: MediaMeta[];
+  /** Solo las filas generales de tendencias de películas/series. */
+  topTen: boolean;
+  /** Posición TMDB dentro del Top 10 combinado de tendencias. */
+  topTenRanks: Record<string, number>;
   title: string;
 }
 
@@ -215,18 +219,42 @@ export async function resolveFeedSections({
   tmdbRegion,
   token,
 }: ResolveFeedOptions): Promise<FeedSectionsResult> {
-  const settled = await Promise.allSettled(
-    rows.map((row) =>
-      resolveRow(row, addonsById, networksById, tmdbLocale, tmdbRegion, token)
-    )
-  );
+  const [rowsResult, topTenResult] = await Promise.allSettled([
+    Promise.allSettled(
+      rows.map((row) =>
+        resolveRow(row, addonsById, networksById, tmdbLocale, tmdbRegion, token)
+      )
+    ),
+    trendingAll(token, tmdbLocale),
+  ]);
+  if (rowsResult.status === "rejected") {
+    throw rowsResult.reason;
+  }
+  const settled = rowsResult.value;
 
   // El token muerto se detecta ANTES de descartar filas: si falla la auth hay
   // que volver a mostrar el stepper, no un feed a medias.
-  if (hasAuthRejection(settled)) {
+  if (
+    hasAuthRejection(settled) ||
+    (topTenResult.status === "rejected" &&
+      topTenResult.reason instanceof TmdbAuthError)
+  ) {
     return { allRowsFailed: false, authFailed: true, sections: [] };
   }
 
+  const topTenItems =
+    topTenResult.status === "fulfilled"
+      ? topTenResult.value.slice(0, 10)
+      : [];
+  const allTrendingItems =
+    topTenResult.status === "fulfilled" ? topTenResult.value : [];
+  const topTenRanks = new Map(
+    topTenItems.map((item, itemIndex) => [
+      `${item.type}-${item.id}`,
+      itemIndex + 1,
+    ])
+  );
+  const claimedTopTenItems = new Set<string>();
   const sections = settled.flatMap((result, index) => {
     const row = rows[index];
     if (!row) {
@@ -243,11 +271,34 @@ export async function resolveFeedSections({
     if (result.value.length === 0) {
       return [];
     }
+    const topTen = row.catalog === "trending" && row.networkId == null;
+    const items = topTen
+      ? allTrendingItems.filter((item) => item.type === row.type)
+      : result.value;
+    const limitedItems = itemsPerRow ? items.slice(0, itemsPerRow) : items;
+    if (limitedItems.length === 0) {
+      return [];
+    }
+    const sectionRanks = topTen
+      ? Object.fromEntries(
+          limitedItems.flatMap((item) => {
+            const key = `${item.type}-${item.id}`;
+            const rank = topTenRanks.get(key);
+            if (rank == null || claimedTopTenItems.has(key)) {
+              return [];
+            }
+            claimedTopTenItems.add(key);
+            return [[key, rank]];
+          })
+        )
+      : {};
     return [
       {
         href: buildFeedRowHref(row),
         id: buildFeedRowId(row),
-        items: itemsPerRow ? result.value.slice(0, itemsPerRow) : result.value,
+        items: limitedItems,
+        topTen,
+        topTenRanks: sectionRanks,
         title: getFeedRowTitle(
           row,
           t,

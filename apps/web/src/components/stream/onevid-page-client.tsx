@@ -117,6 +117,9 @@ interface OneVidPageClientProps {
   linked: boolean;
   /** Modo "Ver todo": grilla completa de una sola fila. */
   posters?: MediaMeta[];
+  /** La grilla corresponde a la fila general de tendencias. */
+  postersAreTopTen?: boolean;
+  postersTopTenRanks?: Record<string, number>;
   setupCompleted: boolean;
   /** Pestaña activa del header (Inicio/Descubrir); la elige `?surface=` en /home. */
   surface?: FeedSurface;
@@ -134,6 +137,8 @@ export function OneVidPageClient({
   initialProfiles,
   linked,
   posters,
+  postersAreTopTen = false,
+  postersTopTenRanks = {},
   setupCompleted,
   surface,
   viewAllTitle,
@@ -161,7 +166,13 @@ export function OneVidPageClient({
       </Suspense>
     );
   } else if (posters?.length) {
-    mainContent = <ExploreMovieGrid posters={posters} />;
+    mainContent = (
+      <ExploreMovieGrid
+        posters={posters}
+        topTen={postersAreTopTen}
+        topTenRanks={postersTopTenRanks}
+      />
+    );
   } else {
     mainContent = <NoFeedResults />;
   }

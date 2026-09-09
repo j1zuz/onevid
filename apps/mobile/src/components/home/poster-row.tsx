@@ -20,6 +20,10 @@ interface PosterRowProps {
   onPressItem?: (item: MediaMeta) => void;
   /** `href` de la fila (backend) para la vista "Ver todos"; sin él no se muestra. */
   href?: string;
+  /** La fila corresponde a tendencias generales de películas/series. */
+  topTen?: boolean;
+  /** Posiciones TMDB dentro del Top 10 combinado. */
+  topTenRanks?: Record<string, number>;
 }
 
 export function PosterRow({
@@ -28,6 +32,8 @@ export function PosterRow({
   loading,
   onPressItem,
   href,
+  topTen = false,
+  topTenRanks = {},
 }: PosterRowProps) {
   // Tarjetas horizontales (16/9) del mismo tamaño que "Continuar viendo"
   // (rowCardWidth), para que todas las filas de catálogo se vean consistentes.
@@ -100,10 +106,15 @@ export function PosterRow({
             data={shown}
             keyExtractor={(it) => `${it.type}:${it.id}`}
             contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
-            renderItem={({ item }) => (
+            renderItem={({ item, index }) => (
               <PosterCard
                 item={item}
                 width={CARD_WIDTH}
+                rank={
+                  topTen
+                    ? topTenRanks[`${item.type}-${item.id}`]
+                    : undefined
+                }
                 onPress={() => onPressItem?.(item)}
               />
             )}

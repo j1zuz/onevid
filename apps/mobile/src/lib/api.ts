@@ -68,6 +68,10 @@ export interface FeedSection {
   href: string;
   id: string;
   items: MediaMeta[];
+  /** Solo las filas generales de tendencias de películas/series. */
+  topTen: boolean;
+  /** Posición TMDB dentro del Top 10 combinado de tendencias. */
+  topTenRanks: Record<string, number>;
   title: string;
 }
 
@@ -191,4 +195,3 @@ export async function apiFetch<T = unknown>(
     throw new Error(`${path}: respuesta inválida del servidor`);
   }
 }
-

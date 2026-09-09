@@ -31,136 +31,21 @@
   background-color: #000;
 }
 
-/* Clicking the video itself now toggles play/pause (see `handleTogglePlay`
-   in video-js-stream-player.tsx), so the skin's own dedicated play/pause
-   button in the control bar is redundant — hide it rather than have two
-   affordances for the same action. */
+/* The skin already ships a center tap gesture bound to `togglePaused` (see the
+   `<Gesture type="tap" action="togglePaused" region="center">` in its video
+   preset), so its dedicated play/pause button in the control bar is a second
+   affordance for the same action — hide it. Do NOT add a competing click
+   handler on the <video>: two toggles per click cancel each other out, which
+   is exactly what used to make the button look stuck. */
 .stream-video-player-root .media-default-skin .media-button--play {
   display: none;
 }
 
-/* The skin's own captions button is a plain on/off toggle for whichever
-   subtitle track happens to be active; once `MediaTrackControls` has a real
-   language picker to show (which also offers "off"), the skin's button is a
-   second, confusingly similar captions icon — hide it. Scoped with
-   `:has(.stream-track-controls)` so it stays put on sources where our picker
-   has nothing to show (e.g. progressive MP4 with no embedded subtitles). */
-.stream-video-player-root
-  .media-default-skin:has(.stream-track-controls)
-  .media-button--captions {
+/* Los selectores de idioma y subtítulos viven en la barra superior del player
+   (`StreamTrackPicker`), junto al de medios. El botón de subtítulos del skin es
+   un simple on/off de la pista activa y, al lado del nuestro, se lee como un
+   duplicado — se oculta. Sin subtítulos incrustados no se pierde nada: nuestro
+   selector tampoco se muestra y el del skin no tendría qué activar. */
+.stream-video-player-root .media-default-skin .media-button--captions {
   display: none;
-}
-
-/* Audio-language / subtitle pickers.
-
-   Pinned to the top-right corner instead of the bottom control bar: that bar
-   already has playback-rate/volume/captions/pip/fullscreen packed into it,
-   and this project's default skin (`VideoSkin`, a sealed preset from
-   `@videojs/react`) exposes no slot to weave extra buttons into that same
-   row anyway. */
-.stream-video-player-root .media-default-skin .stream-track-controls {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  padding: 0.25rem;
-  border-radius: calc(infinity * 1px);
-  color: var(--media-color-primary, oklch(1 0 0));
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--media-controls-transition-duration)
-    var(--media-controls-transition-timing-function);
-}
-
-@container media-root (width > 42rem) {
-  .stream-video-player-root .media-default-skin .stream-track-controls {
-    top: 0.75rem;
-    right: 0.75rem;
-  }
-}
-
-/* An open menu outlives the skin's 2s idle timer, so the cluster (and the
-   cursor) have to stay around with it. */
-.stream-video-player-root
-  .media-default-skin
-  .stream-track-controls[data-visible],
-.stream-video-player-root
-  .media-default-skin
-  .stream-track-controls[data-menu-open] {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.stream-video-player-root
-  .media-default-skin--video:has(.stream-track-controls[data-menu-open]) {
-  cursor: auto;
-}
-
-/* `display` is load-bearing: the popup carries `popover="manual"`, which the UA
-   stylesheet hides unless the popover API opened it. @videojs/react never calls
-   showPopover() — it just unmounts the popup when closed — so the author-level
-   `display` here is what makes an open menu visible at all. */
-.stream-video-player-root .media-default-skin .stream-track-menu {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-  min-width: 11rem;
-  max-width: 18rem;
-  max-height: 15rem;
-  padding: 0.375rem;
-  border-radius: 0.875rem;
-  overflow-y: auto;
-  color: oklch(1 0 0);
-}
-
-.stream-video-player-root .media-default-skin .stream-track-menu__list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-}
-
-.stream-video-player-root .media-default-skin .stream-track-menu__title {
-  padding: 0.25rem 0.5rem 0.375rem;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  opacity: 0.6;
-}
-
-.stream-video-player-root .media-default-skin .stream-track-menu__item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.375rem 0.5rem;
-  border: none;
-  border-radius: 0.5rem;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-
-  &:hover,
-  &:focus-visible {
-    background-color: oklch(from currentcolor l c h / 0.12);
-  }
-
-  &[data-selected] .stream-track-menu__check {
-    opacity: 1;
-  }
-}
-
-.stream-video-player-root .media-default-skin .stream-track-menu__check {
-  flex-shrink: 0;
-  width: 1rem;
-  height: 1rem;
-  opacity: 0;
-}
-
-.stream-video-player-root .media-default-skin .stream-track-menu__label {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
