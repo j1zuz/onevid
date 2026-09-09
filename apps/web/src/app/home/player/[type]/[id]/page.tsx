@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { Suspense } from "react";
 import { StreamOnevid } from "@/components/stream/stream-onevid";
 import { auth } from "@/lib/auth";
 import { oneVid } from "@/lib/auth-schema";
@@ -27,11 +26,7 @@ export default async function PlayerPage({ params }: { params: Params }) {
     redirect("/");
   }
 
-  return (
-    <Suspense>
-      <PlayerContent params={params} userId={session.user.id} />
-    </Suspense>
-  );
+  return <PlayerContent params={params} userId={session.user.id} />;
 }
 
 async function PlayerContent({

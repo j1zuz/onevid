@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const rawId = searchParams.get("id")?.trim();
+  const rawSeason = searchParams.get("season")?.trim();
 
   if (!rawId) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
@@ -27,6 +28,13 @@ export async function GET(request: NextRequest) {
   if (!SAFE_ID_REGEX.test(rawId)) {
     return NextResponse.json({ error: "Invalid id format" }, { status: 400 });
   }
+  if (
+    rawSeason &&
+    (!Number.isInteger(Number(rawSeason)) || Number(rawSeason) < 1)
+  ) {
+    return NextResponse.json({ error: "Invalid season" }, { status: 400 });
+  }
+  const season = rawSeason ? Number(rawSeason) : undefined;
 
   // Resolve the user's TMDB token (v4 user token preferred, legacy read token fallback)
   const { effectiveToken: token } = await getOneVidTmdb(session.user.id);
@@ -41,7 +49,12 @@ export async function GET(request: NextRequest) {
   try {
     const { locale: appLocale } = await getServerT();
     const tmdbLocale = getTmdbLocale(appLocale);
-    const data = await fetchTvSeriesMeta(token, rawId, tmdbLocale);
+    const data = await fetchTvSeriesMeta(
+      token,
+      rawId,
+      tmdbLocale,
+      season
+    );
     return NextResponse.json(data);
   } catch (error) {
     if (error instanceof TmdbAuthError) {

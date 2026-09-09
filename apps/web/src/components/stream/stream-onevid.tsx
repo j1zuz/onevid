@@ -8,6 +8,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { VideoJsStreamPlayer } from "@/components/stream/video-js-stream-player";
 import { useMediaBunny } from "@/hooks/use-mediabunny";
 import { useWatchProgress } from "@/hooks/use-video-progress";
+import { getTmdbLogo } from "@/lib/tmdb-logo-client";
 import type { MimeType, StreamWithAddon } from "@/types/stream";
 import { getMimeType, needsMediaBunny } from "@/utils/stream-codec";
 
@@ -173,13 +174,10 @@ export function StreamOnevid({
       return;
     }
 
-    fetch(
-      `/api/tmdb-logo?id=${encodeURIComponent(contentId)}&type=${contentType}`
-    )
-      .then((res) => (res.ok ? res.json() : { logo: null }))
-      .then((data: { logo: string | null }) => {
-        if (data.logo) {
-          setLogo(data.logo);
+    getTmdbLogo(contentType, contentId)
+      .then((logoResult) => {
+        if (logoResult) {
+          setLogo(logoResult);
         }
       })
       .catch(() => {
