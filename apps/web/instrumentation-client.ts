@@ -34,11 +34,19 @@ function isAbortShapedFetchException(exception: {
   return abortShaped && !hasStack;
 }
 
+// A crash on a developer's machine is dev noise, not a production defect. Each
+// dev rebuild also carries a fresh Turbopack chunk name in the stack, so the
+// same crash splits into a new issue every time. Keep exception capture off for
+// any loopback host so local crashes never reach the production project.
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
+const isLocalHost =
+  typeof window !== "undefined" && LOCAL_HOSTS.has(window.location.hostname);
+
 posthog.init(process.env.NEXT_PUBLIC_POSTHOG_TOKEN as string, {
   api_host: "/ingest",
   ui_host: "https://us.posthog.com",
   defaults: "2026-01-30",
-  capture_exceptions: true,
+  capture_exceptions: !isLocalHost,
   debug: process.env.NODE_ENV === "development",
   disable_surveys: true,
   disable_conversations: true,
