@@ -62,14 +62,21 @@ export default function CatalogScreen() {
       if (addonId) parts.push(`addonId=${encodeURIComponent(addonId)}`);
       if (addonCatalogId)
         parts.push(`addonCatalogId=${encodeURIComponent(addonCatalogId)}`);
-      return apiFetch<{ results: MediaMeta[] }>(
+      return apiFetch<{
+        results: MediaMeta[];
+        topTenRanks?: Record<string, number>;
+      }>(
         `/api/onevid-catalog?${parts.join('&')}`,
-      ).then((r) => r.results ?? []);
+      ).then((r) => ({
+        items: r.results ?? [],
+        topTenRanks: r.topTenRanks ?? {},
+      }));
     },
     enabled: Boolean(type && catalog),
   });
 
-  const items = query.data ?? [];
+  const items = query.data?.items ?? [];
+  const topTenRanks = query.data?.topTenRanks ?? {};
 
   const handlePressItem = useCallback(
     (item: MediaMeta) => {
@@ -152,9 +159,13 @@ export default function CatalogScreen() {
             paddingHorizontal: 16,
             paddingBottom: 32,
           }}
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => (
             <View style={{ flex: 1 / posterColumns }}>
-              <PosterCard item={item} onPress={() => handlePressItem(item)} />
+              <PosterCard
+                item={item}
+                rank={topTenRanks[`${item.type}-${item.id}`]}
+                onPress={() => handlePressItem(item)}
+              />
             </View>
           )}
         />

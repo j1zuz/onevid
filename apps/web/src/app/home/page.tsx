@@ -35,13 +35,17 @@ import {
   getFeedRowTitle,
   parseFeedRows,
 } from "@/lib/onevid-feed";
-import { resolveFeedSections, resolveHero } from "@/lib/onevid-feed-sections";
+import {
+  resolveFeedSections,
+  resolveHero,
+} from "@/lib/onevid-feed-sections";
 import { getServerT } from "@/lib/server-t";
 import {
   getCatalogOptions,
   getNetworkOptions,
   getTmdbLocale,
   getTmdbRegion,
+  trendingAllAtLeast,
   type MediaMeta,
   type NetworkOption,
   TmdbAuthError,
@@ -304,6 +308,7 @@ async function OneVidContent({
   let viewAllTitle: string | undefined;
   let feedSectionsPromise: Promise<FeedSection[]> | undefined;
   let heroItems: MediaMeta[] = [];
+  let postersTopTenRanks: Record<string, number> = {};
   let loadError: "auth" | "network" | null = null;
 
   if (isAddonView) {
@@ -344,17 +349,22 @@ async function OneVidContent({
     }
   } else if (viewAll) {
     try {
-      posters = await fetchCatalogResultsAtLeast(
-        {
-          catalog: selectedCatalog,
-          network: selectedNetwork,
-          tmdbLocale,
-          tmdbRegion,
-          token,
-          type: selectedType,
-        },
-        VIEW_ALL_MIN_ITEMS
-      );
+      posters =
+        selectedCatalog === "trending" && !selectedNetwork
+          ? (await trendingAllAtLeast(token, tmdbLocale, VIEW_ALL_MIN_ITEMS)).filter(
+              (item) => item.type === selectedType
+            )
+          : await fetchCatalogResultsAtLeast(
+              {
+                catalog: selectedCatalog,
+                network: selectedNetwork,
+                tmdbLocale,
+                tmdbRegion,
+                token,
+                type: selectedType,
+              },
+              VIEW_ALL_MIN_ITEMS
+            );
       viewAllTitle = getFeedRowTitle(
         {
           catalog: selectedCatalog as FeedCatalogId,
@@ -364,6 +374,19 @@ async function OneVidContent({
         t,
         selectedNetwork?.name
       );
+      if (selectedCatalog === "trending" && !selectedNetwork) {
+        const topTenItems = await trendingAllAtLeast(
+          token,
+          tmdbLocale,
+          VIEW_ALL_MIN_ITEMS
+        );
+        postersTopTenRanks = Object.fromEntries(
+          topTenItems.slice(0, 10).map((item, index) => [
+            `${item.type}-${item.id}`,
+            index + 1,
+          ])
+        );
+      }
     } catch (error) {
       if (error instanceof TmdbAuthError) {
         loadError = "auth";
@@ -468,6 +491,10 @@ async function OneVidContent({
         initialProfiles={profiles}
         linked={tmdbLinked}
         posters={posters}
+        postersTopTenRanks={postersTopTenRanks}
+        postersAreTopTen={
+          !isAddonView && selectedCatalog === "trending" && !selectedNetwork
+        }
         setupCompleted={setupCompleted}
         surface={surface}
         viewAllTitle={viewAllTitle}

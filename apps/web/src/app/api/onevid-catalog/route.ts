@@ -15,6 +15,8 @@ import {
   getNetworkOptions,
   getTmdbLocale,
   getTmdbRegion,
+  trendingAll,
+  trendingAllAtLeast,
   TmdbAuthError,
   TmdbNetworkError,
 } from "@/lib/tmdb";
@@ -139,27 +141,36 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const results = limit
-      ? await fetchCatalogResultsAtLeast(
-          {
-            type,
-            catalog,
+    const results =
+      catalog === "trending" && !selectedNetwork
+        ? (await trendingAllAtLeast(
             token,
             tmdbLocale,
-            tmdbRegion,
-            network: selectedNetwork,
-          },
-          limit
-        )
-      : await fetchCatalogResults({
-          type,
-          catalog,
-          token,
-          page,
-          tmdbLocale,
-          tmdbRegion,
-          network: selectedNetwork,
-        });
+            limit || CATALOG_VIEW_ALL_ITEM_LIMIT
+          )).filter(
+            (item) => item.type === type
+          )
+        : limit
+          ? await fetchCatalogResultsAtLeast(
+              {
+                type,
+                catalog,
+                token,
+                tmdbLocale,
+                tmdbRegion,
+                network: selectedNetwork,
+              },
+              limit
+            )
+          : await fetchCatalogResults({
+              type,
+              catalog,
+              token,
+              page,
+              tmdbLocale,
+              tmdbRegion,
+              network: selectedNetwork,
+            });
 
     posthogServerCapture({
       event: "onevid_catalog_requested",
@@ -176,7 +187,16 @@ export async function GET(request: NextRequest) {
       /* ignore */
     });
 
-    return NextResponse.json({ results });
+    const topTenRanks =
+      catalog === "trending" && !selectedNetwork
+        ? Object.fromEntries(
+            (await trendingAll(token, tmdbLocale)).slice(0, 10).map((item, index) => [
+              `${item.type}-${item.id}`,
+              index + 1,
+            ])
+          )
+        : {};
+    return NextResponse.json({ results, topTenRanks });
   } catch (error) {
     if (error instanceof TmdbAuthError) {
       return NextResponse.json(

@@ -51,11 +51,16 @@ export function FeedRow({ section }: { section: FeedSection }) {
         )}
       </div>
       <div className={HORIZONTAL_POSTER_GRID_CLASS}>
-        {section.items.map((item) => (
+        {section.items.map((item, index) => (
           <PosterCard
             item={item}
             key={`${item.type}-${item.id}`}
             orientation="horizontal"
+            rank={
+              section.topTen
+                ? section.topTenRanks[`${item.type}-${item.id}`]
+                : undefined
+            }
           />
         ))}
       </div>

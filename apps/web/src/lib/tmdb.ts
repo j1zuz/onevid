@@ -404,6 +404,14 @@ interface TmdbDiscoverResponse {
   results?: (TmdbMovieResult | TmdbTvResult)[];
 }
 
+interface TmdbTrendingAllResult extends TmdbMovieResult, TmdbTvResult {
+  media_type: "movie" | "tv";
+}
+
+interface TmdbTrendingAllResponse {
+  results?: TmdbTrendingAllResult[];
+}
+
 interface TmdbMovieDetail extends TmdbMovieResult {
   imdb_id?: string;
   runtime?: number;
@@ -713,6 +721,56 @@ export async function trendingTv(
     .map((item) => item as TmdbTvResult)
     .filter((item) => !isKidsTv(item))
     .map((item) => mapTvToMeta(item, genreMap));
+}
+
+/** Top mixto de TMDB: películas y series en un único ranking global. */
+export async function trendingAll(
+  token: string,
+  locale?: string,
+  page = 1
+): Promise<MediaMeta[]> {
+  const [movieGenres, tvGenres] = await Promise.all([
+    fetchMovieGenres(token, locale),
+    fetchTvGenres(token, locale),
+  ]);
+  const data = await tmdbFetch<TmdbTrendingAllResponse>(
+    token,
+    "/3/trending/all/week",
+    { language: locale || "es-MX", page: String(page) },
+    CATALOG_REVALIDATE_SECONDS
+  );
+  return (data.results ?? [])
+    .map((item) =>
+      item.media_type === "movie"
+        ? mapMovieToMeta(item, movieGenres)
+        : mapTvToMeta(item, tvGenres)
+    );
+}
+
+/** Páginas adicionales para la vista completa, deduplicadas y en orden TMDB. */
+export async function trendingAllAtLeast(
+  token: string,
+  locale: string | undefined,
+  minCount: number
+): Promise<MediaMeta[]> {
+  const pagesNeeded = Math.max(1, Math.ceil(minCount / 20));
+  const pages: MediaMeta[][] = [];
+  for (let page = 1; page <= pagesNeeded; page++) {
+    pages.push(await trendingAll(token, locale, page));
+    if (pages[page - 1]?.length < 20) {
+      break;
+    }
+  }
+  const seen = new Set<string>();
+  return pages
+    .flat()
+    .filter((item) => {
+      const key = `${item.type}-${item.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, minCount);
 }
 
 // ─── Credits / Related ───────────────────────────────────────────────

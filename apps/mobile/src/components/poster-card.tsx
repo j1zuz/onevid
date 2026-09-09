@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { BlurView } from 'expo-blur';
 import { PressableFeedback, Typography } from 'heroui-native';
 import { View } from 'react-native';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
@@ -16,6 +17,8 @@ interface PosterCardProps {
   landscape?: boolean;
   /** Progreso de reproducción 0–1: dibuja una barra inferior ("Continuar viendo"). */
   progress?: number;
+  /** Posición dentro de una lista Top 10. */
+  rank?: number;
   onPress?: () => void;
 }
 
@@ -24,6 +27,7 @@ export function PosterCard({
   width,
   landscape = true,
   progress,
+  rank,
   onPress,
 }: PosterCardProps) {
   const containerStyle = width != null ? { width } : undefined;
@@ -61,6 +65,40 @@ export function PosterCard({
             cachePolicy="memory-disk"
             style={{ width: '100%', height: '100%' }}
           />
+        ) : null}
+        {rank != null && rank >= 1 && rank <= 10 ? (
+          <View
+            className="overflow-hidden"
+            style={{
+              position: 'absolute',
+              top: 4,
+              left: 4,
+              width: 40,
+              height: 24,
+              paddingTop: 0,
+              paddingLeft: 4,
+              borderTopLeftRadius: 6,
+              alignItems: 'center',
+              justifyContent: 'flex-start',
+              transform: [{ skewX: '-12deg' }],
+            }}
+          >
+            <BlurView
+              intensity={85}
+              tint="default"
+              style={{
+                position: 'absolute',
+                top: -4,
+                right: -4,
+                bottom: -4,
+                left: -4,
+                backgroundColor: 'rgba(255,255,255,0.08)',
+              }}
+            />
+            <Typography type="body" weight="medium" style={{ color: '#fff', transform: [{ skewX: '12deg' }] }}>
+              #{rank}
+            </Typography>
+          </View>
         ) : null}
         {progress != null && progress > 0 ? (
           <View

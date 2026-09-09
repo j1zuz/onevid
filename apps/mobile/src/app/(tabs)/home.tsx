@@ -191,6 +191,8 @@ export default function HomeTab() {
                 href={section.href}
                 key={section.id}
                 onPressItem={handlePressItem}
+                topTen={section.topTen}
+                topTenRanks={section.topTenRanks}
                 title={section.title}
               />
             ))}

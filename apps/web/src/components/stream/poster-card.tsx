@@ -12,6 +12,8 @@ interface PosterCardProps {
   orientation?: "horizontal" | "vertical";
   /** 0-100: franja de progreso sobre el arte (usada por Continuar viendo). */
   progressPct?: number;
+  /** Posición dentro de una lista Top 10. */
+  rank?: number;
 }
 
 /**
@@ -31,6 +33,7 @@ export function PosterCard({
   item,
   orientation = "vertical",
   progressPct,
+  rank,
 }: PosterCardProps) {
   const { t } = useTranslation();
   const horizontal = orientation === "horizontal";
@@ -69,6 +72,25 @@ export function PosterCard({
               </div>
             )}
           </div>
+
+          {rank != null && rank >= 1 && rank <= 10 && (
+            <span
+              aria-label={`Top ${rank}`}
+              className="absolute top-1 left-1 z-10 h-7 w-11 overflow-hidden rounded-tl-[calc(var(--radius)-2px)] text-base text-white [clip-path:polygon(0_0,100%_0,82%_100%,0_100%)]"
+            >
+              {art && (
+                <span
+                  aria-hidden
+                  className="absolute -inset-3 bg-cover bg-no-repeat blur-[7px] saturate-150"
+                  style={{ backgroundImage: `url("${art}")` }}
+                />
+              )}
+              <span className="absolute inset-0 bg-black/20" />
+              <span className="relative z-10 block pt-0.5 pl-1.5 font-medium">
+              #{rank}
+              </span>
+            </span>
+          )}
 
           <div
             className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100"
