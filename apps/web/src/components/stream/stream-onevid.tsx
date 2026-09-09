@@ -122,12 +122,18 @@ export function StreamOnevid({
         }
       })()
     : "";
+  const sourceCodecHint =
+    typeof selectedSource?.title === "string" ? selectedSource.title : "";
+  const shouldUseMediaBunny = Boolean(
+    sourceUrl && needsMediaBunny(sourceFilename, sourceCodecHint)
+  );
   const mediaBunny = useMediaBunny(
-    sourceUrl && needsMediaBunny(sourceFilename) ? sourceUrl : null,
-    sourceFilename
+    shouldUseMediaBunny ? sourceUrl : null,
+    sourceFilename,
+    sourceCodecHint
   );
   let activeSrc = sourceUrl ?? "";
-  if (sourceUrl && needsMediaBunny(sourceFilename)) {
+  if (shouldUseMediaBunny) {
     // `streaming` = reproducción progresiva ya en curso (MediaSource); `done`
     // = transcode completo listo (blob). Ambos traen una `src` reproducible.
     activeSrc =
@@ -329,7 +335,7 @@ export function StreamOnevid({
             fullscreenOnPlay={false}
             isPlayMode={true}
             mimeType={
-              needsMediaBunny(sourceFilename) ? "video/mp4" : selectedMimeType
+              shouldUseMediaBunny ? "video/mp4" : selectedMimeType
             }
             onEnded={onEnded}
             onLoadStart={() => setIsBuffering(true)}

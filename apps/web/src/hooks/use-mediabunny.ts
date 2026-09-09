@@ -19,7 +19,9 @@ export type MediaBunnyState =
 // but checked against the file's *real* codec (via mediabunny's track probing)
 // instead of guessed from the filename.
 const PASSTHROUGH_VIDEO_CODECS = new Set(["avc", "vp9", "av1"]);
-const PASSTHROUGH_AUDIO_CODECS = new Set(["aac", "mp3", "opus"]);
+// AAC in MP4 is supported by all target browsers. Re-encode every other audio
+// codec, even when the MP4 container can hold it, so it cannot play silently.
+const PASSTHROUGH_AUDIO_CODECS = new Set(["aac"]);
 
 // Reproducción progresiva (MediaSource). Selector del <video> real que monta
 // VideoJsStreamPlayer — el mismo que ya usa stream-onevid.tsx para el resume.
@@ -229,11 +231,8 @@ async function transcodeToMp4(
       format: new Mp4OutputFormat(),
       target: new StreamTarget(createOpfsWriteStream(opfsWritable)),
     }),
-    // Returning `{}` leaves mediabunny's own codec/channel/rate untouched, so
-    // it takes its fast passthrough path (raw packet copy, no decode+encode)
-    // whenever the source track is already browser-playable. Only a track
-    // whose real codec isn't in our compatibility set pays for a transcode —
-    // e.g. an MKV with H.264 video + AC-3 audio only re-encodes the audio.
+    // Returning `{}` keeps AAC as a raw packet copy. Every other audio codec
+    // becomes AAC, which can play in an MP4 file on all target browsers.
     video: async (track) => {
       const codec = await track.getCodec();
       return codec && PASSTHROUGH_VIDEO_CODECS.has(codec) ? {} : { codec: "avc" };
@@ -242,7 +241,7 @@ async function transcodeToMp4(
       const codec = await track.getCodec();
       return codec && PASSTHROUGH_AUDIO_CODECS.has(codec)
         ? {}
-        : { codec: "opus", numberOfChannels: 2, sampleRate: 48_000 };
+        : { codec: "aac", numberOfChannels: 2, sampleRate: 48_000 };
     },
   });
 
@@ -347,55 +346,27 @@ async function runProgressivePlayback(opts: {
       ? new UrlSource(source, urlSourceOptions(source, abortedRef))
       : new BlobSource(source);
   const input = new Input({ source: inputSource, formats: ALL_FORMATS });
-
-  // Probamos las pistas para armar el mime de MSE ANTES de crear el
-  // SourceBuffer (que lo exige por adelantado). Los códecs compatibles pasan
-  // sin re-encodear; los demás se convierten a AVC dentro del mismo stream.
-  const videoTrack = await input.getPrimaryVideoTrack();
-  const videoCodec = videoTrack ? await videoTrack.getCodec() : null;
-  if (!videoTrack) {
-    throw new Error("La fuente no contiene una pista de video");
-  }
-  const canPassthroughVideo = Boolean(
-    videoCodec && PASSTHROUGH_VIDEO_CODECS.has(videoCodec)
-  );
-  // Mediabunny emite AVC en el mismo Output cuando el códec de entrada no se
-  // puede pasar directamente. Este codec string permite crear el SourceBuffer
-  // antes de que llegue el primer fragmento codificado.
-  const videoCodecString = canPassthroughVideo
-    ? await videoTrack.getCodecParameterString()
-    : "avc1.4d401f";
-  if (!videoCodecString) {
-    throw new Error("Unknown video codec string");
-  }
-
-  const audioTrack = await input.getPrimaryAudioTrack();
-  let audioCodecString: string | null = null;
-  let canPassThroughAudio = Boolean(
-    audioTrack && (await audioTrack.getCodec()) === "aac"
-  );
-  if (audioTrack) {
-    // MSE requires the codec string in the SourceBuffer to match the actual
-    // initialization segment. Only pass through AAC when its exact string is
-    // available; incompatible audio is discarded for the progressive video
-    // path and remains available through the complete transcode fallback.
-    if (canPassThroughAudio) {
-      audioCodecString = await audioTrack.getCodecParameterString();
-      canPassThroughAudio = Boolean(audioCodecString);
-    }
-  }
-
-  const codecList = audioCodecString
-    ? `${videoCodecString}, ${audioCodecString}`
-    : videoCodecString;
-  const mimeType = `video/mp4; codecs="${codecList}"`;
-  if (!MediaSource.isTypeSupported(mimeType)) {
-    throw new Error(`Unsupported MSE mime: ${mimeType}`);
-  }
+  let resolveOutputMime!: (mimeType: string) => void;
+  let rejectOutputMime!: (error: Error) => void;
+  const outputMime = new Promise<string>((resolve, reject) => {
+    resolveOutputMime = resolve;
+    rejectOutputMime = reject;
+  });
+  outputMime.catch(() => {
+    /* handled by the progressive fallback */
+  });
 
   const mediaSource = new MediaSource();
   const objectUrl = URL.createObjectURL(mediaSource);
   let sourceBuffer: SourceBuffer | null = null;
+  let sourceBufferReady = false;
+  const pendingChunks: Uint8Array[] = [];
+  let progressiveError: Error | null = null;
+  const failProgressivePlayback = (error: unknown) => {
+    progressiveError =
+      error instanceof Error ? error : new Error(String(error));
+    void conversionRef.current?.cancel().catch(() => undefined);
+  };
   let objectUrlRevoked = false;
   // Timer del timeout de `sourceopen`. Se guarda fuera de la promesa `ready`
   // para que `cleanup` pueda cancelarlo al abortar: si no, sigue vivo ~15s y
@@ -445,6 +416,13 @@ async function runProgressivePlayback(opts: {
       "sourceopen",
       async () => {
         try {
+          // The output MIME type contains the codec profile that MediaBunny
+          // actually produced. It is more reliable than predicting it from
+          // the source track before conversion.
+          const mimeType = await outputMime;
+          if (!MediaSource.isTypeSupported(mimeType)) {
+            throw new Error(`Unsupported MSE mime: ${mimeType}`);
+          }
           sourceBuffer = mediaSource.addSourceBuffer(mimeType);
         } catch (error) {
           settleReject(error);
@@ -458,10 +436,14 @@ async function runProgressivePlayback(opts: {
           if (durationSec && Number.isFinite(durationSec) && durationSec > 0) {
             mediaSource.duration = durationSec;
           }
-        } catch {
-          /* duración desconocida: el <video> la resuelve al endOfStream */
-        }
-        settleResolve();
+          } catch {
+            /* duración desconocida: el <video> la resuelve al endOfStream */
+          }
+          sourceBufferReady = true;
+          for (const data of pendingChunks.splice(0)) {
+            void scheduleAppend(data).catch(failProgressivePlayback);
+          }
+          settleResolve();
       },
       { once: true }
     );
@@ -532,6 +514,14 @@ async function runProgressivePlayback(opts: {
     }
   };
 
+  // SourceBuffer accepts only one append at a time. This chain also preserves
+  // the order of the header chunks that were held until the MIME type was known.
+  let appendChain = Promise.resolve();
+  const scheduleAppend = (data: Uint8Array) => {
+    appendChain = appendChain.then(() => appendInOrder(data));
+    return appendChain;
+  };
+
   const applyBackpressure = async (sb: SourceBuffer) => {
     const video = findStreamVideoEl();
     if (!video) {
@@ -545,14 +535,20 @@ async function runProgressivePlayback(opts: {
     }
   };
 
-  let progressiveError: Error | null = null;
   const writable = new WritableStream({
     async write(chunk: { data: Uint8Array; position: number }) {
       if (abortedRef.current) {
         return;
       }
+      // The MP4 header can be written before MediaBunny knows all output
+      // codecs. Keep those small first chunks until the SourceBuffer has the
+      // exact output MIME type, then append them in their original order.
+      if (!sourceBufferReady) {
+        pendingChunks.push(chunk.data.slice());
+        return;
+      }
       try {
-        await appendInOrder(chunk.data);
+        await scheduleAppend(chunk.data);
         if (sourceBuffer) {
           await applyBackpressure(sourceBuffer);
         }
@@ -562,33 +558,43 @@ async function runProgressivePlayback(opts: {
         // writer causes the secondary "Cannot close a ERRORED writable
         // stream" error. Keep the stream writable, cancel the conversion, and
         // surface the original SourceBuffer error after execute() unwinds.
-        progressiveError =
-          error instanceof Error ? error : new Error(String(error));
-        void conversionRef.current?.cancel().catch(() => undefined);
+        failProgressivePlayback(error);
       }
     },
   });
 
+  const output = new Output({
+    // `fastStart: "fragmented"` = MP4 escrito append-only (init al frente,
+    // luego moof+mdat en orden), que es justo lo que MSE necesita para ir
+    // agregando al SourceBuffer sin re-escribir cabeceras.
+    format: new Mp4OutputFormat({ fastStart: "fragmented" }),
+    target: new StreamTarget(writable),
+  });
   const conversion = await Conversion.init({
     input,
-    output: new Output({
-      // `fastStart: "fragmented"` = MP4 escrito append-only (init al frente,
-      // luego moof+mdat en orden), que es justo lo que MSE necesita para ir
-      // agregando al SourceBuffer sin re-escribir cabeceras.
-      format: new Mp4OutputFormat({ fastStart: "fragmented" }),
-      target: new StreamTarget(writable),
-    }),
+    output,
     video: async (track) => {
       const codec = await track.getCodec();
       return codec && PASSTHROUGH_VIDEO_CODECS.has(codec) ? {} : { codec: "avc" };
     },
-    audio: canPassThroughAudio ? {} : { discard: true },
+    audio: async (track) => {
+      const codec = await track.getCodec();
+      return codec && PASSTHROUGH_AUDIO_CODECS.has(codec)
+        ? {}
+        : { codec: "aac", numberOfChannels: 2, sampleRate: 48_000 };
+    },
   });
 
   if (!conversion.isValid) {
     const reason = conversion.discardedTracks[0]?.reason ?? "unknown";
-    throw new Error(`No se pudo procesar el video (${reason}).`);
+    const error = new Error(`No se pudo procesar el video (${reason}).`);
+    rejectOutputMime(error);
+    throw error;
   }
+
+  void output.getMimeType().then(resolveOutputMime, (error: unknown) => {
+    rejectOutputMime(error instanceof Error ? error : new Error(String(error)));
+  });
 
   conversionRef.current = conversion;
   if (abortedRef.current) {
@@ -633,7 +639,8 @@ async function runProgressivePlayback(opts: {
  */
 export function useMediaBunny(
   source: File | string | null,
-  filename: string
+  filename: string,
+  codecHint = ""
 ): MediaBunnyState {
   const [state, setState] = useState<MediaBunnyState>({ status: "idle" });
   const blobUrlRef = useRef<string | null>(null);
@@ -646,7 +653,7 @@ export function useMediaBunny(
   const mseCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    if (!(source && needsMediaBunny(filename))) {
+    if (!(source && needsMediaBunny(filename, codecHint))) {
       setState({ status: "idle" });
       return;
     }
@@ -825,7 +832,7 @@ export function useMediaBunny(
         cleanup();
       }
     };
-  }, [source, filename]);
+  }, [source, filename, codecHint]);
 
   return state;
 }
