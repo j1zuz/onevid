@@ -1,6 +1,7 @@
 import { Image } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { PressableFeedback, Typography } from 'heroui-native';
+import { CircleCheck } from 'lucide-react-native';
 import { View } from 'react-native';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { type MediaMeta, tmdbImage } from '@/lib/api';
@@ -19,6 +20,8 @@ interface PosterCardProps {
   progress?: number;
   /** Posición dentro de una lista Top 10. */
   rank?: number;
+  /** Título ya terminado: dibuja el check de "visto". */
+  watched?: boolean;
   onPress?: () => void;
 }
 
@@ -28,6 +31,7 @@ export function PosterCard({
   landscape = true,
   progress,
   rank,
+  watched,
   onPress,
 }: PosterCardProps) {
   const containerStyle = width != null ? { width } : undefined;
@@ -66,6 +70,12 @@ export function PosterCard({
             style={{ width: '100%', height: '100%' }}
           />
         ) : null}
+        {/* Badge de Top 10, con la MISMA forma que la web: bordes superior e
+            izquierdo rectos y solo el derecho en diagonal. Antes se inclinaba
+            todo el contenedor con skewX, que torcía también el borde izquierdo
+            y el número. Aquí el recuadro exterior recorta recto y la diagonal la
+            pone el relleno inclinado de dentro, que sobresale por la izquierda
+            (fuera del recorte) para que ese lado siga viéndose recto. */}
         {rank != null && rank >= 1 && rank <= 10 ? (
           <View
             className="overflow-hidden"
@@ -73,31 +83,74 @@ export function PosterCard({
               position: 'absolute',
               top: 4,
               left: 4,
-              width: 40,
-              height: 24,
-              paddingTop: 0,
-              paddingLeft: 4,
+              width: 44,
+              height: 28,
               borderTopLeftRadius: 6,
-              alignItems: 'center',
               justifyContent: 'flex-start',
-              transform: [{ skewX: '-12deg' }],
+            }}
+          >
+            <View
+              style={{
+                position: 'absolute',
+                top: -6,
+                bottom: -6,
+                left: -24,
+                right: 0,
+                overflow: 'hidden',
+                transform: [{ skewX: '-12deg' }],
+              }}
+            >
+              <BlurView
+                intensity={85}
+                tint="default"
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  left: 0,
+                  backgroundColor: 'rgba(0,0,0,0.20)',
+                }}
+              />
+            </View>
+            <Typography
+              type="body"
+              weight="medium"
+              style={{ color: '#fff', paddingTop: 1, paddingLeft: 6 }}
+            >
+              #{rank}
+            </Typography>
+          </View>
+        ) : null}
+        {/* Ya visto: check en la esquina opuesta al Top 10, para que un título
+            pueda llevar los dos sin pisarse. */}
+        {watched ? (
+          <View
+            style={{
+              position: 'absolute',
+              top: 6,
+              right: 6,
+              width: 24,
+              height: 24,
+              borderRadius: 12,
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'hidden',
             }}
           >
             <BlurView
-              intensity={85}
-              tint="default"
+              intensity={60}
+              tint="dark"
               style={{
                 position: 'absolute',
-                top: -4,
-                right: -4,
-                bottom: -4,
-                left: -4,
-                backgroundColor: 'rgba(255,255,255,0.08)',
+                top: 0,
+                right: 0,
+                bottom: 0,
+                left: 0,
+                backgroundColor: 'rgba(0,0,0,0.45)',
               }}
             />
-            <Typography type="body" weight="medium" style={{ color: '#fff', transform: [{ skewX: '12deg' }] }}>
-              #{rank}
-            </Typography>
+            <CircleCheck size={16} color="#fff" />
           </View>
         ) : null}
         {progress != null && progress > 0 ? (

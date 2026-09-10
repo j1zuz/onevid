@@ -8,6 +8,7 @@ import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import type { MediaMeta } from '@/lib/api';
 import { navigateToCatalog, parseFeedHref } from '@/lib/catalog-nav';
 import { COLORS } from '@/lib/theme';
+import { useWatchState } from '@/lib/watch-state';
 
 // Tope de items que se muestran en la fila del Inicio antes de "Ver todos": el
 // resto (hasta 100) se ve en la grilla /catalog, igual que en la web.
@@ -38,6 +39,7 @@ export function PosterRow({
   // Tarjetas horizontales (16/9) del mismo tamaño que "Continuar viendo"
   // (rowCardWidth), para que todas las filas de catálogo se vean consistentes.
   const { rowCardWidth } = useResponsive();
+  const watchState = useWatchState();
   // No mostramos una fila vacía: si no está cargando y no hay items, ocultamos
   // el título por completo (evita ver "Películas/Series en tendencia" sueltos,
   // sin tarjetas, en el instante en que la app abre y el catálogo aún no llega).
@@ -115,6 +117,7 @@ export function PosterRow({
                     ? topTenRanks[`${item.type}-${item.id}`]
                     : undefined
                 }
+                watched={watchState.isWatched(item.type, item.id)}
                 onPress={() => onPressItem?.(item)}
               />
             )}

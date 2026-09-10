@@ -1,10 +1,25 @@
 export type StreamType = "movie" | "series";
 
+/**
+ * Escalón de resolución deducido del texto del addon. Ver `parseQualityTier`
+ * en `lib/stream-quality.ts`: los addons no publican la calidad en un campo
+ * propio, así que se normaliza a estos valores para ordenar y filtrar.
+ */
+export type QualityTier =
+  | "2160"
+  | "1440"
+  | "1080"
+  | "720"
+  | "480"
+  | "unknown";
+
 export interface StreamSource {
   behaviors?: string[];
   description?: string;
   extra?: Record<string, unknown>;
   name?: string;
+  /** Calidad deducida del texto del addon; la resuelve el servidor. */
+  quality?: QualityTier;
   title: string;
   url: string;
   [key: string]: unknown;

@@ -1,10 +1,12 @@
 "use client";
 
 import { cn } from "@workspace/ui/lib/utils";
-import { Play } from "lucide-react";
+import { CircleCheckIcon, Play } from "lucide-react";
 import Link from "next/link";
+import { useWatchState } from "@/hooks/use-watch-state";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { MediaMeta } from "@/lib/tmdb";
+import { useOptionalOneVidProfiles } from "./onevid-profile-context";
 
 interface PosterCardProps {
   item: MediaMeta;
@@ -36,6 +38,12 @@ export function PosterCard({
   rank,
 }: PosterCardProps) {
   const { t } = useTranslation();
+  // Opcional a propósito: la tarjeta también se monta fuera del árbol con
+  // provider de perfiles, y sin perfil simplemente no hay marca de visto.
+  const activeProfileId =
+    useOptionalOneVidProfiles()?.activeProfileId ?? null;
+  const watchState = useWatchState(activeProfileId);
+  const watched = watchState.isWatched(item.type, item.id);
   const horizontal = orientation === "horizontal";
   const detailHref = `/home/detail/${item.type}/${encodeURIComponent(item.id)}`;
   // En horizontal preferimos el backdrop (16:9); si no hay, caemos al póster
@@ -72,6 +80,17 @@ export function PosterCard({
               </div>
             )}
           </div>
+
+          {/* Ya visto: check en la esquina opuesta al badge de Top 10, para que
+              un título pueda llevar los dos sin pisarse. */}
+          {watched && (
+            <span
+              aria-label={t("Visto")}
+              className="absolute top-1.5 right-1.5 z-10 flex size-6 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm"
+            >
+              <CircleCheckIcon className="size-4" />
+            </span>
+          )}
 
           {rank != null && rank >= 1 && rank <= 10 && (
             <span

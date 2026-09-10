@@ -14,6 +14,7 @@ import {
   Bookmark,
   CheckIcon,
   ChevronDownIcon,
+  CircleCheckIcon,
   Film,
   Heart,
   Loader,
@@ -27,6 +28,7 @@ import { toast } from "sonner";
 import { useOptionalOneVidProfiles } from "@/components/stream/onevid-profile-context";
 import { PosterCard } from "@/components/stream/poster-card";
 import { WatchProvidersNotice } from "@/components/watch-providers-notice";
+import { useWatchState } from "@/hooks/use-watch-state";
 import { getTmdbLogo } from "@/lib/tmdb-logo-client";
 import { tmdbImage, type MediaMeta } from "@/lib/tmdb";
 import type { StreamWithAddon } from "@/types/stream";
@@ -244,6 +246,7 @@ function MovieDialogContent({
   // The dialog can mount on the player route, which has no profile provider, so
   // read the context tolerantly and fall back to no active profile there.
   const activeProfileId = useOptionalOneVidProfiles()?.activeProfileId ?? null;
+  const watchState = useWatchState(activeProfileId);
 
   // Series state
   const [seasons, setSeasons] = useState<number[]>([]);
@@ -1135,7 +1138,13 @@ function MovieDialogContent({
                                 : "space-y-2"
                             )}
                           >
-                            {filteredEpisodes.map((ep) => (
+                            {filteredEpisodes.map((ep) => {
+                              const epState = watchState.episode(
+                                movie.id,
+                                ep.season,
+                                ep.number
+                              );
+                              return (
                               <button
                                 className={cn(
                                   "group/episode relative rounded-(--radius) border border-border/70 bg-muted/40 p-1 text-left transition-[border-color,box-shadow,filter] duration-200 hover:border-primary hover:brightness-125 hover:shadow-md hover:shadow-zinc-950/30",
@@ -1214,8 +1223,26 @@ function MovieDialogContent({
                                     </p>
                                   )}
                                 </div>
+
+                                {/* Capítulo ya visto: check. A medias: barra de
+                                    progreso, igual que en las carátulas de
+                                    Continuar viendo. */}
+                                {epState?.finished && (
+                                  <CircleCheckIcon className="absolute top-2 right-2 size-5 rounded-full bg-black/55 text-white backdrop-blur-sm" />
+                                )}
+                                {epState && !epState.finished && epState.progress > 0 && (
+                                  <div className="absolute inset-x-3 bottom-2 h-1 overflow-hidden rounded-full bg-black/50">
+                                    <div
+                                      className="h-full rounded-full bg-primary"
+                                      style={{
+                                        width: `${Math.round(epState.progress * 100)}%`,
+                                      }}
+                                    />
+                                  </div>
+                                )}
                               </button>
-                            ))}
+                              );
+                            })}
                           </div>
                         </>
                       )}

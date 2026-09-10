@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { invalidateWatchState } from "@/hooks/use-watch-state";
 
 // Key under which OneVidProfileProvider persists the active profile id.
 const PROFILE_STORAGE_KEY = "onevid-active-profile";
@@ -145,6 +146,9 @@ export function useWatchProgress(params: WatchProgressParams) {
     if (duration > 0) {
       // position === duration → server sees it as finished and drops the row.
       post(duration, duration);
+      // El título pasa de "Continuar viendo" a "visto": el estado cacheado que
+      // pinta esa marca en las carátulas queda obsoleto en cuanto se guarda.
+      invalidateWatchState();
     }
   }, [post]);
 

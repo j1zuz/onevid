@@ -16,6 +16,7 @@ import {
   ChevronRightIcon,
   CircleCheckIcon,
   CircleXIcon,
+  GaugeIcon,
   GlobeIcon,
   LockIcon,
   SettingsIcon,
@@ -32,6 +33,7 @@ import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "@/lib/languages";
 import type { OneVidFeedRow } from "@/lib/onevid-feed";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import { OneVidProfileAvatar } from "./onevid-profile-avatar";
+import { OneVidQualityOrder } from "./onevid-quality-order";
 import {
   type OneVidProfile,
   useOneVidProfiles,
@@ -51,7 +53,8 @@ export type SettingsView =
   | "catalog"
   | "home"
   | "language"
-  | "profiles";
+  | "profiles"
+  | "quality";
 
 interface OneVidSettingsPanelProps {
   discoverRows: OneVidFeedRow[];
@@ -322,6 +325,11 @@ export function OneVidSettingsPanel({
           onClick={() => setView("profiles")}
         />
         <SettingsRow
+          icon={<GaugeIcon className="size-4" />}
+          label="Calidad de video"
+          onClick={() => setView("quality")}
+        />
+        <SettingsRow
           icon={<GlobeIcon className="size-4" />}
           label={t("Idioma")}
           onClick={() => setView("language")}
@@ -365,6 +373,8 @@ export function OneVidSettingsPanel({
       )}
 
       {view === "profiles" && <ProfilesView />}
+
+      {view === "quality" && <OneVidQualityOrder />}
 
       {view === "language" && (
         <div className="flex flex-col gap-1">

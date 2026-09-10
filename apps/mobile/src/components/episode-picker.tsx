@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { tvFocusRing } from '@/hooks/use-tv-focus';
 import { apiFetch, type MediaMeta, tmdbImage } from '@/lib/api';
+import { useWatchState } from '@/lib/watch-state';
 
 interface EpisodeItem {
   description?: string;
@@ -62,6 +63,9 @@ export function EpisodePicker({
   onClose: () => void;
 }) {
   const { t, i18n } = useTranslation();
+  const watchState = useWatchState();
+  // Metadata de la serie: de aquí sale solo la lista de temporadas. Comparte
+  // queryKey (y caché) con la pantalla de detalle.
   const query = useQuery({
     queryKey: ['detail', 'series', id, i18n.language],
     queryFn: () =>
@@ -84,8 +88,24 @@ export function EpisodePicker({
   );
   // Si no había temporada inicial, cae en la primera al cargar.
   const effectiveSeason = selectedSeason ?? series?.seasons[0] ?? 1;
+
+  // Los episodios se piden por temporada, en su propia query. `/api/series-meta`
+  // devuelve una sola temporada por llamada, así que antes tocar una pestaña
+  // distinta de la primera solo cambiaba el número: la lista quedaba vacía y se
+  // veía "No hay episodios". Misma queryKey que el detalle, para compartir caché.
+  const seasonQuery = useQuery({
+    queryKey: ['series-season', id, effectiveSeason, i18n.language],
+    queryFn: () =>
+      apiFetch<SeriesMetaResponse>(
+        `/api/series-meta?id=${encodeURIComponent(id)}&season=${effectiveSeason}`,
+      ),
+    // Con temporada explícita se pide ya; sin ella hay que esperar a la lista de
+    // temporadas, porque el `?? 1` de arriba es solo un relleno y pedirlo antes
+    // gastaría una llamada en una temporada que puede no ser la primera real.
+    enabled: Boolean(id && (selectedSeason != null || series)),
+  });
   const eps =
-    series?.episodes.filter((e) => e.season === effectiveSeason) ?? [];
+    seasonQuery.data?.episodes.filter((e) => e.season === effectiveSeason) ?? [];
 
   const currentSeason = season ? Number(season) : undefined;
   const currentEpisode = episode ? Number(episode) : undefined;
@@ -136,7 +156,7 @@ export function EpisodePicker({
           </View>
         ) : null}
 
-        {query.isLoading ? (
+        {query.isLoading || seasonQuery.isFetching ? (
           <View style={styles.loading}>
             <ActivityIndicator color="#fff" />
           </View>
@@ -153,6 +173,7 @@ export function EpisodePicker({
               const active =
                 item.season === currentSeason &&
                 item.number === currentEpisode;
+              const seen = watchState.episode(id, item.season, item.number);
               const thumb = tmdbImage(item.thumbnail, 'w300');
               return (
                 <Pressable
@@ -165,16 +186,30 @@ export function EpisodePicker({
                   }
                   style={(s) => [styles.epRow, tvFocusRing(isFocused(s))]}
                 >
-                  {thumb ? (
-                    <Image
-                      source={thumb}
-                      contentFit="cover"
-                      cachePolicy="memory-disk"
-                      style={styles.epThumb}
-                    />
-                  ) : (
-                    <View style={[styles.epThumb, styles.epThumbEmpty]} />
-                  )}
+                  <View>
+                    {thumb ? (
+                      <Image
+                        source={thumb}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        style={styles.epThumb}
+                      />
+                    ) : (
+                      <View style={[styles.epThumb, styles.epThumbEmpty]} />
+                    )}
+                    {seen && !seen.finished && seen.progress > 0 ? (
+                      <View style={styles.epProgressTrack}>
+                        <View
+                          style={[
+                            styles.epProgressFill,
+                            {
+                              width: `${Math.min(100, Math.max(0, seen.progress * 100))}%`,
+                            },
+                          ]}
+                        />
+                      </View>
+                    ) : null}
+                  </View>
                   <View style={styles.epBody}>
                     <Text style={styles.epTitle} numberOfLines={1}>
                       {item.number}. {item.name}
@@ -185,7 +220,13 @@ export function EpisodePicker({
                       </Text>
                     ) : null}
                   </View>
-                  {active ? <Check size={18} color="#7CFC9B" /> : null}
+                  {/* El chulito verde marca el episodio EN CURSO; el gris, uno
+                      ya terminado. Son cosas distintas y por eso conviven. */}
+                  {active ? (
+                    <Check size={18} color="#7CFC9B" />
+                  ) : seen?.finished ? (
+                    <Check size={18} color="rgba(255,255,255,0.45)" />
+                  ) : null}
                 </Pressable>
               );
             }}
@@ -260,6 +301,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#222',
   },
   epThumbEmpty: { backgroundColor: '#222' },
+  epProgressTrack: {
+    position: 'absolute',
+    left: 6,
+    right: 6,
+    bottom: 5,
+    height: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    overflow: 'hidden',
+  },
+  epProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#fff',
+  },
   epBody: { flex: 1 },
   epTitle: { color: '#fff', fontSize: 14, fontWeight: '600' },
   epDesc: {

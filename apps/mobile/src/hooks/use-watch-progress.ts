@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/api';
 
-const SAVE_INTERVAL_MS = 10_000; // throttle server writes to every 10 s
+// Cada 20 s (antes 10). `/api/onevid-progress` era el endpoint más llamado de
+// la app con diferencia — 10.907 llamadas en 21 días, 31 veces más que el
+// siguiente (medido en PostHog) — y para reanudar da igual perder 10 s de
+// precisión: `flush` ya cubre la pausa y la salida del reproductor.
+const SAVE_INTERVAL_MS = 20_000;
 const MIN_SEC = 30; // don't track accidental starts (mirrors server)
 
 interface WatchProgressParams {
