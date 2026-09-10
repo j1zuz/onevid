@@ -203,6 +203,7 @@ async function probeStreamUrl(url: string): Promise<string> {
       url,
       { method: 'GET', headers: { Range: 'bytes=0-1', 'User-Agent': STREAM_UA } },
       6_000,
+      true,
     );
     const ct = res.headers.get('content-type') ?? '—';
     const size =
@@ -246,6 +247,7 @@ async function probeStreamForTelemetry(url: string): Promise<{
       url,
       { method: 'GET', headers: { Range: 'bytes=0-1', 'User-Agent': STREAM_UA } },
       6_000,
+      true,
     );
     // Tamaño total del archivo: lo trae `Content-Range` (formato "bytes 0-1/SIZE")
     // en una respuesta 206, o `Content-Length` si el host ignoró el Range.
@@ -288,6 +290,7 @@ async function probeStreamTail(url: string): Promise<{
       url,
       { method: 'GET', headers: { Range: 'bytes=-65536', 'User-Agent': STREAM_UA } },
       6_000,
+      true,
     );
     return { probeTailStatus: res.status };
   } catch (e) {
