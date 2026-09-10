@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import LibVlcPlayerModule, {
   LibVlcPlayerView,
   type LibVlcPlayerViewRef,
@@ -60,15 +60,25 @@ import {
 } from 'react-native-safe-area-context';
 import { EpisodePicker } from '@/components/episode-picker';
 import {
+  NextEpisodeButton,
+  type NextEpisodeRef,
+} from '@/components/next-episode-button';
+import {
   SourcesList,
   sourcesQueryOptions,
   type StreamSource,
 } from '@/components/sources-list';
 import { WatchProvidersNotice } from '@/components/watch-providers';
 import { tvFocusRing } from '@/hooks/use-tv-focus';
+import { useNextEpisode } from '@/hooks/use-next-episode';
 import { useWatchProgress } from '@/hooks/use-watch-progress';
 import { track } from '@/lib/analytics';
-import { API_URL, appClientHeaders, getAccessToken } from '@/lib/auth';
+import {
+  fetchWithTimeout,
+  resolveStreamUrl,
+  STREAM_REDIRECT_TIMEOUT_MS,
+  STREAM_UA,
+} from '@/lib/stream-url';
 import { bumpImageGeneration } from '@/lib/image-refresh';
 
 // Aplica el anillo de foco de TV a un Pressable sin estado de foco propio: usa
@@ -81,12 +91,6 @@ const withRing =
     tvFocusRing((state as { focused?: boolean }).focused ?? false),
   ];
 
-type ResolvedStream = {
-  url: string;
-  fileName?: string;
-  redirect: RedirectResolution;
-};
-
 type ResolveState =
   | { kind: 'resolving' } // carga inicial de la fuente
   | { kind: 'switching'; attempt: number; total: number } // probando otra fuente
@@ -96,90 +100,6 @@ type ResolveState =
   | { kind: 'ready'; url: string; rawUrl: string; fileName?: string }
   | { kind: 'exhausted'; total: number } // todas las fuentes fallaron
   | { kind: 'error'; message: string }; // error duro (sin lista, sin URL)
-
-// expo-libvlc-player valida la URL con `java.net.URI(source)` (parser estricto
-// RFC-2396) ANTES de pasarla a libVLC, y lanza "Invalid source, media could not
-// be set" si hay caracteres ilegales sin codificar — aunque el enlace sea válido
-// y `fetch`/`android.net.Uri` lo acepten. Percent-encodeamos solo esos
-// caracteres (sin tocar `%` para no romper secuencias %XX ya válidas).
-function sanitizeUrlForVlc(url: string): string {
-  return url
-    .replace(/[ "<>\\^`{|}\[\]]/g, (c) => encodeURIComponent(c))
-    .replace(/[^\x00-\x7F]/g, (c) => encodeURIComponent(c));
-}
-
-// `fetch` con tope de tiempo (AbortController). Imprescindible para que una
-// sonda/redirección/resolución contra un host muerto o colgado no deje el flujo
-// esperando: al vencer aborta y el caller hace fallback a otra fuente.
-async function fetchWithTimeout(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number,
-): Promise<Response> {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(t);
-  }
-}
-
-async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
-  let url: string;
-  let fileName: string | undefined;
-  // Videos locales del dispositivo (galería / document picker): no hay proxy del
-  // backend ni redirección que seguir. Los entregamos directos a VLC, solo
-  // saneados. Sin esto, resolveRedirect haría un fetch GET (que falla con
-  // file://) y se desperdiciaría un timeout.
-  if (raw.startsWith('file://') || raw.startsWith('content://')) {
-    return {
-      url: sanitizeUrlForVlc(raw),
-      redirect: { url: null, timedOut: false, tookMs: 0 },
-    };
-  }
-  if (raw.startsWith('/api/')) {
-    const sep = raw.includes('?') ? '&' : '?';
-    const token = await getAccessToken();
-    const res = await fetchWithTimeout(
-      `${API_URL}${raw}${sep}redirect=0`,
-      {
-        headers: {
-          Accept: 'application/json',
-          ...appClientHeaders(),
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      },
-      8_000,
-    );
-    if (!res.ok) {
-      throw new Error(`No se pudo resolver el stream (HTTP ${res.status})`);
-    }
-    const data = (await res.json()) as {
-      url?: string;
-      fileName?: string;
-      error?: string;
-    };
-    if (!data.url) {
-      throw new Error(data.error ?? 'El stream no devolvió una URL.');
-    }
-    url = sanitizeUrlForVlc(data.url);
-    fileName = data.fileName;
-  } else {
-    url = sanitizeUrlForVlc(raw);
-  }
-  // Pre-resolver la redirección: muchos hosts devuelven una URL que a su vez
-  // redirige (302), y libVLC no siempre la sigue limpio → fallaba antes del
-  // primer fotograma, disparaba el fallback y REMONTABA el player (se veía la
-  // carátula dos veces / "reinicio"). Seguimos la redirección aquí con `fetch` y
-  // le entregamos a VLC la URL FINAL, así abre a la primera y sin doble arranque.
-  const redirect = await resolveRedirect(url);
-  return {
-    url: redirect.url ? sanitizeUrlForVlc(redirect.url) : url,
-    fileName,
-    redirect,
-  };
-}
 
 // Contenidos cuyo primer fotograma ya se vio (clave estable por contenido).
 // Sobrevive a salir/volver: al re-entrar a algo ya reproducido mostramos solo el
@@ -227,6 +147,12 @@ const MAX_START_EXTENSIONS = 7; // tope: 15 s + 7×15 s = 120 s máx por fuente
 // Elección manual del usuario: le damos algo más de margen "sin pistas" antes de
 // saltar, porque pidió ESA fuente explícitamente (p. ej. torbox lento de arrancar).
 const PLAYBACK_MANUAL_TIMEOUT_MS = 20_000;
+// Cuánto antes del final aparece el botón de "siguiente episodio": el 15 % de
+// la duración, con techo de 75 s. Mismos números que la web, para que la app y
+// el navegador ofrezcan el salto en el mismo punto de un episodio.
+function nextEpisodeLeadMs(durationMs: number): number {
+  return Math.min(75_000, durationMs * 0.15);
+}
 // Tipos de los payloads de los eventos de <LibVlcPlayerView>, derivados del propio
 // componente: así los handlers se pueden extraer a useCallback (identidad estable,
 // ver VLC_OPTIONS) sin duplicar a mano las formas de los eventos de la librería.
@@ -238,21 +164,6 @@ type VlcEvent<K extends keyof VlcProps> =
 // (puede ser red lenta → merece prórroga) de "VLC dio error" (403/404/enlace
 // muerto → saltar ya). Viaja también a PostHog para poder separar ambos casos.
 type UnplayableReason = 'timeout' | 'error';
-// Timeout de resolveRedirect(). Antes 4000ms: telemetría de PostHog
-// (player_source_probe) mostró que ~17% de las fuentes que VLC descartaba como
-// "no se pudo abrir" en realidad respondían 206 con vídeo válido cuando la
-// sonda de diagnóstico las probaba con su timeout de 6000ms — es decir, la
-// redirección (302) de hosts debrid/torbox lentos no llegaba a resolverse a
-// tiempo y VLC recibía la URL sin resolver. Igualamos/superamos el margen de
-// la sonda para que la ruta real tenga, como mínimo, la misma oportunidad.
-const STREAM_REDIRECT_TIMEOUT_MS = 8_000;
-
-// User-Agent de navegador: evita 403 de hosts que rechazan el UA por defecto de
-// VLC. Se usa tanto en las opciones de libVLC como en la sonda de diagnóstico,
-// para que ambos vean exactamente la misma respuesta del host.
-const STREAM_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
-
 // Opciones de libVLC del medio. Va como CONSTANTE DE MÓDULO, no como literal
 // inline en el JSX, y esto es crítico: con New Architecture, Fabric reenvía
 // TODOS los props del nodo en cada update (SurfaceMountingManager.updateProps
@@ -266,15 +177,17 @@ const STREAM_UA =
 // el pre-buffer de ARRANQUE y la ventana que sostiene DURANTE todo el vídeo. Es
 // un buffer de tamaño fijo, NO crece con el tiempo, y VLC no puede ampliarlo en
 // caliente (cambiarlo obliga a reabrir el stream), por eso usamos un único valor
-// y no dos fases. 3000 ms da ~3 s de colchón → menos micro-cortes a mitad que
-// con 1500, a cambio de un arranque algo más lento (un corte tras el primer
-// fotograma lo recupera :http-reconnect y NO tira la fuente). El User-Agent de
-// navegador evita 403 de hosts que rechazan el UA por defecto de VLC.
-// Tunable: bajar a 2000-2500 si el arranque molesta; subir a ~5000 si aún hay
-// cortes en redes lentas.
+// y no dos fases. 1500 ms (antes 3000) para que el vídeo aparezca antes: es la
+// espera fija que el usuario nota al dar Play. Un corte tras el primer fotograma
+// lo recupera :http-reconnect y NO tira la fuente. El User-Agent de navegador
+// evita 403 de hosts que rechazan el UA por defecto de VLC.
+//
+// OJO al vigilar esto: `player_rebuffer` estaba en 3,58 cortes por reproducción
+// en teléfono (30 días, medido en PostHog) ANTES de esta bajada, y este colchón
+// es justo lo que los contiene. Si esa cifra sube, hay que volver a 2500.
 const VLC_OPTIONS = [
-  ':network-caching=3000',
-  ':file-caching=3000',
+  ':network-caching=1500',
+  ':file-caching=1500',
   ':http-reconnect',
   `:http-user-agent=${STREAM_UA}`,
 ];
@@ -382,37 +295,6 @@ async function probeStreamTail(url: string): Promise<{
   }
 }
 
-type RedirectResolution = {
-  url: string | null;
-  timedOut: boolean;
-  tookMs: number;
-};
-
-// Algunos hosts entregan la URL final por redirección (302) y libVLC no siempre
-// la sigue, aunque `fetch` sí lo hace. Seguimos la redirección con el mismo UA y,
-// si el host responde OK con una URL distinta, devolvemos esa URL final para
-// dársela directamente a VLC. Best-effort: ante cualquier fallo devolvemos null.
-// También reporta cuánto tardó y si expiró el timeout, para telemetría.
-async function resolveRedirect(url: string): Promise<RedirectResolution> {
-  const started = Date.now();
-  try {
-    const res = await fetchWithTimeout(
-      url,
-      { method: 'GET', headers: { Range: 'bytes=0-1', 'User-Agent': STREAM_UA } },
-      STREAM_REDIRECT_TIMEOUT_MS,
-    );
-    const tookMs = Date.now() - started;
-    if (res.ok && res.url && res.url !== url) {
-      return { url: res.url, timedOut: false, tookMs };
-    }
-    return { url: null, timedOut: false, tookMs };
-  } catch (e) {
-    const tookMs = Date.now() - started;
-    const timedOut = e instanceof Error && e.name === 'AbortError';
-    return { url: null, timedOut, tookMs };
-  }
-}
-
 // Siguiente fuente no probada, buscando hacia delante desde la actual (con
 // envoltura al inicio). Devuelve null cuando todas están en `tried`.
 function pickNextSource(
@@ -494,7 +376,7 @@ export default function PlayerScreen() {
   // "Continue watching": server-synced playback progress. Lives here in
   // PlayerScreen (stable) rather than in Player, which remounts on every source
   // fallback (key={url}); we hand its callbacks + resume position down as props.
-  const { onTime, flush, resumeMs } = useWatchProgress({
+  const { onTime: reportTime, flush, resumeMs } = useWatchProgress({
     mediaId,
     mediaType,
     season: season ? Number(season) : 0,
@@ -504,6 +386,20 @@ export default function PlayerScreen() {
     poster,
     logo,
   });
+
+  // ¿Se llegó al final? Mismo umbral que el servidor (PROGRESS_DONE_RATIO). Va
+  // en un ref porque solo se consulta al desmontar; guardarlo en estado
+  // re-renderizaría PlayerScreen en cada tick de tiempo.
+  const finishedRef = useRef(false);
+  const onTime = useCallback(
+    (positionMs: number, durationMs: number) => {
+      if (durationMs > 0 && positionMs / durationMs >= 0.92) {
+        finishedRef.current = true;
+      }
+      reportTime(positionMs, durationMs);
+    },
+    [reportTime],
+  );
 
   // `rawUrl` es la URL cruda de la fuente que se está intentando reproducir. El
   // auto-fallback la reapunta a la siguiente fuente cuando una falla.
@@ -597,6 +493,51 @@ export default function PlayerScreen() {
   useEffect(() => {
     triedUrls.current = new Set();
   }, [sourcesQuery.data]);
+
+  // Siguiente episodio: solo en series y solo cuando el actual está identificado.
+  const nextEpisode = useNextEpisode(
+    mediaId,
+    season ? Number(season) : 0,
+    episode ? Number(episode) : 0,
+    canChangeEpisode,
+  );
+
+  const queryClient = useQueryClient();
+  useEffect(
+    () => () => {
+      if (finishedRef.current) {
+        queryClient.invalidateQueries({ queryKey: ['watch-state'] });
+      }
+    },
+    [queryClient],
+  );
+
+  // Salto al siguiente episodio. Resolvemos aquí su primera fuente y la fijamos
+  // en `rawUrl`, en vez de navegar a una pantalla nueva: navegar remontaría todo
+  // el reproductor y volvería a pasar por la carátula de carga. Si el episodio
+  // existe en TMDB pero ningún addon lo tiene todavía, lanzamos para que el
+  // botón lo diga en vez de dejar al usuario en negro.
+  const playNextEpisode = useCallback(
+    async (next: NextEpisodeRef) => {
+      if (!mediaId) return;
+      const nextSeason = String(next.season);
+      const nextNumber = String(next.number);
+      const data = await queryClient.fetchQuery(
+        sourcesQueryOptions('series', mediaId, nextSeason, nextNumber),
+      );
+      const first = data.sources[0];
+      if (!first) {
+        throw new Error('sin medios');
+      }
+      triedUrls.current = new Set();
+      setManualSource(false);
+      setSeason(nextSeason);
+      setEpisode(nextNumber);
+      setEpisodeTitle(next.name || undefined);
+      setRawUrl(first.url);
+    },
+    [mediaId, queryClient],
+  );
 
   // Marca la fuente actual como fallida y salta a la siguiente no probada; si no
   // quedan, agota (muestra el error final). Lee refs → estable.
@@ -852,6 +793,8 @@ export default function PlayerScreen() {
           onChangeEpisode={
             canChangeEpisode ? () => setEpisodePickerOpen(true) : undefined
           }
+          nextEpisode={nextEpisode}
+          onPlayNextEpisode={playNextEpisode}
         />
       ) : null}
 
@@ -1032,6 +975,8 @@ function Player({
   onUnplayable,
   onChangeSource,
   onChangeEpisode,
+  nextEpisode,
+  onPlayNextEpisode,
 }: {
   url: string;
   title?: string;
@@ -1054,6 +999,9 @@ function Player({
   onUnplayable?: () => void;
   onChangeSource?: () => void;
   onChangeEpisode?: () => void;
+  /** Episodio que sigue al actual, o null si es el último de la serie. */
+  nextEpisode?: NextEpisodeRef | null;
+  onPlayNextEpisode?: (next: NextEpisodeRef) => Promise<void> | void;
 }) {
   const insets = useSafeAreaInsets();
   const playerRef = useRef<LibVlcPlayerViewRef>(null);
@@ -1679,6 +1627,20 @@ function Player({
             controlsVisible ? setControlsVisible(false) : showControls()
           }
         />
+      ) : null}
+
+      {/* Siguiente episodio: aparece cerca del final y solo con imagen ya en
+          pantalla, para no taparle la carátula de carga al usuario. Va aquí,
+          dentro de Player, porque `time`/`duration` ya viven en este componente
+          (los usa la barra de progreso) y así no hace falta subir el tick de
+          tiempo al padre y re-renderizarlo entero cada segundo. */}
+      {nextEpisode &&
+      onPlayNextEpisode &&
+      firstFrame &&
+      !errorMsg &&
+      duration > 0 &&
+      duration - time <= nextEpisodeLeadMs(duration) ? (
+        <NextEpisodeButton next={nextEpisode} onPlay={onPlayNextEpisode} />
       ) : null}
 
       {/* Spinner de buffering solo en re-buffering a mitad de reproducción

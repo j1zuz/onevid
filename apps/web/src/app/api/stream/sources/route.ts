@@ -3,6 +3,12 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { oneVid, oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
+import {
+  normalizeQualityPref,
+  parseQualityTier,
+  type QualityPref,
+  sortSourcesByQuality,
+} from "@/lib/stream-quality";
 import { findImdbId } from "@/lib/tmdb";
 import type {
   AggregatedStreamResponse,
@@ -55,6 +61,7 @@ interface ParsedStreamRef {
 }
 
 interface UserContext {
+  qualityPref: QualityPref[];
   tmdbToken: string | null;
   torboxKey: string | null;
 }
@@ -245,6 +252,7 @@ async function loadUserContext(userId: string): Promise<UserContext> {
       tmdbUserAccessToken: oneVid.tmdbUserAccessToken,
       tmdbReadAccessToken: oneVid.tmdbReadAccessToken,
       torboxApiKey: oneVid.torboxApiKey,
+      streamQualityOrder: oneVid.streamQualityOrder,
     })
     .from(oneVid)
     .where(eq(oneVid.userId, userId))
@@ -253,6 +261,7 @@ async function loadUserContext(userId: string): Promise<UserContext> {
     // v4 user token preferred, legacy read token as fallback
     tmdbToken: row?.tmdbUserAccessToken ?? row?.tmdbReadAccessToken ?? null,
     torboxKey: row?.torboxApiKey ?? null,
+    qualityPref: normalizeQualityPref(row?.streamQualityOrder),
   };
 }
 
@@ -395,6 +404,7 @@ export async function POST(request: Request) {
       for (let i = 0; i < streams.length; i++) {
         sources.push({
           ...streams[i],
+          quality: parseQualityTier(streams[i]),
           addonName,
           addonId,
           sourceIndex: i,
@@ -403,7 +413,11 @@ export async function POST(request: Request) {
     }
 
     return Response.json({
-      sources,
+      // El orden lo pone el servidor y no cada cliente: la web y la app leen
+      // este mismo endpoint, y `sources[0]` es la fuente que abre el
+      // reproductor sin preguntar. Ordenar aquí deja las dos superficies
+      // coherentes con lo que el usuario eligió en Configuración.
+      sources: sortSourcesByQuality(sources, ctx.qualityPref),
       totalAddonsTried: addons.length,
       addonErrors,
     } as AggregatedStreamResponse);

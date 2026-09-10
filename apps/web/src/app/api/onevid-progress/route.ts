@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import {
   getProfileProgress,
   listProfileProgress,
+  listProfileWatchState,
   type ProgressInput,
   resolveActiveProfile,
   type SavedMediaType,
@@ -38,6 +39,15 @@ export async function GET(request: NextRequest) {
 
   const params = request.nextUrl.searchParams;
   const id = params.get("id")?.trim();
+
+  // Estado de visionado completo del perfil (incluye lo ya terminado). Se sirve
+  // sin pasar por TMDB: lo piden las carátulas y las listas de episodios solo
+  // para pintar el check de "visto" y la barra de progreso, y ahí el nombre
+  // localizado no aporta nada — enriquecerlo costaría una llamada por título.
+  if (params.get("state") === "1") {
+    const items = await listProfileWatchState(resolved.profile.id);
+    return NextResponse.json({ items });
+  }
 
   // Single-title resume lookup.
   if (id) {

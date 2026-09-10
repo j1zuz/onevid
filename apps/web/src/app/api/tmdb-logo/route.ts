@@ -8,6 +8,15 @@ import { getTmdbLocale, TmdbAuthError } from "@/lib/tmdb";
 const TMDB_BASE = "https://api.themoviedb.org";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
 
+// El logo de un título no cambia en la práctica, pero sin `Cache-Control` en la
+// RESPUESTA el cliente vuelve a pedirlo en cada pantalla: 1.248 llamadas y 852 s
+// de espera acumulada en 21 días solo desde la app (medido en PostHog). El
+// `next: { revalidate }` de más abajo solo cachea el tramo servidor→TMDB.
+// `private` porque la respuesta depende del token TMDB del usuario.
+const LOGO_CACHE = {
+  "Cache-Control": "private, max-age=86400, stale-while-revalidate=604800",
+};
+
 interface TmdbImagesResponse {
   logos?: { file_path?: string; iso_639_1?: string | null }[];
 }
@@ -81,7 +90,7 @@ export async function GET(request: NextRequest) {
     const data = (await res.json()) as TmdbImagesResponse;
     const logo = pickLogo(data.logos, lang);
 
-    return NextResponse.json({ logo: logo ?? null });
+    return NextResponse.json({ logo: logo ?? null }, { headers: LOGO_CACHE });
   } catch {
     return NextResponse.json({ logo: null });
   }

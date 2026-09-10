@@ -10,6 +10,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import type { AddonCatalogRef, OneVidFeedRow } from "@/lib/onevid-feed";
+import type { QualityPref } from "@/lib/stream-quality";
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -162,6 +163,12 @@ export const oneVid = pgTable(
     // Igual que feedRows pero para la superficie "Descubrir" (segunda pestaña
     // del paso 2, y el tab Descubrir de la app). NULL → DEFAULT_DISCOVER_ROWS.
     discoverRows: jsonb("discover_rows").$type<OneVidFeedRow[]>(),
+    // Orden y filtro de calidad de las fuentes de streaming, tal como el usuario
+    // los dejó en Configuración. Lo aplica el servidor en /api/stream/sources,
+    // así que manda también sobre qué fuente arranca (`sources[0]`) y vale por
+    // igual para la web y para la app. NULL = nunca configurado →
+    // DEFAULT_QUALITY_ORDER.
+    streamQualityOrder: jsonb("stream_quality_order").$type<QualityPref[]>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()

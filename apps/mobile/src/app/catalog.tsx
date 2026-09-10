@@ -13,6 +13,7 @@ import { tvFocusRing, useTvFocus } from '@/hooks/use-tv-focus';
 import { apiFetch, type MediaMeta } from '@/lib/api';
 import { navigateToDetail } from '@/lib/detail-nav';
 import { COLORS } from '@/lib/theme';
+import { useWatchState } from '@/lib/watch-state';
 
 // Cuántos items pide la vista "Ver todos" (el backend pagina TMDB hasta acá).
 const VIEW_ALL_LIMIT = 100;
@@ -32,6 +33,7 @@ export default function CatalogScreen() {
   const params = useLocalSearchParams();
   const queryClient = useQueryClient();
   const { posterColumns } = useResponsive();
+  const watchState = useWatchState();
   const backFocus = useTvFocus();
 
   const title = firstParam(params.title);
@@ -164,6 +166,7 @@ export default function CatalogScreen() {
               <PosterCard
                 item={item}
                 rank={topTenRanks[`${item.type}-${item.id}`]}
+                watched={watchState.isWatched(item.type, item.id)}
                 onPress={() => handlePressItem(item)}
               />
             </View>

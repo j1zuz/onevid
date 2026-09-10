@@ -28,6 +28,7 @@ function isSettingsView(value: string | undefined): value is SettingsView {
     value === "catalog" ||
     value === "language" ||
     value === "profiles" ||
+    value === "quality" ||
     value === "home"
   );
 }

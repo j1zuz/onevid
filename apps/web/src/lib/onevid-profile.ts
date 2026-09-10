@@ -507,6 +507,51 @@ export async function listProfileProgress(
   return items;
 }
 
+export interface WatchStateItem {
+  durationSec: number;
+  episode: number;
+  finished: boolean;
+  mediaId: string;
+  mediaType: SavedMediaType;
+  positionSec: number;
+  season: number;
+}
+
+/**
+ * Todo el estado de visionado del perfil, en crudo y sin enriquecer con TMDB:
+ * lo consumen las carátulas (marca de "visto") y las listas de episodios (check
+ * o barra de progreso por capítulo). Va aparte de `listProfileProgress` porque
+ * aquella colapsa por título y descarta lo terminado — justo lo contrario de lo
+ * que hace falta aquí.
+ */
+export async function listProfileWatchState(
+  profileId: string
+): Promise<WatchStateItem[]> {
+  const rows = await db
+    .select({
+      mediaId: oneVidProfileProgress.mediaId,
+      mediaType: oneVidProfileProgress.mediaType,
+      season: oneVidProfileProgress.season,
+      episode: oneVidProfileProgress.episode,
+      positionSec: oneVidProfileProgress.positionSec,
+      durationSec: oneVidProfileProgress.durationSec,
+      finished: oneVidProfileProgress.finished,
+    })
+    .from(oneVidProfileProgress)
+    .where(eq(oneVidProfileProgress.profileId, profileId))
+    .orderBy(desc(oneVidProfileProgress.updatedAt));
+
+  return rows.map((row) => ({
+    mediaId: row.mediaId,
+    mediaType: row.mediaType as SavedMediaType,
+    season: row.season,
+    episode: row.episode,
+    positionSec: row.positionSec,
+    durationSec: row.durationSec,
+    finished: row.finished,
+  }));
+}
+
 /** Saved position for a single title/episode within a profile (for resume). */
 export async function getProfileProgress(
   profileId: string,

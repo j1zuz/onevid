@@ -6,9 +6,11 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@workspace/ui/components/drawer";
+import { Badge } from "@workspace/ui/components/badge";
 import { cn } from "@workspace/ui/lib/utils";
 import { CheckIcon, LayersIcon, Loader } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { QUALITY_LABELS } from "@/lib/stream-quality";
 import type { StreamType, StreamWithAddon } from "@/types/stream";
 
 interface StreamSourcePickerProps {
@@ -66,6 +68,12 @@ function SourceItem({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1 space-y-1">
+          {/* La calidad la resuelve el servidor y es la que manda en el orden
+              de esta lista; se muestra aparte para que se pueda leer de un
+              vistazo sin buscarla dentro del texto del addon. */}
+          {source.quality && (
+            <Badge variant="secondary">{QUALITY_LABELS[source.quality]}</Badge>
+          )}
           {lines.map((line, index) => (
             <p
               className={cn(

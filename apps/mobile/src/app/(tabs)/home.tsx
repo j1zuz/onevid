@@ -66,6 +66,9 @@ export default function HomeTab() {
     useCallback(() => {
       if (catalogEnabled) {
         queryClient.invalidateQueries({ queryKey: ['continue-watching'] });
+        // Y la marca de "visto": si el título se terminó en el reproductor, sale
+        // de "Continuar viendo" y entra aquí, así que ambas caen a la vez.
+        queryClient.invalidateQueries({ queryKey: ['watch-state'] });
       }
     }, [catalogEnabled, queryClient]),
   );

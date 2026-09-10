@@ -43,7 +43,9 @@ import {
 } from '@/lib/saved';
 import { track } from '@/lib/analytics';
 import { navigateToDetail } from '@/lib/detail-nav';
+import { prewarmStreamUrl } from '@/lib/stream-url';
 import { COLORS } from '@/lib/theme';
+import { useWatchState } from '@/lib/watch-state';
 
 interface EpisodeItem {
   description?: string;
@@ -124,6 +126,22 @@ export default function DetailPage() {
   // Temporada seleccionada: derivada (primera por defecto) + override del user.
   // Derivar evita un setState-en-effect y un render extra.
   const selectedSeason = seasonOverride ?? series?.seasons?.[0] ?? null;
+
+  // Los episodios se piden POR TEMPORADA, en una query aparte de la metadata.
+  // `/api/series-meta` devuelve los episodios de UNA sola temporada (la que se
+  // pida en `season`, o la primera si no se pide ninguna), así que filtrar
+  // client-side sobre la respuesta del detalle dejaba vacía cualquier temporada
+  // que no fuera la primera: se tocaba la pestaña y no aparecía ningún capítulo.
+  const watchState = useWatchState();
+
+  const seasonQuery = useQuery({
+    queryKey: ['series-season', id, selectedSeason, lang],
+    queryFn: () =>
+      apiFetch<SeriesMetaResponse>(
+        `/api/series-meta?id=${encodeURIComponent(id)}&season=${selectedSeason}`,
+      ),
+    enabled: Boolean(id && type === 'series' && selectedSeason != null),
+  });
 
   // Estado guardado (favorito/watchlist) desde la cuenta TMDB, cacheado. La
   // verdad vive en el cache; los toggles lo actualizan de forma optimista.
@@ -223,10 +241,14 @@ export default function DetailPage() {
     [id, type, favorite, watchlist, meta, toast, queryClient, t],
   );
 
+  // El filtro se conserva como guarda: mientras React Query sirve todavía la
+  // respuesta de la temporada anterior, evita pintar capítulos que no son de la
+  // pestaña activa.
   const seasonEpisodes = useMemo(
     () =>
-      series?.episodes?.filter((e) => e.season === selectedSeason) ?? [],
-    [series, selectedSeason],
+      seasonQuery.data?.episodes?.filter((e) => e.season === selectedSeason) ??
+      [],
+    [seasonQuery.data, selectedSeason],
   );
 
   const artParams = useMemo(
@@ -252,14 +274,29 @@ export default function DetailPage() {
   useEffect(() => {
     if (!id || !type) return;
     if (type === 'series' && !firstEpisode) return; // aún sin temporada/episodio
-    queryClient.prefetchQuery(
-      sourcesQueryOptions(
-        type,
-        id,
-        firstEpisode ? String(firstEpisode.season) : undefined,
-        firstEpisode ? String(firstEpisode.number) : undefined,
-      ),
-    );
+    queryClient
+      .fetchQuery(
+        sourcesQueryOptions(
+          type,
+          id,
+          firstEpisode ? String(firstEpisode.season) : undefined,
+          firstEpisode ? String(firstEpisode.number) : undefined,
+        ),
+      )
+      // Y con la lista ya en mano, adelantamos también la resolución de la
+      // primera fuente: seguir su redirección al CDN cuesta 2,9 s de mediana en
+      // teléfono y 4,9 s en TV (medido en PostHog), y hasta ahora ese tramo se
+      // pagaba entero DESPUÉS de pulsar Reproducir, con el usuario mirando la
+      // carátula. Hecho aquí, para cuando pulsa ya está resuelto.
+      .then((data) => {
+        const first = data.sources[0];
+        if (first) {
+          prewarmStreamUrl(first.url);
+        }
+      })
+      .catch(() => {
+        /* pre-warm best-effort: el player lo vuelve a pedir si hace falta */
+      });
   }, [id, type, firstEpisode, queryClient]);
 
   // Al reproducir vamos directo al player SIN `url`: esa ausencia es la señal de
@@ -689,27 +726,53 @@ export default function DetailPage() {
           </ScrollShadow>
         ) : null}
 
-        {/* Episodes of selected season */}
-        {type === 'series' && selectedSeason != null && seasonEpisodes.length > 0 ? (
+        {/* Episodes of selected season. La sección se muestra en cuanto hay
+            temporada elegida, no solo cuando ya hay episodios: si se ocultara
+            mientras carga, cambiar de pestaña parecería que la temporada no
+            existe en vez de que se está pidiendo. */}
+        {type === 'series' && selectedSeason != null ? (
           <>
             <SectionTitle title={t('Temporada {{n}}', { n: selectedSeason })} />
-            <ScrollShadow size={28} LinearGradientComponent={ExpoLinearGradient}>
-              <FlatList
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                data={seasonEpisodes}
-                keyExtractor={(e) => e.id}
-                contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
-                renderItem={({ item }) => (
-                  <EpisodeCard
-                    ep={item}
-                    fallbackImage={meta?.background}
-                    runtime={meta?.episodeRunTime}
-                    onPress={() => handlePlayEpisode(item)}
+            {seasonQuery.isPending ? (
+              <View
+                style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 20 }}
+              >
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton
+                    // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder
+                    key={i}
+                    style={{ width: 200, height: 112, borderRadius: 12 }}
                   />
-                )}
-              />
-            </ScrollShadow>
+                ))}
+              </View>
+            ) : seasonEpisodes.length === 0 ? (
+              <Typography
+                type="body-sm"
+                color="muted"
+                style={{ paddingHorizontal: 20 }}
+              >
+                {t('No hay episodios en esta temporada.')}
+              </Typography>
+            ) : (
+              <ScrollShadow size={28} LinearGradientComponent={ExpoLinearGradient}>
+                <FlatList
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  data={seasonEpisodes}
+                  keyExtractor={(e) => e.id}
+                  contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
+                  renderItem={({ item }) => (
+                    <EpisodeCard
+                      ep={item}
+                      fallbackImage={meta?.background}
+                      runtime={meta?.episodeRunTime}
+                      state={watchState.episode(id, item.season, item.number)}
+                      onPress={() => handlePlayEpisode(item)}
+                    />
+                  )}
+                />
+              </ScrollShadow>
+            )}
           </>
         ) : null}
 
@@ -986,11 +1049,14 @@ function EpisodeCard({
   ep,
   fallbackImage,
   runtime,
+  state,
   onPress,
 }: {
   ep: EpisodeItem;
   fallbackImage?: string;
   runtime?: number;
+  /** Progreso guardado de este capítulo, o null si nunca se abrió. */
+  state?: { finished: boolean; progress: number } | null;
   onPress: () => void;
 }) {
   const CARD_W = 320;
@@ -1058,6 +1124,49 @@ function EpisodeCard({
           S{ep.season}E{ep.number}
         </Typography>
       </View>
+
+      {/* Capítulo terminado: check. A medias: barra de progreso, la misma que
+          usan las carátulas de "Continuar viendo". */}
+      {state?.finished ? (
+        <View
+          style={{
+            position: 'absolute',
+            top: 12,
+            right: 12,
+            width: 26,
+            height: 26,
+            borderRadius: 13,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(0,0,0,0.65)',
+          }}
+        >
+          <CheckCircle2 size={16} color="#fff" />
+        </View>
+      ) : null}
+      {state && !state.finished && state.progress > 0 ? (
+        <View
+          style={{
+            position: 'absolute',
+            left: 14,
+            right: 14,
+            bottom: 4,
+            height: 3,
+            borderRadius: 999,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            overflow: 'hidden',
+          }}
+        >
+          <View
+            style={{
+              width: `${Math.min(100, Math.max(0, state.progress * 100))}%`,
+              height: '100%',
+              borderRadius: 999,
+              backgroundColor: '#fff',
+            }}
+          />
+        </View>
+      ) : null}
 
       <View
         style={{

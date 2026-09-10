@@ -15,7 +15,29 @@ export interface StreamSource {
   addonName: string;
   sourceIndex: number;
   behaviors?: string[];
+  /** Calidad que dedujo el servidor del texto del addon. */
+  quality?: keyof typeof QUALITY_LABELS;
 }
+
+// Espejo de QUALITY_LABELS de apps/web/src/lib/stream-quality.ts. No hay paquete
+// compartido entre la app y el backend, y el servidor manda la clave cruda
+// ('2160', '1080'…) para no atar la respuesta a un idioma.
+const QUALITY_LABELS = {
+  '2160': '4K',
+  '1440': '1440p',
+  '1080': '1080p',
+  '720': '720p',
+  '480': 'SD',
+  unknown: 'Otras',
+} as const;
+
+const QUALITY_CHIP_STYLE = {
+  alignSelf: 'flex-start',
+  paddingHorizontal: 8,
+  paddingVertical: 2,
+  borderRadius: 6,
+  backgroundColor: 'rgba(255,255,255,0.10)',
+} as const;
 
 export interface SourcesResponse {
   sources: StreamSource[];
@@ -176,10 +198,11 @@ function SourceCard({
   onPress: () => void;
   selected?: boolean;
 }) {
-  // `behaviors` trae las líneas de detalle del addon (códec, calidad, tamaño,
-  // idiomas, uploader, etc.) ya formateadas por el propio addon. No añadimos
-  // chips de calidad/tamaño/addon encima: esa info ya viene en estas líneas y
-  // duplicarla se veía redundante.
+  // `behaviors` trae las líneas de detalle del addon (códec, tamaño, idiomas,
+  // uploader, etc.) ya formateadas por el propio addon. No añadimos chips de
+  // tamaño/addon encima: esa info ya viene en estas líneas y duplicarla se veía
+  // redundante. La calidad sí va aparte: es la que decide el orden de la lista y
+  // cuál abre el reproductor, así que tiene que leerse de un vistazo.
   const behaviors = source.behaviors ?? [];
   const lines = [
     source.title,
@@ -193,6 +216,13 @@ function SourceCard({
     <PressableFeedback onPress={onPress} {...focusProps}>
       <Card style={tvFocusRing(focused)}>
         <Card.Body className="gap-2">
+          {source.quality ? (
+            <View style={QUALITY_CHIP_STYLE}>
+              <Typography type="body-xs" weight="medium">
+                {QUALITY_LABELS[source.quality]}
+              </Typography>
+            </View>
+          ) : null}
           {lines.map((line, i) => (
             <Typography
               // biome-ignore lint/suspicious/noArrayIndexKey: static text
