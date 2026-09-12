@@ -349,22 +349,34 @@ async function OneVidContent({
     }
   } else if (viewAll) {
     try {
-      posters =
-        selectedCatalog === "trending" && !selectedNetwork
-          ? (await trendingAllAtLeast(token, tmdbLocale, VIEW_ALL_MIN_ITEMS)).filter(
-              (item) => item.type === selectedType
-            )
-          : await fetchCatalogResultsAtLeast(
-              {
-                catalog: selectedCatalog,
-                network: selectedNetwork,
-                tmdbLocale,
-                tmdbRegion,
-                token,
-                type: selectedType,
-              },
-              VIEW_ALL_MIN_ITEMS
-            );
+      if (selectedCatalog === "trending" && !selectedNetwork) {
+        // Un solo fetch del Top mixto: la grilla filtra por tipo y el Top 10 se
+        // deriva de la misma lista, en vez de pedir las páginas dos veces.
+        const trendingItems = await trendingAllAtLeast(
+          token,
+          tmdbLocale,
+          VIEW_ALL_MIN_ITEMS
+        );
+        posters = trendingItems.filter((item) => item.type === selectedType);
+        postersTopTenRanks = Object.fromEntries(
+          trendingItems.slice(0, 10).map((item, index) => [
+            `${item.type}-${item.id}`,
+            index + 1,
+          ])
+        );
+      } else {
+        posters = await fetchCatalogResultsAtLeast(
+          {
+            catalog: selectedCatalog,
+            network: selectedNetwork,
+            tmdbLocale,
+            tmdbRegion,
+            token,
+            type: selectedType,
+          },
+          VIEW_ALL_MIN_ITEMS
+        );
+      }
       viewAllTitle = getFeedRowTitle(
         {
           catalog: selectedCatalog as FeedCatalogId,
@@ -374,19 +386,6 @@ async function OneVidContent({
         t,
         selectedNetwork?.name
       );
-      if (selectedCatalog === "trending" && !selectedNetwork) {
-        const topTenItems = await trendingAllAtLeast(
-          token,
-          tmdbLocale,
-          VIEW_ALL_MIN_ITEMS
-        );
-        postersTopTenRanks = Object.fromEntries(
-          topTenItems.slice(0, 10).map((item, index) => [
-            `${item.type}-${item.id}`,
-            index + 1,
-          ])
-        );
-      }
     } catch (error) {
       if (error instanceof TmdbAuthError) {
         loadError = "auth";
