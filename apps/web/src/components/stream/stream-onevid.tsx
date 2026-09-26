@@ -116,7 +116,9 @@ export function StreamOnevid({
   const season = rawParts.length >= 3 ? Number(rawParts[1]) || 0 : 0;
   const episode = rawParts.length >= 3 ? Number(rawParts[2]) || 0 : 0;
   const router = useRouter();
-  const backHref = "/home";
+  // Volver al título reproducido, no al Inicio. En series usamos el id base sin
+  // temporada/episodio para abrir el detalle de la serie completa.
+  const backHref = `/home/detail/${contentType}/${encodeURIComponent(contentId)}`;
   const handleBack = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement>) => {
       e.preventDefault();
