@@ -34,6 +34,7 @@ import {
   useState,
 } from 'react';
 import {
+  BackHandler,
   Platform,
   Pressable,
   type PressableStateCallbackType,
@@ -360,6 +361,22 @@ export default function PlayerScreen() {
   const canChangeSource = Boolean(mediaId);
   const canChangeEpisode = mediaType === 'series' && Boolean(mediaId);
 
+  // El reproductor también se abre directamente desde "Continuar viendo", donde
+  // la pantalla anterior es Inicio. Al salir queremos volver siempre al título
+  // reproducido. `dismissTo` recupera el detalle existente si veníamos de él y,
+  // si no estaba en el stack, reemplaza el player por ese detalle (sin dejar el
+  // vídeo debajo). Solo los vídeos locales/sin id conservan el back normal.
+  const handleBack = useCallback(() => {
+    if (mediaId) {
+      router.dismissTo({
+        pathname: '/detail/[type]/[id]',
+        params: { type: mediaType, id: mediaId },
+      });
+      return;
+    }
+    router.back();
+  }, [mediaId, mediaType]);
+
   // Temporada/episodio son estado: al elegir otro episodio se actualizan (y con
   // ellos el subtítulo y las fuentes que pide el SourcePicker).
   const [season, setSeason] = useState(params.season || undefined);
@@ -650,6 +667,22 @@ export default function PlayerScreen() {
     }, []),
   );
 
+  // El botón/gesto físico de Android debe seguir la misma regla que la flecha del
+  // reproductor; de otro modo "atrás" desde Continuar viendo aún caería en Inicio.
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== 'android') return;
+      const subscription = BackHandler.addEventListener(
+        'hardwareBackPress',
+        () => {
+          handleBack();
+          return true;
+        },
+      );
+      return () => subscription.remove();
+    }, [handleBack]),
+  );
+
   // Al salir del reproductor forzamos recargar las carátulas del Inicio/detalle:
   // la superficie de vídeo (SurfaceView de LibVLC) libera sus bitmaps en GPU en
   // Android y quedaban en gris. Ver src/lib/image-refresh.
@@ -787,6 +820,7 @@ export default function PlayerScreen() {
           resumeMs={resumeMs}
           onProgress={onTime}
           onFlush={flush}
+          onBack={handleBack}
           onReveal={handleReveal}
           onUnplayable={canFallback ? handleUnplayable : undefined}
           onChangeSource={canChangeSource ? () => setPickerOpen(true) : undefined}
@@ -869,7 +903,7 @@ export default function PlayerScreen() {
           style={[styles.backWrap, { top: PLAYER_CHROME_TOP, left: insets.left + 12 }]}
           pointerEvents="box-none"
         >
-          <Pressable onPress={() => router.back()} style={withRing(styles.backBtn)}>
+          <Pressable onPress={handleBack} style={withRing(styles.backBtn)}>
             <ArrowLeft size={22} color="#fff" />
           </Pressable>
         </View>
@@ -971,6 +1005,7 @@ function Player({
   resumeMs,
   onProgress,
   onFlush,
+  onBack,
   onReveal,
   onUnplayable,
   onChangeSource,
@@ -994,6 +1029,8 @@ function Player({
   onProgress?: (positionMs: number, durationMs: number) => void;
   /** Fuerza un guardado inmediato del progreso (pausa / detenido). */
   onFlush?: () => void;
+  /** Sale al detalle del contenido en lugar de depender del historial de entrada. */
+  onBack: () => void;
   /** Avisa al padre de que ya hay imagen (o error local) → funde la carátula. */
   onReveal?: () => void;
   onUnplayable?: () => void;
@@ -1668,7 +1705,7 @@ function Player({
             pointerEvents="box-none"
           >
             <Pressable
-              onPress={() => router.back()}
+              onPress={onBack}
               style={withRing(styles.backBtn)}
               hitSlop={6}
             >
