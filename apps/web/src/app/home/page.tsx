@@ -39,6 +39,7 @@ import {
   resolveFeedSections,
   resolveHero,
 } from "@/lib/onevid-feed-sections";
+import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { getServerT } from "@/lib/server-t";
 import {
   getCatalogOptions,
@@ -110,8 +111,6 @@ async function OneVidContent({
     searchParams,
     db
       .select({
-        tmdbUserAccessToken: oneVid.tmdbUserAccessToken,
-        tmdbReadAccessToken: oneVid.tmdbReadAccessToken,
         torboxApiKey: oneVid.torboxApiKey,
         setupCompleted: oneVid.setupCompleted,
         feedRows: oneVid.feedRows,
@@ -146,12 +145,8 @@ async function OneVidContent({
       .orderBy(oneVidProfile.createdAt),
   ]);
 
-  // v4 user token preferred, legacy read token as fallback
-  const tmdbToken =
-    oneVidRow[0]?.tmdbUserAccessToken ??
-    oneVidRow[0]?.tmdbReadAccessToken ??
-    null;
-  const tmdbLinked = Boolean(oneVidRow[0]?.tmdbUserAccessToken);
+  // Token de lectura global del dueño; ningún usuario conecta su TMDB.
+  const tmdbToken = getTmdbReadToken();
   const torboxKey = oneVidRow[0]?.torboxApiKey ?? null;
   const setupCompleted = oneVidRow[0]?.setupCompleted ?? false;
   // `null` = nunca configuró el feed (columna NULL): el paso 2 sale sin
@@ -247,15 +242,13 @@ async function OneVidContent({
     feedConfigured,
     feedRows,
     hasTorboxKey: Boolean(torboxKey),
-    linked: tmdbLinked,
     setupCompleted,
     surface,
   };
 
-  // TMDB is "configured" only when the account is connected via OAuth v4.
-  // A leftover legacy read token must not unlock the catalog on its own.
-  // (tmdbToken is checked too so it narrows to non-null below.)
-  if (!(tmdbLinked && tmdbToken && setupCompleted)) {
+  // El catálogo se desbloquea al completar el setup. `tmdbToken` (el token
+  // global del dueño) se comprueba también para narrow a non-null más abajo.
+  if (!(tmdbToken && setupCompleted)) {
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
         <OneVidProfileProvider initialProfiles={profiles}>
@@ -288,7 +281,6 @@ async function OneVidContent({
                   feedRows={feedRows}
                   hasTorboxKey={Boolean(torboxKey)}
                   initialAddons={addons}
-                  linked={tmdbLinked}
                   setupCompleted={setupCompleted}
                 />
               </EmptyContent>
@@ -430,7 +422,7 @@ async function OneVidContent({
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
         <OneVidProfileProvider initialProfiles={profiles}>
-          <OneVidHeader {...headerProps} linked={false} />
+          <OneVidHeader {...headerProps} />
           <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
             <Empty className="min-h-0 border-0 p-0">
               <EmptyHeader>
@@ -446,7 +438,6 @@ async function OneVidContent({
                   feedRows={feedRows}
                   hasTorboxKey={Boolean(torboxKey)}
                   initialAddons={addons}
-                  linked={false}
                   setupCompleted={false}
                 />
               </EmptyContent>
@@ -489,7 +480,6 @@ async function OneVidContent({
         hasTorboxKey={Boolean(torboxKey)}
         heroItems={heroItems}
         initialProfiles={profiles}
-        linked={tmdbLinked}
         posters={posters}
         postersTopTenRanks={postersTopTenRanks}
         postersAreTopTen={

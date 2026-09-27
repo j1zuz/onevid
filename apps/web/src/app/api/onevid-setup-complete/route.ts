@@ -4,6 +4,12 @@ import { auth } from "@/lib/auth";
 import { oneVid, oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
 
+function buildOneVidId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export async function GET() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) {
@@ -12,7 +18,6 @@ export async function GET() {
 
   const [row] = await db
     .select({
-      tmdbUserAccessToken: oneVid.tmdbUserAccessToken,
       torboxApiKey: oneVid.torboxApiKey,
       setupCompleted: oneVid.setupCompleted,
     })
@@ -27,7 +32,6 @@ export async function GET() {
 
   return Response.json({
     setupCompleted: row?.setupCompleted ?? false,
-    hasTmdbToken: Boolean(row?.tmdbUserAccessToken),
     hasTorboxKey: Boolean(row?.torboxApiKey),
     addonsCount: addons?.value ?? 0,
   });
@@ -40,29 +44,31 @@ export async function POST() {
     return Response.json({ error: "No autorizado" }, { status: 401 });
   }
 
+  // TMDB ya no se conecta por usuario (usa el token global del dueño); los
+  // complementos (addons) y la API key de TorBox son opcionales. Completar el
+  // setup solo marca la bandera.
   const [existing] = await db
-    .select({
-      id: oneVid.id,
-      tmdbUserAccessToken: oneVid.tmdbUserAccessToken,
-    })
+    .select({ id: oneVid.id })
     .from(oneVid)
     .where(eq(oneVid.userId, session.user.id))
     .limit(1);
 
-  // Mirror the page gating: only the OAuth v4 user token counts as "connected".
-  // Los complementos (addons) y la API key de TorBox son opcionales; no se
-  // exigen para completar el setup.
-  if (!existing?.tmdbUserAccessToken) {
-    return Response.json(
-      { error: "Conecta primero tu cuenta de TMDB" },
-      { status: 400 }
-    );
-  }
+  const now = new Date();
 
-  await db
-    .update(oneVid)
-    .set({ setupCompleted: true, updatedAt: new Date() })
-    .where(eq(oneVid.id, existing.id));
+  if (existing) {
+    await db
+      .update(oneVid)
+      .set({ setupCompleted: true, updatedAt: now })
+      .where(eq(oneVid.id, existing.id));
+  } else {
+    await db.insert(oneVid).values({
+      id: buildOneVidId(),
+      userId: session.user.id,
+      setupCompleted: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
 
   return Response.json({ ok: true });
 }

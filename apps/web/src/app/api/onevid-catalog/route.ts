@@ -8,7 +8,7 @@ import {
 import { auth } from "@/lib/auth";
 import { oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
-import { getOneVidTmdb } from "@/lib/onevid-tmdb";
+import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { posthogServerCapture } from "@/lib/posthog-server";
 import { getServerT } from "@/lib/server-t";
 import {
@@ -65,8 +65,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Resolve the user's TMDB token (v4 user token preferred, legacy read token fallback)
-  const { effectiveToken: token } = await getOneVidTmdb(session.user.id);
+  const token = getTmdbReadToken();
 
   if (!token) {
     return NextResponse.json(

@@ -22,7 +22,7 @@ import {
   parseFeedRows,
 } from "@/lib/onevid-feed";
 import { resolveFeed } from "@/lib/onevid-feed-sections";
-import { getOneVidTmdb } from "@/lib/onevid-tmdb";
+import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { posthogServerCapture } from "@/lib/posthog-server";
 import { getServerT } from "@/lib/server-t";
 import {
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
-  const { effectiveToken: tmdbToken } = await getOneVidTmdb(session.user.id);
+  const tmdbToken = getTmdbReadToken();
   if (!tmdbToken) {
     return NextResponse.json(
       { error: "TMDB token not configured" },

@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getOneVidTmdb } from "@/lib/onevid-tmdb";
+import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { getServerT } from "@/lib/server-t";
 import { fetchTvSeriesMeta, getTmdbLocale, TmdbAuthError } from "@/lib/tmdb";
 
@@ -36,8 +36,7 @@ export async function GET(request: NextRequest) {
   }
   const season = rawSeason ? Number(rawSeason) : undefined;
 
-  // Resolve the user's TMDB token (v4 user token preferred, legacy read token fallback)
-  const { effectiveToken: token } = await getOneVidTmdb(session.user.id);
+  const token = getTmdbReadToken();
 
   if (!token) {
     return NextResponse.json(

@@ -1,8 +1,9 @@
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
-import { oneVid, oneVidAddon } from "@/lib/auth-schema";
+import { oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
+import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { findImdbId } from "@/lib/tmdb";
 import type { StreamType } from "@/types/stream";
 import { safeFetch } from "@/utils/ssrf-guard";
@@ -159,20 +160,10 @@ export async function POST(request: Request) {
       return Response.json({ error: "Unsupported id format" }, { status: 400 });
     }
 
-    const [addons, [tmdbRow]] = await Promise.all([
-      db
-        .select({ baseUrl: oneVidAddon.baseUrl })
-        .from(oneVidAddon)
-        .where(eq(oneVidAddon.userId, session.user.id)),
-      db
-        .select({
-          tmdbUserAccessToken: oneVid.tmdbUserAccessToken,
-          tmdbReadAccessToken: oneVid.tmdbReadAccessToken,
-        })
-        .from(oneVid)
-        .where(eq(oneVid.userId, session.user.id))
-        .limit(1),
-    ]);
+    const addons = await db
+      .select({ baseUrl: oneVidAddon.baseUrl })
+      .from(oneVidAddon)
+      .where(eq(oneVidAddon.userId, session.user.id));
 
     if (addons.length === 0) {
       return Response.json({ subtitles: [] });
@@ -180,11 +171,8 @@ export async function POST(request: Request) {
 
     let { imdbId } = ref;
     if (!imdbId && ref.tmdbId) {
-      // El token del usuario, no el global del entorno: es el que usan
-      // stream/sources y series-meta (v4 de usuario, con el de lectura como
-      // reserva). Tomar otro daría resultados distintos según la ruta.
-      const tmdbToken =
-        tmdbRow?.tmdbUserAccessToken ?? tmdbRow?.tmdbReadAccessToken;
+      // Token de lectura global del dueño, igual que stream/sources y series-meta.
+      const tmdbToken = getTmdbReadToken();
       if (tmdbToken) {
         imdbId =
           (await findImdbId(tmdbToken, ref.tmdbId, type).catch(

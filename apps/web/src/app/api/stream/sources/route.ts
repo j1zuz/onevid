@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { oneVid, oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
+import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import {
   normalizeQualityPref,
   parseQualityTier,
@@ -249,8 +250,6 @@ async function fetchAddonStremioStreams(
 async function loadUserContext(userId: string): Promise<UserContext> {
   const [row] = await db
     .select({
-      tmdbUserAccessToken: oneVid.tmdbUserAccessToken,
-      tmdbReadAccessToken: oneVid.tmdbReadAccessToken,
       torboxApiKey: oneVid.torboxApiKey,
       streamQualityOrder: oneVid.streamQualityOrder,
     })
@@ -258,8 +257,7 @@ async function loadUserContext(userId: string): Promise<UserContext> {
     .where(eq(oneVid.userId, userId))
     .limit(1);
   return {
-    // v4 user token preferred, legacy read token as fallback
-    tmdbToken: row?.tmdbUserAccessToken ?? row?.tmdbReadAccessToken ?? null,
+    tmdbToken: getTmdbReadToken(),
     torboxKey: row?.torboxApiKey ?? null,
     qualityPref: normalizeQualityPref(row?.streamQualityOrder),
   };

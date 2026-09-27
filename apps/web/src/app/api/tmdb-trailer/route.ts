@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getOneVidTmdb } from "@/lib/onevid-tmdb";
+import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { getServerT } from "@/lib/server-t";
 import { fetchTrailerKey, getTmdbLocale } from "@/lib/tmdb";
 
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ trailer: null });
   }
 
-  const { effectiveToken: token } = await getOneVidTmdb(session.user.id);
+  const token = getTmdbReadToken();
 
   if (!token) {
     return NextResponse.json({ trailer: null });
