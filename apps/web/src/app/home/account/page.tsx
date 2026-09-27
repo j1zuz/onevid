@@ -57,8 +57,6 @@ export default async function AccountPage({
   const [oneVidRow, addonRows, profileRows] = await Promise.all([
     db
       .select({
-        tmdbUserAccessToken: oneVid.tmdbUserAccessToken,
-        tmdbReadAccessToken: oneVid.tmdbReadAccessToken,
         torboxApiKey: oneVid.torboxApiKey,
         setupCompleted: oneVid.setupCompleted,
         feedRows: oneVid.feedRows,
@@ -93,7 +91,6 @@ export default async function AccountPage({
       .orderBy(oneVidProfile.createdAt),
   ]);
 
-  const tmdbLinked = Boolean(oneVidRow[0]?.tmdbUserAccessToken);
   const torboxKey = oneVidRow[0]?.torboxApiKey ?? null;
   const setupCompleted = oneVidRow[0]?.setupCompleted ?? false;
   const parsedFeedRows = parseFeedRows(oneVidRow[0]?.feedRows);
@@ -151,7 +148,6 @@ export default async function AccountPage({
             hasTorboxKey={Boolean(torboxKey)}
             initialAddons={addons}
             initialView={initialView}
-            linked={tmdbLinked}
             setupCompleted={setupCompleted}
             userEmail={session.user.email ?? ""}
             userName={session.user.name ?? ""}

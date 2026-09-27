@@ -9,8 +9,9 @@ import { DetailScrollContainer } from "@/components/stream/detail-scroll-contain
 import { OneVidHeader } from "@/components/stream/onevid-header";
 import { OneVidProfileProvider } from "@/components/stream/onevid-profile-context";
 import { auth } from "@/lib/auth";
-import { oneVid, oneVidProfile } from "@/lib/auth-schema";
+import { oneVidProfile } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
+import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { getServerT } from "@/lib/server-t";
 import {
   fetchMovieDetail,
@@ -59,31 +60,19 @@ async function StreamDetailContent({ params }: { params: Params }) {
 
   const contentType: CatalogType = typeParam === "series" ? "series" : "movie";
 
-  const [[oneVidRow], profileRows] = await Promise.all([
-    db
-      .select({
-        tmdbUserAccessToken: oneVid.tmdbUserAccessToken,
-        tmdbReadAccessToken: oneVid.tmdbReadAccessToken,
-      })
-      .from(oneVid)
-      .where(eq(oneVid.userId, session.user.id))
-      .limit(1),
-    db
-      .select({
-        id: oneVidProfile.id,
-        name: oneVidProfile.name,
-        avatar: oneVidProfile.avatar,
-        isKids: oneVidProfile.isKids,
-        pinHash: oneVidProfile.pinHash,
-      })
-      .from(oneVidProfile)
-      .where(eq(oneVidProfile.userId, session.user.id))
-      .orderBy(oneVidProfile.createdAt),
-  ]);
+  const profileRows = await db
+    .select({
+      id: oneVidProfile.id,
+      name: oneVidProfile.name,
+      avatar: oneVidProfile.avatar,
+      isKids: oneVidProfile.isKids,
+      pinHash: oneVidProfile.pinHash,
+    })
+    .from(oneVidProfile)
+    .where(eq(oneVidProfile.userId, session.user.id))
+    .orderBy(oneVidProfile.createdAt);
 
-  // Prefer the OAuth token (tmdbUserAccessToken); fall back to the legacy one.
-  const tmdbToken =
-    oneVidRow?.tmdbUserAccessToken ?? oneVidRow?.tmdbReadAccessToken;
+  const tmdbToken = getTmdbReadToken();
 
   if (!tmdbToken) {
     redirect("/home");
@@ -119,7 +108,6 @@ async function StreamDetailContent({ params }: { params: Params }) {
             feedConfigured={false}
             feedRows={[]}
             hasTorboxKey={false}
-            linked={true}
             setupCompleted={true}
           />
           <DetailScrollContainer>

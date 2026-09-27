@@ -33,7 +33,7 @@ import { useEffect, useRef, useState } from "react";
 import { SetupFeedStep } from "@/components/stepper-onevid-feed-step";
 import type { AddonCatalogRef, OneVidFeedRow } from "@/lib/onevid-feed";
 
-// El indicador numerado repite el mismo set de variantes en los 4 pasos.
+// El indicador numerado repite el mismo set de variantes en los 3 pasos.
 const STEP_INDICATOR_CLASS =
   "size-5 rounded-full border-2 text-[0.6rem] data-[state=active]:border-primary data-[state=completed]:border-transparent data-[state=inactive]:border-muted data-[state=active]:bg-primary data-[state=completed]:bg-transparent data-[state=active]:text-primary-foreground data-[state=completed]:text-primary-foreground";
 
@@ -56,32 +56,19 @@ interface SetupStepperProps {
   feedRows: OneVidFeedRow[];
   hasTorboxKey: boolean;
   initialAddons: OneVidAddonSummary[];
-  /** True when the user has connected their TMDB account via OAuth v4. */
-  linked: boolean;
   setupCompleted: boolean;
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: stepper bundles token + feed + addons + torbox UI with multiple async flows
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: stepper bundles feed + addons + torbox UI with multiple async flows
 export function SetupStepper({
   discoverRows,
   feedConfigured,
   feedRows,
   hasTorboxKey,
-  linked,
   setupCompleted,
   initialAddons,
 }: SetupStepperProps) {
   const router = useRouter();
-  const [connecting, setConnecting] = useState(false);
-  const [awaitingApproval, setAwaitingApproval] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
-  const [error, setError] = useState("");
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const popupRef = useRef<Window | null>(null);
-  // The TMDB step is "done" only when the account is connected via OAuth v4.
-  // Legacy users with just a read access token still need to connect to enable
-  // favorites/watchlist, so they are not treated as complete here.
-  const [tokenSaved, setTokenSaved] = useState(linked);
   const [feedSaved, setFeedSaved] = useState(feedConfigured);
   const [feedSaving, setFeedSaving] = useState(false);
   const [addons, setAddons] = useState<OneVidAddonSummary[]>(initialAddons);
@@ -100,33 +87,22 @@ export function SetupStepper({
 
   // Controlled active step so we can auto-advance when a step completes.
   const [activeStep, setActiveStep] = useState<number>(() => {
-    if (!linked) {
+    if (!feedConfigured) {
       return 1;
     }
-    if (!feedConfigured) {
+    if (initialAddons.length === 0) {
       return 2;
     }
-    if (initialAddons.length === 0) {
-      return 3;
-    }
-    return 4;
+    return 3;
   });
 
   // Auto-advance to the next step once the current one is completed, so the
-  // user isn't left on a "connected/configured" card. The card is still
-  // reachable by clicking the step in the nav to go back.
-  const prevTokenSaved = useRef(tokenSaved);
-  useEffect(() => {
-    if (!prevTokenSaved.current && tokenSaved && activeStep === 1) {
-      setActiveStep(2);
-    }
-    prevTokenSaved.current = tokenSaved;
-  }, [tokenSaved, activeStep]);
-
+  // user isn't left on a "configured" card. The card is still reachable by
+  // clicking the step in the nav to go back.
   const prevFeedSaved = useRef(feedSaved);
   useEffect(() => {
-    if (!prevFeedSaved.current && feedSaved && activeStep === 2) {
-      setActiveStep(3);
+    if (!prevFeedSaved.current && feedSaved && activeStep === 1) {
+      setActiveStep(2);
     }
     prevFeedSaved.current = feedSaved;
   }, [feedSaved, activeStep]);
@@ -134,136 +110,11 @@ export function SetupStepper({
   const prevHasAddons = useRef(addons.length > 0);
   useEffect(() => {
     const hasAddons = addons.length > 0;
-    if (!prevHasAddons.current && hasAddons && activeStep === 3) {
-      setActiveStep(4);
+    if (!prevHasAddons.current && hasAddons && activeStep === 2) {
+      setActiveStep(3);
     }
     prevHasAddons.current = hasAddons;
   }, [addons.length, activeStep]);
-
-  function stopPolling() {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }
-
-  // Stop polling / close the popup if the component unmounts mid-flow.
-  useEffect(
-    () => () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-      }
-      popupRef.current?.close();
-    },
-    []
-  );
-
-  // Poll the access-token exchange until the user approves in the popup. While
-  // unapproved, connect-finish returns an error; once approved it returns
-  // { linked: true } and we finish automatically — no extra button taps.
-  function startApprovalPolling(reqToken: string) {
-    stopPolling();
-    let attempts = 0;
-    const maxAttempts = 80; // ~80 * 2.5s ≈ 3 min
-    pollRef.current = setInterval(async () => {
-      attempts += 1;
-      const popupClosed = popupRef.current?.closed ?? false;
-      try {
-        const res = await fetch("/api/onevid-tmdb/connect-finish", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ request_token: reqToken }),
-        });
-        const data = (await res.json().catch(() => ({}))) as {
-          linked?: boolean;
-        };
-        if (res.ok && data.linked) {
-          stopPolling();
-          popupRef.current?.close();
-          setAwaitingApproval(false);
-          setTokenSaved(true);
-          router.refresh();
-          return;
-        }
-      } catch {
-        // network blip — keep polling
-      }
-      if (attempts >= maxAttempts || popupClosed) {
-        stopPolling();
-        setAwaitingApproval(false);
-        setError("No se completó la conexión. Inténtalo de nuevo.");
-      }
-    }, 2500);
-  }
-
-  async function handleConnectTmdb() {
-    setConnecting(true);
-    setError("");
-    // Open the popup synchronously (still within the click gesture) so it is
-    // not blocked; we point it at the approval URL once we have it.
-    const popup = window.open(
-      "about:blank",
-      "tmdb-auth",
-      "width=520,height=720"
-    );
-    popupRef.current = popup;
-    try {
-      const res = await fetch("/api/onevid-tmdb/connect-start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ redirect_to: window.location.href }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        approveUrl?: string;
-        request_token?: string;
-        error?: string;
-      };
-      if (!(res.ok && data.approveUrl && data.request_token)) {
-        popup?.close();
-        setError(data.error || "No se pudo iniciar la conexión con TMDB");
-        return;
-      }
-      if (popup) {
-        popup.location.href = data.approveUrl;
-      } else {
-        window.open(data.approveUrl, "_blank", "noopener,noreferrer");
-      }
-      setAwaitingApproval(true);
-      startApprovalPolling(data.request_token);
-    } catch {
-      popup?.close();
-      setError("Error de conexión");
-    } finally {
-      setConnecting(false);
-    }
-  }
-
-  function handleCancelApproval() {
-    stopPolling();
-    popupRef.current?.close();
-    setAwaitingApproval(false);
-  }
-
-  async function handleDisconnectTmdb() {
-    setDisconnecting(true);
-    setError("");
-    try {
-      const res = await fetch("/api/onevid-tmdb/disconnect", {
-        method: "POST",
-      });
-      if (!res.ok) {
-        setError("No se pudo desconectar la cuenta");
-        return;
-      }
-      setTokenSaved(false);
-      setAwaitingApproval(false);
-      router.refresh();
-    } catch {
-      setError("Error de conexión");
-    } finally {
-      setDisconnecting(false);
-    }
-  }
 
   async function handleSaveTorboxKey() {
     const trimmed = torboxKeyValue.trim();
@@ -391,11 +242,6 @@ export function SetupStepper({
     }
   }
 
-  // Los pasos 2 (feed), 3 (complementos) y 4 (TorBox) son opcionales: solo se
-  // requiere haber conectado TMDB (paso 1) para poder finalizar la
-  // configuración. Sin guardar el feed, /home usa DEFAULT_FEED_ROWS.
-  const canFinish = tokenSaved;
-
   return (
     <Stepper
       className="mx-auto w-full max-w-md"
@@ -409,7 +255,7 @@ export function SetupStepper({
       value={activeStep}
     >
       <StepperNav className="mb-5">
-        <StepperItem completed={tokenSaved} loading={connecting} step={1}>
+        <StepperItem completed={feedSaved} loading={feedSaving} step={1}>
           <StepperTrigger>
             <StepperIndicator className={STEP_INDICATOR_CLASS}>
               1
@@ -419,9 +265,8 @@ export function SetupStepper({
         </StepperItem>
 
         <StepperItem
-          completed={feedSaved}
-          disabled={!tokenSaved}
-          loading={feedSaving}
+          completed={addons.length > 0}
+          loading={addingAddon}
           step={2}
         >
           <StepperTrigger>
@@ -432,29 +277,10 @@ export function SetupStepper({
           <StepperSeparator className="group-data-[state=completed]/step:bg-primary" />
         </StepperItem>
 
-        <StepperItem
-          completed={addons.length > 0}
-          disabled={!tokenSaved && addons.length === 0}
-          loading={addingAddon}
-          step={3}
-        >
+        <StepperItem completed={torboxSaved} loading={torboxSaving} step={3}>
           <StepperTrigger>
             <StepperIndicator className={STEP_INDICATOR_CLASS}>
               3
-            </StepperIndicator>
-          </StepperTrigger>
-          <StepperSeparator className="group-data-[state=completed]/step:bg-primary" />
-        </StepperItem>
-
-        <StepperItem
-          completed={torboxSaved}
-          disabled={!tokenSaved}
-          loading={torboxSaving}
-          step={4}
-        >
-          <StepperTrigger>
-            <StepperIndicator className={STEP_INDICATOR_CLASS}>
-              4
             </StepperIndicator>
           </StepperTrigger>
         </StepperItem>
@@ -462,82 +288,6 @@ export function SetupStepper({
 
       <StepperPanel className="text-sm">
         <StepperContent value={1}>
-          <div className="space-y-3">
-            {tokenSaved ? (
-              <div className="flex items-center justify-between gap-2 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <CircleCheck className="size-3.5 fill-primary text-primary-foreground" />
-                  <span className="font-medium text-xs">
-                    Cuenta de TMDB conectada
-                  </span>
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={<Button size="icon-xs" variant="ghost" />}
-                  >
-                    <EllipsisVerticalIcon className="size-3 text-muted-foreground" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="min-w-32">
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setTokenSaved(false);
-                        setAwaitingApproval(false);
-                        setError("");
-                      }}
-                    >
-                      <PencilIcon className="size-3" />
-                      Reconectar
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={disconnecting}
-                      onClick={handleDisconnectTmdb}
-                      variant="destructive"
-                    >
-                      <TrashIcon className="size-3" />
-                      Desconectar
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2">
-                <p className="text-center text-[0.7rem] text-muted-foreground">
-                  Conecta tu cuenta de TMDB.
-                </p>
-                {awaitingApproval ? (
-                  <div className="flex flex-col items-center gap-2">
-                    <p className="flex items-center gap-1.5 text-center text-[0.7rem] text-muted-foreground">
-                      <LoaderIcon className="size-3 animate-spin" />
-                      Esperando tu aprobación en TMDB…
-                    </p>
-                    <Button
-                      onClick={handleCancelApproval}
-                      size="sm"
-                      variant="ghost"
-                    >
-                      Cancelar
-                    </Button>
-                  </div>
-                ) : (
-                  <Button
-                    className="btn-primary"
-                    disabled={connecting}
-                    onClick={handleConnectTmdb}
-                    size="sm"
-                  >
-                    {connecting && (
-                      <LoaderIcon className="size-3 animate-spin" />
-                    )}
-                    {connecting ? "Conectando..." : "Conectar con TMDB"}
-                  </Button>
-                )}
-                {error && <p className="text-destructive text-xs">{error}</p>}
-              </div>
-            )}
-          </div>
-        </StepperContent>
-
-        <StepperContent value={2}>
           <SetupFeedStep
             addons={addons}
             initialDiscoverRows={discoverRows}
@@ -547,7 +297,7 @@ export function SetupStepper({
           />
         </StepperContent>
 
-        <StepperContent value={3}>
+        <StepperContent value={2}>
           {addons.length > 0 && !addonsEditMode ? (
             <div className="flex items-center justify-between gap-2 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
               <div className="flex items-center gap-2">
@@ -663,7 +413,7 @@ export function SetupStepper({
           )}
         </StepperContent>
 
-        <StepperContent value={4}>
+        <StepperContent value={3}>
           <div className="space-y-3">
             {torboxSaved ? (
               <div className="flex items-center justify-between gap-2 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
@@ -740,7 +490,10 @@ export function SetupStepper({
         </StepperContent>
       </StepperPanel>
 
-      {canFinish && !setupCompleted && (
+      {/* Todos los pasos (feed, complementos, TorBox) son opcionales: se puede
+          finalizar sin configurar nada. Sin guardar el feed, /home usa
+          DEFAULT_FEED_ROWS. */}
+      {!setupCompleted && (
         <div className="mt-4 flex flex-col gap-2">
           <Button
             className="btn-primary w-full"

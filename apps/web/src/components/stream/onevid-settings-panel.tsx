@@ -65,7 +65,6 @@ interface OneVidSettingsPanelProps {
   /** Abre directo en una sub-vista (ej. el link "Administrar perfiles" del
    * dropdown del avatar entra derecho a "profiles" en vez de la lista). */
   initialView?: SettingsView;
-  linked: boolean;
   setupCompleted: boolean;
   userEmail: string;
   userName: string;
@@ -132,13 +131,11 @@ function StatusBadge({ ok }: { ok: boolean }) {
 function AccountInfoView({
   addonsCount,
   hasTorboxKey,
-  linked,
   userEmail,
   userName,
 }: {
   addonsCount: number;
   hasTorboxKey: boolean;
-  linked: boolean;
   userEmail: string;
   userName: string;
 }) {
@@ -146,7 +143,6 @@ function AccountInfoView({
     <div className="flex flex-col gap-1.5">
       <InfoRow label="Nombre" value={userName} />
       <InfoRow label="Correo" value={userEmail} />
-      <InfoRow label="TMDB" value={<StatusBadge ok={linked} />} />
       <InfoRow label="TorBox" value={<StatusBadge ok={hasTorboxKey} />} />
       <InfoRow label="Complementos" value={addonsCount} />
     </div>
@@ -296,7 +292,6 @@ export function OneVidSettingsPanel({
   hasTorboxKey,
   initialAddons,
   initialView = "home",
-  linked,
   setupCompleted,
   userEmail,
   userName,
@@ -354,7 +349,6 @@ export function OneVidSettingsPanel({
         <AccountInfoView
           addonsCount={initialAddons.length}
           hasTorboxKey={hasTorboxKey}
-          linked={linked}
           userEmail={userEmail}
           userName={userName}
         />
@@ -367,7 +361,6 @@ export function OneVidSettingsPanel({
           feedRows={feedRows}
           hasTorboxKey={hasTorboxKey}
           initialAddons={initialAddons}
-          linked={linked}
           setupCompleted={setupCompleted}
         />
       )}
