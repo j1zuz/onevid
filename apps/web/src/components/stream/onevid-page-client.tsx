@@ -114,7 +114,6 @@ interface OneVidPageClientProps {
   /** Hero destacado (trending película/serie), solo modo feed. */
   heroItems: MediaMeta[];
   initialProfiles: OneVidProfile[];
-  linked: boolean;
   /** Modo "Ver todo": grilla completa de una sola fila. */
   posters?: MediaMeta[];
   /** La grilla corresponde a la fila general de tendencias. */
@@ -135,7 +134,6 @@ export function OneVidPageClient({
   hasTorboxKey,
   heroItems,
   initialProfiles,
-  linked,
   posters,
   postersAreTopTen = false,
   postersTopTenRanks = {},
@@ -186,7 +184,6 @@ export function OneVidPageClient({
           feedConfigured={feedConfigured}
           feedRows={feedRows}
           hasTorboxKey={hasTorboxKey}
-          linked={linked}
           onMovieSelect={handleMovieSelect}
           surface={surface}
           setupCompleted={setupCompleted}

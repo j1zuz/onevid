@@ -10,7 +10,7 @@ import {
   type SavedMediaType,
   setProfileProgress,
 } from "@/lib/onevid-profile";
-import { getOneVidTmdb } from "@/lib/onevid-tmdb";
+import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { getServerT } from "@/lib/server-t";
 import {
   fetchLocalizedTitle,
@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
   // a pedir metadata) — así "Continuar viendo" cae al título en texto en vez
   // del logo. Es best-effort: si no hay token o TMDB falla, conservamos lo guardado.
   try {
-    const { effectiveToken: token } = await getOneVidTmdb(session.user.id);
+    const token = getTmdbReadToken();
     if (token && results.length > 0) {
       const { locale } = await getServerT();
       const tmdbLocale = getTmdbLocale(locale);

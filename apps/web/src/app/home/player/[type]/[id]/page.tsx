@@ -1,11 +1,9 @@
-import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { StreamOnevid } from "@/components/stream/stream-onevid";
 import { auth } from "@/lib/auth";
-import { oneVid } from "@/lib/auth-schema";
-import { db } from "@/lib/db";
+import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { getServerT } from "@/lib/server-t";
 import {
   fetchMovieDetail,
@@ -26,29 +24,15 @@ export default async function PlayerPage({ params }: { params: Params }) {
     redirect("/");
   }
 
-  return <PlayerContent params={params} userId={session.user.id} />;
+  return <PlayerContent params={params} />;
 }
 
-async function PlayerContent({
-  params,
-  userId,
-}: {
-  params: Params;
-  userId: string;
-}) {
+async function PlayerContent({ params }: { params: Params }) {
   const { type: typeParam, id: rawId } = await params;
   const id = decodeURIComponent(rawId);
   const contentType = typeParam === "series" ? "series" : "movie";
   const { locale } = await getServerT();
-  const [row] = await db
-    .select({
-      tmdbUserAccessToken: oneVid.tmdbUserAccessToken,
-      tmdbReadAccessToken: oneVid.tmdbReadAccessToken,
-    })
-    .from(oneVid)
-    .where(eq(oneVid.userId, userId))
-    .limit(1);
-  const token = row?.tmdbUserAccessToken ?? row?.tmdbReadAccessToken;
+  const token = getTmdbReadToken();
   if (!token) {
     redirect("/home");
   }

@@ -47,7 +47,7 @@ function parseSearchResults(payload: unknown): SearchMeta[] {
   return Array.isArray(results) ? results.slice(0, SEARCH_RESULT_LIMIT) : [];
 }
 
-// feedConfigured/feedRows/hasTorboxKey/addons/linked/setupCompleted quedan en
+// feedConfigured/feedRows/hasTorboxKey/addons/setupCompleted quedan en
 // la interfaz para no romper a los server components que ya arman este
 // objeto de props (home/page.tsx), pero el header ya no los usa: esa
 // configuración vive en la página /home/account.
@@ -57,7 +57,6 @@ interface OneVidHeaderProps {
   feedConfigured: boolean;
   feedRows: OneVidFeedRow[];
   hasTorboxKey: boolean;
-  linked: boolean;
   onMovieSelect?: (movie: MediaMeta) => void;
   setupCompleted: boolean;
   /** Pestaña activa; la elige `?surface=` en /home. */

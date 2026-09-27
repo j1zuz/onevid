@@ -10,7 +10,6 @@ import { COLORS } from '@/lib/theme';
 
 export interface SetupStatus {
   setupCompleted: boolean;
-  hasTmdbToken: boolean;
   hasTorboxKey: boolean;
   addonsCount: number;
 }

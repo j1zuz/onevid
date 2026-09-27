@@ -147,14 +147,6 @@ export const oneVid = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    // Deprecated: legacy "paste your Read Access Token" flow. Kept for backwards
-    // compatibility during migration to the TMDB OAuth v4 user token below.
-    tmdbReadAccessToken: text("tmdb_read_access_token"),
-    // TMDB OAuth v4 user access token (read + write). Does not expire by time;
-    // persists until the user revokes access in TMDB or we clear it.
-    tmdbUserAccessToken: text("tmdb_user_access_token"),
-    // TMDB v4 account id tied to the user access token (used for favorite/watchlist writes).
-    tmdbAccountId: text("tmdb_account_id"),
     torboxApiKey: text("torbox_api_key"),
     setupCompleted: boolean("setup_completed").default(false).notNull(),
     // Filas del feed de inicio, en el orden elegido por el usuario en el paso 2

@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getOneVidTmdb } from "@/lib/onevid-tmdb";
+import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { posthogServerCapture } from "@/lib/posthog-server";
 import { getServerT } from "@/lib/server-t";
 import type { MediaMeta } from "@/lib/tmdb";
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ results: [] });
     }
 
-    const { effectiveToken: tmdbToken } = await getOneVidTmdb(session.user.id);
+    const tmdbToken = getTmdbReadToken();
 
     const tmdbResults: MediaMeta[] = [];
     if (tmdbToken) {
