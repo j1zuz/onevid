@@ -4,6 +4,7 @@ import LibVlcPlayerModule, {
   type LibVlcPlayerViewRef,
   type MediaTracks,
   type Track,
+  type VideoContentFit,
 } from 'expo-libvlc-player';
 import { Image } from 'expo-image';
 import * as NavigationBar from 'expo-navigation-bar';
@@ -17,6 +18,8 @@ import {
   Languages,
   LayoutList,
   ListVideo,
+  Maximize,
+  Minimize2,
   Pause,
   PictureInPicture2,
   Play,
@@ -1137,6 +1140,11 @@ function Player({
   const [audioId, setAudioId] = useState<number | null>(null);
   const [subtitleId, setSubtitleId] = useState<number | null>(null);
   const [menu, setMenu] = useState<'audio' | 'subtitle' | null>(null);
+  // Ajuste de pantalla: 'contain' muestra el vídeo completo (con barras negras
+  // si su relación no coincide con la pantalla); 'cover' escala y recorta para
+  // llenarla sin deformar. Cambiar contentFit solo aplica una Matrix sobre el
+  // TextureView nativo, no reinicia el player.
+  const [fit, setFit] = useState<VideoContentFit>('contain');
   const [controlsVisible, setControlsVisible] = useState(true);
   // PiP solo se ofrece si el dispositivo lo soporta (los emuladores casi nunca
   // lo soportan), para no mostrar un botón muerto.
@@ -1640,7 +1648,7 @@ function Player({
         // VLC oficial aplica vía setAudioOutput/ajuste "Salida de audio". Requiere
         // build nativo (prop añadido en patches/expo-libvlc-player@7.1.6.patch).
         audioOutput={Platform.isTV ? 'audiotrack' : undefined}
-        contentFit="contain"
+        contentFit={fit}
         autoplay
         pictureInPicture={pipSupported}
         tracks={playerTracks}
@@ -1781,6 +1789,20 @@ function Player({
                   <PictureInPicture2 size={20} color="#fff" />
                 </Pressable>
               ) : null}
+              <Pressable
+                style={withRing(styles.actionBtn)}
+                onPress={() => {
+                  setFit((f) => (f === 'contain' ? 'cover' : 'contain'));
+                  showControls();
+                }}
+                hitSlop={6}
+              >
+                {fit === 'contain' ? (
+                  <Maximize size={20} color="#fff" />
+                ) : (
+                  <Minimize2 size={20} color="#fff" />
+                )}
+              </Pressable>
             </View>
           </View>
 
