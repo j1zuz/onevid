@@ -4,10 +4,9 @@ import LibVlcPlayerModule, {
   type LibVlcPlayerViewRef,
   type MediaTracks,
   type Track,
-  type VideoContentFit,
 } from 'expo-libvlc-player';
 import { Image } from 'expo-image';
-import * as NavigationBar from 'expo-navigation-bar';
+import { NavigationBar } from 'expo-navigation-bar';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { Slider, Spinner, Typography } from 'heroui-native';
@@ -18,7 +17,7 @@ import {
   Languages,
   LayoutList,
   ListVideo,
-  Maximize,
+  Maximize2,
   Minimize2,
   Pause,
   PictureInPicture2,
@@ -58,10 +57,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
-import {
-  initialWindowMetrics,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EpisodePicker } from '@/components/episode-picker';
 import {
   NextEpisodeButton,
@@ -114,16 +110,11 @@ const SEEK_STEP_MS = 10_000;
 const SEEK_HOLD_DELAY_MS = 320;
 const SEEK_HOLD_INTERVAL_MS = 180;
 const CONTROLS_HIDE_MS = 4_000;
-// Offset superior del botón "atrás" del reproductor. Es el MISMO valor que usa
-// el botón "atrás" de la pantalla de detalle (la altura de la barra de estado en
-// vertical), para que al entrar al reproductor el botón no dé un SALTO de
-// posición. Lo tomamos de `initialWindowMetrics` (constante nativa medida en
-// vertical, el arranque de la app) y NO de useSafeAreaInsets(): este último
-// colapsa de ~24-30 a ~0 mientras el player rota vertical→horizontal, lo que
-// causaba el salto. Al ser una constante estable, coincide con detalle y no se
-// mueve durante la rotación. Mín. 14 como piso. El notch lateral sí se respeta
-// con insets.left/right.
-const PLAYER_CHROME_TOP = Math.max(initialWindowMetrics?.insets.top ?? 0, 14);
+// En landscape el borde superior no debe reutilizar el inset de la barra de
+// estado medido al arrancar en portrait: en teléfonos modernos puede superar
+// 50 px y empuja todo el chrome hacia el centro. El notch queda en un lateral y
+// ya se respeta con insets.left/right; arriba sólo necesitamos separación visual.
+const PLAYER_CHROME_TOP = 10;
 // Watchdog en DOS fases (las fuentes debrid/torbox tardan en arrancar):
 //  • START: solo saltamos si en este tiempo NO hubo NINGUNA señal de vida (ni un
 //    onBuffering, ni pistas detectadas). Eso es un enlace muerto/colgado
@@ -696,16 +687,12 @@ export default function PlayerScreen() {
   useEffect(() => {
     RNStatusBar.setHidden(true, 'fade');
     if (Platform.OS === 'android') {
-      NavigationBar.setVisibilityAsync('hidden').catch(() => {
-        /* ignore */
-      });
+      NavigationBar.setHidden(true);
     }
     return () => {
       RNStatusBar.setHidden(false, 'fade');
       if (Platform.OS === 'android') {
-        NavigationBar.setVisibilityAsync('visible').catch(() => {
-          /* ignore */
-        });
+        NavigationBar.setHidden(false);
       }
     };
   }, []);
@@ -1140,12 +1127,11 @@ function Player({
   const [audioId, setAudioId] = useState<number | null>(null);
   const [subtitleId, setSubtitleId] = useState<number | null>(null);
   const [menu, setMenu] = useState<'audio' | 'subtitle' | null>(null);
-  // Ajuste de pantalla: 'contain' muestra el vídeo completo (con barras negras
-  // si su relación no coincide con la pantalla); 'cover' escala y recorta para
-  // llenarla sin deformar. Cambiar contentFit solo aplica una Matrix sobre el
-  // TextureView nativo, no reinicia el player.
-  const [fit, setFit] = useState<VideoContentFit>('contain');
   const [controlsVisible, setControlsVisible] = useState(true);
+  // La ventana ya está en pantalla completa. Este estado controla si la imagen
+  // conserva todo el fotograma ("contain", con posibles bandas negras) o llena
+  // físicamente la pantalla ("cover", recortando sólo el excedente).
+  const [videoFit, setVideoFit] = useState<'contain' | 'cover'>('contain');
   // PiP solo se ofrece si el dispositivo lo soporta (los emuladores casi nunca
   // lo soportan), para no mostrar un botón muerto.
   // Además, en Android 8-11 (API 26-30) el nativo de expo-libvlc-player llama
@@ -1648,7 +1634,7 @@ function Player({
         // VLC oficial aplica vía setAudioOutput/ajuste "Salida de audio". Requiere
         // build nativo (prop añadido en patches/expo-libvlc-player@7.1.6.patch).
         audioOutput={Platform.isTV ? 'audiotrack' : undefined}
-        contentFit={fit}
+        contentFit={videoFit}
         autoplay
         pictureInPicture={pipSupported}
         tracks={playerTracks}
@@ -1780,6 +1766,28 @@ function Player({
                   <ListVideo size={20} color="#fff" />
                 </Pressable>
               ) : null}
+              <Pressable
+                style={withRing(styles.actionBtn)}
+                onPress={() => {
+                  setVideoFit((fit) =>
+                    fit === 'contain' ? 'cover' : 'contain',
+                  );
+                  showControls();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  videoFit === 'contain'
+                    ? 'Llenar pantalla'
+                    : 'Mostrar video completo'
+                }
+                hitSlop={6}
+              >
+                {videoFit === 'contain' ? (
+                  <Maximize2 size={20} color="#fff" />
+                ) : (
+                  <Minimize2 size={20} color="#fff" />
+                )}
+              </Pressable>
               {pipSupported ? (
                 <Pressable
                   style={withRing(styles.actionBtn)}
@@ -1789,20 +1797,6 @@ function Player({
                   <PictureInPicture2 size={20} color="#fff" />
                 </Pressable>
               ) : null}
-              <Pressable
-                style={withRing(styles.actionBtn)}
-                onPress={() => {
-                  setFit((f) => (f === 'contain' ? 'cover' : 'contain'));
-                  showControls();
-                }}
-                hitSlop={6}
-              >
-                {fit === 'contain' ? (
-                  <Maximize size={20} color="#fff" />
-                ) : (
-                  <Minimize2 size={20} color="#fff" />
-                )}
-              </Pressable>
             </View>
           </View>
 

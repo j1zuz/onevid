@@ -17,7 +17,6 @@ import {
 import { HeroCarousel } from '@/components/home/hero-carousel';
 import { PosterRow } from '@/components/home/poster-row';
 import { LocalVideoPicker } from '@/components/local-video-picker';
-import { SetupPrompt, useSetupStatus } from '@/components/setup-prompt';
 import { StreamLoginScreen } from '@/components/stream-login-screen';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { type MediaMeta } from '@/lib/api';
@@ -44,10 +43,10 @@ export default function HomeTab() {
   const surface = useAppSurface();
   const streamMode = surface?.showLocal === false;
 
-  // El catálogo solo se pide en modo stream Y con setup completo: sin TMDB token
-  // el backend responde 4xx; en ese caso mostramos el SetupPrompt.
-  const { data: status } = useSetupStatus(streamMode);
-  const catalogEnabled = streamMode && status?.setupCompleted === true;
+  // TMDB usa el token global de onevid, no configuración por usuario. En cuanto
+  // hay sesión stream habilitamos las queries; esperar al antiguo setup-status
+  // retrasaba el feed y hacía visible el skeleton aunque ya estuviera precargado.
+  const catalogEnabled = streamMode && surface?.authed === true;
 
   const queryClient = useQueryClient();
   const continueQuery = useQuery({
@@ -85,10 +84,10 @@ export default function HomeTab() {
 
   const sections = feedQuery.data?.sections ?? [];
   const heroItems = feedQuery.data?.hero ?? [];
-  // Solo skeleton si aún no hay datos en cache (primera carga real). Incluye
-  // continueQuery para que todo el contenido aparezca en un solo bloque en vez
-  // de revelarse fila por fila conforme cada query resuelve (efecto cascada).
-  const loading = feedQuery.isLoading || continueQuery.isLoading;
+  // El Inicio completo depende del feed, no del historial. Si "Continuar viendo"
+  // aún se está actualizando, simplemente aparece después; nunca volvemos a tapar
+  // un hero/filas ya precargados con el skeleton de pantalla completa.
+  const loading = feedQuery.isLoading && feedQuery.data == null;
   const error =
     feedQuery.isError || feedQuery.data?.error === 'network'
       ? t('No pudimos cargar el catálogo. Reintenta en un momento.')
@@ -134,8 +133,6 @@ export default function HomeTab() {
   // a pantalla completa, sin que el usuario tenga que ir a Perfil.
   if (!surface.authed)
     return <StreamLoginScreen onContinueWithoutAccount={surface.refresh} />;
-
-  if (status && !status.setupCompleted) return <SetupPrompt />;
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>

@@ -12,7 +12,7 @@ import Animated, {
 
 const VIDEO_SOURCE = require('../../assets/videos/god-rays.mp4');
 // Wordmark "onevid" azul: es el logo principal del overlay animado (el splash
-// nativo usa el ícono circular onevid.png).
+// nativo usa el ícono transparente onevid-transparent.png).
 const LOGO_SOURCE = require('../../assets/images/onevid-text.png');
 
 // El wordmark es apaisado (1568×622). Ancho cómodo en el overlay.

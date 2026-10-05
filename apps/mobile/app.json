@@ -4,19 +4,20 @@
     "slug": "onevid",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./assets/images/onevid.png",
+    "icon": "./assets/images/onevid-transparent.png",
     "scheme": "onevid",
     "buildCacheProvider": "eas",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
+      "requireFullScreen": true,
       "bundleIdentifier": "tech.hackw.onevid"
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#000000",
-        "foregroundImage": "./assets/images/onevid.png",
-        "monochromeImage": "./assets/images/onevid.png"
+        "foregroundImage": "./assets/images/onevid-transparent.png",
+        "monochromeImage": "./assets/images/onevid-transparent.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "tech.hackw.onevid"
@@ -42,7 +43,7 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#000000",
-          "image": "./assets/images/onevid.png",
+          "image": "./assets/images/onevid-transparent.png",
           "imageWidth": 200
         }
       ],
