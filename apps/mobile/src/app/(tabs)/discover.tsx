@@ -9,7 +9,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
 import { PosterCard } from '@/components/poster-card';
 import { PosterRow } from '@/components/home/poster-row';
-import { SetupPrompt, useSetupStatus } from '@/components/setup-prompt';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { useResponsive } from '@/hooks/use-responsive';
 import {
@@ -43,10 +42,9 @@ export default function DiscoverTab() {
   // pedimos catálogo. `surface` se revalida en cada focus.
   const surface = useAppSurface();
   const streamMode = surface?.showLocal === false;
-  // El catálogo/búsqueda solo se piden en modo stream Y con setup completo (sin
-  // TMDB token el backend responde 4xx; mostramos el SetupPrompt en su lugar).
-  const { data: status } = useSetupStatus(streamMode);
-  const catalogEnabled = streamMode && status?.setupCompleted === true;
+  // El catálogo usa el TMDB global de onevid; no bloqueamos la búsqueda detrás
+  // del setup antiguo de cada usuario.
+  const catalogEnabled = streamMode && surface?.authed === true;
 
   const isSearching = query.trim().length > 0;
 
@@ -134,8 +132,6 @@ export default function DiscoverTab() {
         />
       </View>
     );
-  if (status && !status.setupCompleted) return <SetupPrompt />;
-
   return (
     <View
       style={{

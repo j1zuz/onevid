@@ -14,7 +14,13 @@ import { BackHandler, Pressable, ScrollView, TextInput, View } from 'react-nativ
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { avatarSource } from '@/lib/avatars';
-import { prefetchFeed, prefetchHome } from '@/lib/home-feed';
+import {
+  feedSectionsQuery,
+  prefetchFeed,
+  prefetchHome,
+  warmProfileFeed,
+} from '@/lib/home-feed';
+import type { FeedSectionsResponse } from '@/lib/api';
 import {
   type Profile,
   listProfiles,
@@ -33,6 +39,7 @@ const NAME_AREA_H = 39;
 export default function ProfilesScreen() {
   const { manage } = useLocalSearchParams<{ manage?: string }>();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const { i18n } = useTranslation();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [max, setMax] = useState(5);
@@ -40,6 +47,10 @@ export default function ProfilesScreen() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(manage === '1');
   const [pinFor, setPinFor] = useState<Profile | null>(null);
+  const pinWarmupRef = useRef<{
+    profileId: string;
+    promise: Promise<FeedSectionsResponse | null>;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,20 +92,40 @@ export default function ProfilesScreen() {
 
   const enter = useCallback(
     async (p: Profile) => {
+      const warmed =
+        pinWarmupRef.current?.profileId === p.id
+          ? await pinWarmupRef.current.promise
+          : null;
       // Esperamos a que el cambio de perfil termine ANTES de navegar:
       // setActiveProfile fija el id en memoria (apiFetch ya lo usa), vacía el
       // cache de React Query del perfil anterior si cambió (así el Inicio nunca
       // alcanza a pintar las filas de otro perfil) y persiste en SecureStore.
       await setActiveProfile(p);
+      // `setActiveProfile` limpia las queries del perfil anterior. Si el usuario
+      // venía escribiendo un PIN, reusamos el feed que se descargó durante ese
+      // tiempo y lo sembramos bajo la misma key que consume Inicio.
+      if (warmed) {
+        queryClient.setQueryData(
+          feedSectionsQuery(i18n.language).queryKey,
+          warmed,
+        );
+      }
       // Con el perfil ya activo (header X-Profile-Id correcto) precalentamos el
-      // Inicio completo en segundo plano, para que al montar las carátulas ya
-      // estén y no se vea el fallback gris. Si el perfil no cambió, el catálogo
-      // ya viene caliente del prefetch de arriba; si cambió, se acaba de limpiar
-      // el cache y esto lo vuelve a llenar con los datos del perfil elegido.
-      void prefetchHome(queryClient, i18n.language);
-      router.replace('/home');
+      // Inicio completo ANTES de navegar, para que la pantalla nunca alcance a
+      // pintar su skeleton. Si el PIN ya calentó el feed, esta llamada reutiliza
+      // la misma cache y sólo inicia los datos propios del perfil.
+      try {
+        await prefetchHome(queryClient, i18n.language);
+        router.replace('/home');
+      } catch {
+        toast.show({
+          variant: 'danger',
+          label: 'No pudimos cargar el Inicio',
+          description: 'Revisa tu conexión e intenta nuevamente.',
+        });
+      }
     },
-    [queryClient, i18n.language],
+    [queryClient, i18n.language, toast],
   );
 
   const handlePick = useCallback(
@@ -104,6 +135,13 @@ export default function ProfilesScreen() {
         return;
       }
       if (p.hasPin) {
+        // Empieza en cuanto aparece el PIN: los segundos que el usuario tarda en
+        // escribirlo se aprovechan para descargar JSON y primeras carátulas.
+        // No activamos el perfil ni pedimos "Continuar viendo" hasta validarlo.
+        pinWarmupRef.current = {
+          profileId: p.id,
+          promise: warmProfileFeed(p.id),
+        };
         setPinFor(p);
         return;
       }
@@ -209,7 +247,7 @@ export default function ProfilesScreen() {
           onSuccess={() => {
             // Navegar directo; la pantalla se desmonta con el replace, así no
             // se ve la grilla de perfiles entre medio.
-            if (pinFor) void enter(pinFor);
+            return pinFor ? enter(pinFor) : Promise.resolve();
           }}
         />
       ) : null}
@@ -309,7 +347,7 @@ function PinPrompt({
 }: {
   profile: Profile;
   onCancel: () => void;
-  onSuccess: () => void;
+  onSuccess: () => Promise<void> | void;
 }) {
   const { toast } = useToast();
   const [pin, setPin] = useState('');
@@ -331,7 +369,7 @@ function PinPrompt({
       try {
         const ok = await verifyProfilePin(profile.id, value);
         if (ok) {
-          onSuccess();
+          await onSuccess();
         } else {
           setPin('');
           toast.show({

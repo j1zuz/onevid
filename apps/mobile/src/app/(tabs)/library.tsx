@@ -8,7 +8,6 @@ import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
 import { PosterRow } from '@/components/home/poster-row';
-import { SetupPrompt, useSetupStatus } from '@/components/setup-prompt';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import type { MediaMeta } from '@/lib/api';
 import { navigateToDetail } from '@/lib/detail-nav';
@@ -60,8 +59,6 @@ export default function LibraryTab() {
     [queryClient, lang],
   );
 
-  const { data: status } = useSetupStatus(streamMode);
-
   if (surface == null)
     return <View style={{ flex: 1, backgroundColor: COLORS.background }} />;
   // Modo local, o stream sin sesión (TV): empty state pidiendo iniciar sesión.
@@ -85,8 +82,6 @@ export default function LibraryTab() {
         />
       </View>
     );
-  if (status && !status.setupCompleted) return <SetupPrompt />;
-
   return (
     <View
       style={{

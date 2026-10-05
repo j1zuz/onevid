@@ -1,8 +1,9 @@
 import { Image } from 'expo-image';
-import { BlurView } from 'expo-blur';
+import { BlurTargetView, BlurView } from 'expo-blur';
 import { PressableFeedback, Typography } from 'heroui-native';
 import { CircleCheck } from 'lucide-react-native';
-import { View } from 'react-native';
+import { useRef } from 'react';
+import { Image as NativeImage, View } from 'react-native';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { type MediaMeta, tmdbImage } from '@/lib/api';
 import { useImageGeneration } from '@/lib/image-refresh';
@@ -36,6 +37,7 @@ export function PosterCard({
 }: PosterCardProps) {
   const containerStyle = width != null ? { width } : undefined;
   const { focused, focusProps } = useTvFocus();
+  const blurTargetRef = useRef<View>(null);
   // Cambia al salir del reproductor: fuerza a expo-image a recargar la carátula
   // (que en Android queda en gris tras la superficie de vídeo). Ver image-refresh.
   const imgGen = useImageGeneration();
@@ -43,6 +45,7 @@ export function PosterCard({
   // a 16/9 con cover).
   const imgPath = landscape ? (item.background ?? item.poster) : item.poster;
   const imgSize = landscape ? 'w780' : 'w500';
+  const imageSource = imgPath ? (tmdbImage(imgPath, imgSize) ?? imgPath) : null;
   return (
     <PressableFeedback
       onPress={onPress}
@@ -51,25 +54,42 @@ export function PosterCard({
       style={[{ flex: width == null ? 1 : undefined }, containerStyle]}
     >
       <View
-        className="w-full overflow-hidden rounded-xl bg-muted"
-        style={[{ aspectRatio: landscape ? 16 / 9 : 2 / 3 }, tvFocusRing(focused)]}
+        className="w-full overflow-hidden bg-muted"
+        style={[
+          {
+            aspectRatio: landscape ? 16 / 9 : 2 / 3,
+            // El badge nace en (0,0). Si conservamos el radio de la tarjeta en
+            // esta esquina, el propio recorte deja visible una cuña de imagen
+            // que parece margen. Con ranking esa esquina pertenece al badge.
+            borderTopLeftRadius: rank != null ? 0 : 12,
+            borderTopRightRadius: 12,
+            borderBottomRightRadius: 12,
+            borderBottomLeftRadius: 12,
+          },
+          tvFocusRing(focused),
+        ]}
       >
-        {imgPath ? (
-          <Image
-            // `recyclingKey` atado al título: al volver del detalle/reproductor
-            // las FlatList reciclan estas celdas y, sin una clave estable,
-            // expo-image reutiliza la vista nativa con el bitmap ya liberado y
-            // se queda en gris. Con la clave, resetea y recarga la imagen del
-            // ítem correcto. El prefijo de generación fuerza además una recarga
-            // al volver del reproductor (bitmap liberado por la GPU en Android).
-            recyclingKey={`${imgGen}:${item.type}:${item.id}`}
-            source={tmdbImage(imgPath, imgSize) ?? imgPath}
-            contentFit="cover"
-            transition={150}
-            cachePolicy="memory-disk"
-            style={{ width: '100%', height: '100%' }}
-          />
-        ) : null}
+        <BlurTargetView
+          ref={blurTargetRef}
+          style={{ width: '100%', height: '100%' }}
+        >
+          {imageSource ? (
+            <Image
+              // `recyclingKey` atado al título: al volver del detalle/reproductor
+              // las FlatList reciclan estas celdas y, sin una clave estable,
+              // expo-image reutiliza la vista nativa con el bitmap ya liberado y
+              // se queda en gris. Con la clave, resetea y recarga la imagen del
+              // ítem correcto. El prefijo de generación fuerza además una recarga
+              // al volver del reproductor (bitmap liberado por la GPU en Android).
+              recyclingKey={`${imgGen}:${item.type}:${item.id}`}
+              source={imageSource}
+              contentFit="cover"
+              transition={150}
+              cachePolicy="memory-disk"
+              style={{ width: '100%', height: '100%' }}
+            />
+          ) : null}
+        </BlurTargetView>
         {/* Badge de Top 10, con la MISMA forma que la web: bordes superior e
             izquierdo rectos y solo el derecho en diagonal. Antes se inclinaba
             todo el contenedor con skewX, que torcía también el borde izquierdo
@@ -81,11 +101,10 @@ export function PosterCard({
             className="overflow-hidden"
             style={{
               position: 'absolute',
-              top: 4,
-              left: 4,
-              width: 44,
-              height: 28,
-              borderTopLeftRadius: 6,
+              top: 0,
+              left: 0,
+              width: 50,
+              height: 32,
               justifyContent: 'flex-start',
             }}
           >
@@ -95,28 +114,46 @@ export function PosterCard({
                 top: -6,
                 bottom: -6,
                 left: -24,
-                right: 0,
+                // Dejamos libre el extremo derecho: al inclinar este relleno se
+                // forma una diagonal visible en vez de volver a cubrir todo el
+                // rectángulo exterior.
+                right: 8,
                 overflow: 'hidden',
-                transform: [{ skewX: '-12deg' }],
+                transform: [{ skewX: '-18deg' }],
               }}
             >
-              <BlurView
-                intensity={85}
-                tint="default"
+              {/* En Android BlurView devolvía una placa gris en FlatList incluso
+                  con BlurTargetView. Una copia desenfocada del mismo backdrop es
+                  determinista en móvil y TV y conserva colores/textura reales. */}
+              {imageSource ? (
+                <NativeImage
+                  source={{ uri: imageSource }}
+                  resizeMode="cover"
+                  blurRadius={4}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                    left: 0,
+                  }}
+                />
+              ) : null}
+              <View
                 style={{
                   position: 'absolute',
                   top: 0,
                   right: 0,
                   bottom: 0,
                   left: 0,
-                  backgroundColor: 'rgba(0,0,0,0.20)',
+                  backgroundColor: 'rgba(0,0,0,0.12)',
                 }}
               />
             </View>
             <Typography
               type="body"
               weight="medium"
-              style={{ color: '#fff', paddingTop: 1, paddingLeft: 6 }}
+              style={{ color: '#fff', paddingTop: 3, paddingLeft: 7 }}
             >
               #{rank}
             </Typography>
@@ -139,6 +176,8 @@ export function PosterCard({
             }}
           >
             <BlurView
+              blurTarget={blurTargetRef}
+              blurMethod="dimezisBlurViewSdk31Plus"
               intensity={60}
               tint="dark"
               style={{

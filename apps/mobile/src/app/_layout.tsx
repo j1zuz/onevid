@@ -147,7 +147,15 @@ function RootLayout() {
                     contentStyle: { backgroundColor: COLORS.background },
                     animation: 'none',
                   }}
-                />
+                >
+                  {/* Expo 56 recomienda declarar la orientación por ruta. El lock
+                      imperativo del player queda como respaldo al volver de PiP,
+                      pero la navegación ya presenta esta pantalla en landscape. */}
+                  <Stack.Screen
+                    name="player"
+                    options={{ orientation: 'landscape' }}
+                  />
+                </Stack>
               </AppSurfaceProvider>
               {!splashDone ? (
                 <AnimatedSplash
