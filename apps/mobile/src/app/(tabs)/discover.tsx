@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ScrollShadow, SearchField, Skeleton, Typography } from 'heroui-native';
 import { Search } from 'lucide-react-native';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,6 +18,7 @@ import {
 } from '@/lib/api';
 import { navigateToDetail } from '@/lib/detail-nav';
 import { COLORS } from '@/lib/theme';
+import { prefetchMediaImages } from '@/lib/home-feed';
 
 // Filas de skeleton mientras llega el feed: no sabemos cuántas trae hasta que
 // responde el backend.
@@ -66,8 +67,19 @@ export default function DiscoverTab() {
       ),
     enabled: catalogEnabled && !isSearching,
   });
-  const sections = feedQuery.data?.sections ?? [];
+  const sections = useMemo(
+    () => feedQuery.data?.sections ?? [],
+    [feedQuery.data?.sections],
+  );
   const catalogLoading = feedQuery.isLoading;
+
+  useEffect(() => {
+    if (sections.length > 0) {
+      prefetchMediaImages(
+        sections.flatMap((section) => section.items.slice(0, 6)),
+      );
+    }
+  }, [sections]);
 
   // Búsqueda: cubre películas y series, intercaladas.
   const searchMoviesQuery = useQuery({
@@ -87,10 +99,17 @@ export default function DiscoverTab() {
     enabled: catalogEnabled && isSearching && debouncedQuery.length > 0,
   });
 
-  const searchResults = interleave(
-    searchMoviesQuery.data ?? [],
-    searchSeriesQuery.data ?? [],
+  const searchResults = useMemo(
+    () =>
+      interleave(
+        searchMoviesQuery.data ?? [],
+        searchSeriesQuery.data ?? [],
+      ),
+    [searchMoviesQuery.data, searchSeriesQuery.data],
   );
+  useEffect(() => {
+    if (searchResults.length > 0) prefetchMediaImages(searchResults);
+  }, [searchResults]);
   const searchLoading =
     searchMoviesQuery.isLoading ||
     searchSeriesQuery.isLoading ||

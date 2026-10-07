@@ -1,7 +1,12 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import type { ContinueWatchingItem } from '@/components/home/continue-watching-row';
-import { apiFetch, type FeedSectionsResponse, tmdbImage } from './api';
+import {
+  apiFetch,
+  type FeedSectionsResponse,
+  type MediaMeta,
+  tmdbImage,
+} from './api';
 
 // Fuente única de las queries del Inicio: `home.tsx` las usa en sus `useQuery` y
 // la selección de perfil las prefetchea con la MISMA queryKey, así React Query
@@ -20,18 +25,22 @@ export const continueWatchingQuery = (lang: string) => ({
     ),
 });
 
+export function prefetchMediaImages(items: MediaMeta[], limit = 16): void {
+  const urls = items
+    .map((it) => tmdbImage(it.background ?? it.poster, 'w780'))
+    .filter((u): u is string => Boolean(u))
+    .slice(0, limit);
+  if (urls.length > 0) {
+    Image.prefetch(urls, { cachePolicy: 'memory-disk' }).catch(() => undefined);
+  }
+}
+
 function prefetchFeedImages(feed: FeedSectionsResponse): void {
   const items = [
     ...(feed.hero ?? []),
     ...(feed.sections ?? []).flatMap((s) => s.items.slice(0, 6)),
   ];
-  const urls = items
-    .map((it) => tmdbImage(it.background ?? it.poster, 'w780'))
-    .filter((u): u is string => Boolean(u))
-    .slice(0, 16);
-  if (urls.length > 0) {
-    Image.prefetch(urls, { cachePolicy: 'memory-disk' }).catch(() => undefined);
-  }
+  prefetchMediaImages(items);
 }
 
 /**

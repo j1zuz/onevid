@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Skeleton, Typography } from 'heroui-native';
 import { ArrowLeft } from 'lucide-react-native';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -12,6 +12,7 @@ import { useResponsive } from '@/hooks/use-responsive';
 import { tvFocusRing, useTvFocus } from '@/hooks/use-tv-focus';
 import { apiFetch, type MediaMeta } from '@/lib/api';
 import { navigateToDetail } from '@/lib/detail-nav';
+import { prefetchMediaImages } from '@/lib/home-feed';
 import { COLORS } from '@/lib/theme';
 import { useWatchState } from '@/lib/watch-state';
 
@@ -77,8 +78,12 @@ export default function CatalogScreen() {
     enabled: Boolean(type && catalog),
   });
 
-  const items = query.data?.items ?? [];
+  const items = useMemo(() => query.data?.items ?? [], [query.data?.items]);
   const topTenRanks = query.data?.topTenRanks ?? {};
+
+  useEffect(() => {
+    if (items.length > 0) prefetchMediaImages(items);
+  }, [items]);
 
   const handlePressItem = useCallback(
     (item: MediaMeta) => {
