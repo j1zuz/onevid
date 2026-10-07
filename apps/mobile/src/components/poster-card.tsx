@@ -58,10 +58,9 @@ export function PosterCard({
         style={[
           {
             aspectRatio: landscape ? 16 / 9 : 2 / 3,
-            // El badge nace en (0,0). Si conservamos el radio de la tarjeta en
-            // esta esquina, el propio recorte deja visible una cuña de imagen
-            // que parece margen. Con ranking esa esquina pertenece al badge.
-            borderTopLeftRadius: rank != null ? 0 : 12,
+            // La esquina de la tarjeta conserva su radio aunque haya badge:
+            // el badge se adapta a la curva en vez de cuadrarla.
+            borderTopLeftRadius: 12,
             borderTopRightRadius: 12,
             borderBottomRightRadius: 12,
             borderBottomLeftRadius: 12,
@@ -106,6 +105,8 @@ export function PosterCard({
               width: 50,
               height: 32,
               justifyContent: 'flex-start',
+              borderTopLeftRadius: 10,
+              borderTopRightRadius: 6,
             }}
           >
             <View
@@ -129,7 +130,7 @@ export function PosterCard({
                 <NativeImage
                   source={{ uri: imageSource }}
                   resizeMode="cover"
-                  blurRadius={4}
+                  blurRadius={7}
                   style={{
                     position: 'absolute',
                     top: 0,
@@ -146,7 +147,7 @@ export function PosterCard({
                   right: 0,
                   bottom: 0,
                   left: 0,
-                  backgroundColor: 'rgba(0,0,0,0.12)',
+                  backgroundColor: 'rgba(0,0,0,0.2)',
                 }}
               />
             </View>
