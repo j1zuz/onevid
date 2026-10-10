@@ -1,5 +1,6 @@
 "use client";
 
+import posthog from "posthog-js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isTorboxRedirectUrl, needsMediaBunny } from "@/utils/stream-codec";
 
@@ -17,7 +18,15 @@ export type UseMediaBunny = MediaBunnyState & {
   activeAudioTrack: number;
   /** No hace nada si la fuente no tiene varias pistas o va por el camino OPFS. */
   selectAudioTrack: (index: number) => void;
+  /** Vuelve a cargar la misma fuente desde cero (tras un error). */
+  retry: () => void;
 };
+
+/**
+ * `network`: se cayó una lectura de rango de la fuente remota (ver
+ * `RangeReadError`). `other`: cualquier otro fallo de la conversión.
+ */
+export type MediaBunnyErrorReason = "network" | "other";
 
 export type MediaBunnyState =
   | { status: "idle" }
@@ -27,7 +36,7 @@ export type MediaBunnyState =
   // de esperar a que termine todo. `src` es estable durante toda la sesión.
   | { status: "streaming"; src: string; progress: number }
   | { status: "done"; src: string }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string; reason: MediaBunnyErrorReason };
 
 // Codecs the browser's <video> element can already decode natively once
 // remuxed into an MP4 container — matches this project's own compatibility
@@ -70,20 +79,78 @@ const MAX_QUOTA_RETRIES = 8;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+// Un segmento de ruta así de largo es casi siempre un token del debrid (API
+// key, hash, UUID). Se reemplaza antes de reportar la URL.
+const LONG_PATH_SEGMENT_CHARS = 16;
+
+/** Origen + ruta de la URL sin query ni segmentos largos: nunca lleva tokens. */
+function redactStreamUrl(url: string): string {
+  try {
+    const { origin, pathname } = new URL(url);
+    const path = pathname
+      .split("/")
+      .map((segment) =>
+        segment.length >= LONG_PATH_SEGMENT_CHARS ? ":redacted" : segment
+      )
+      .join("/");
+    return origin + path;
+  } catch {
+    return "invalid-url";
+  }
+}
+
+/**
+ * Una lectura HTTP Range de la fuente remota falló (la conexión se cayó). El
+ * mensaje es estable y no lleva la URL: la URL del debrid trae tokens, y un
+ * mensaje distinto por título partía el error en un issue por película.
+ */
+class RangeReadError extends Error {
+  /** URL de la fuente sin tokens (ver `redactStreamUrl`). */
+  readonly streamUrl: string;
+
+  constructor(url: string, cause: Error) {
+    super(`Range read failed: ${cause.message}`, { cause });
+    this.name = "RangeReadError";
+    this.streamUrl = redactStreamUrl(url);
+  }
+}
+
+// Una caída de red dispara varias lecturas fallidas a la vez (workers de
+// prefetch en paralelo, un `Input` por carril). Se reporta una sola por carga:
+// la clave es el `abortedRef` de cada ejecución del efecto.
+const reportedLoads = new WeakSet<object>();
+
+function reportRangeReadError(
+  error: RangeReadError,
+  stage: "prefetch" | "playback",
+  load: object
+) {
+  if (reportedLoads.has(load)) {
+    return;
+  }
+  reportedLoads.add(load);
+  posthog.captureException(error, {
+    $exception_fingerprint: "mediabunny-range-read-failed",
+    $issue_name: "Range read failed",
+    stage,
+    stream_url: error.streamUrl,
+  });
+}
+
 /**
  * Builds the options for mediabunny's `UrlSource`, which reads the remote stream
  * over parallel HTTP Range requests deep inside the library. When the connection
  * drops, `fetch` rejects with a bare, stack-less error (Firefox:
- * `TypeError: NetworkError when attempting to fetch resource.`) that our
- * `try/catch` around `execute()` cannot reach, so it escapes to
- * `unhandledrejection`.
+ * `TypeError: NetworkError when attempting to fetch resource.`).
  *
  * The `fetchFn` wrapper intercepts every read so a genuine failure is re-thrown
- * as an `Error` that carries the URL. That travels the normal conversion-error
- * path (→ `setState({ status: "error" })`) with real context. A read that fails
- * only because the component unmounted mid-request keeps its original bare shape,
- * so the `before_send` filter in instrumentation-client.ts drops it as noise
- * instead of it becoming a stack-carrying issue of its own.
+ * as a `RangeReadError`. A read that a conversion awaits travels the normal
+ * conversion-error path (→ `setState({ status: "error" })`). A read from a
+ * background prefetch worker has no awaiting caller, so mediabunny hands it to
+ * `handleUnhandledError` instead of letting it escape to `unhandledrejection`.
+ * A read that fails only because the component unmounted mid-request keeps its
+ * original bare shape, so the `before_send` filter in instrumentation-client.ts
+ * drops it as noise.
  */
 function urlSourceOptions(url: string, abortedRef: { current: boolean }) {
   return {
@@ -95,10 +162,18 @@ function urlSourceOptions(url: string, abortedRef: { current: boolean }) {
           throw error;
         }
         const cause = error instanceof Error ? error : new Error(String(error));
-        throw new Error(`Range read failed for ${url}: ${cause.message}`, {
-          cause,
-        });
+        throw new RangeReadError(url, cause);
       }
+    },
+    handleUnhandledError: (error: unknown) => {
+      if (abortedRef.current) {
+        return;
+      }
+      if (error instanceof RangeReadError) {
+        reportRangeReadError(error, "prefetch", abortedRef);
+        return;
+      }
+      console.warn("[mediabunny] background read failed:", error);
     },
   };
 }
@@ -1066,6 +1141,8 @@ export function useMediaBunny(
   const [state, setState] = useState<MediaBunnyState>({ status: "idle" });
   const [audioTracks, setAudioTracks] = useState<MediaBunnyAudioTrack[]>([]);
   const [activeAudioTrack, setActiveAudioTrack] = useState(0);
+  // Sube con cada `retry()`: es dependencia del efecto de carga.
+  const [attempt, setAttempt] = useState(0);
   const blobUrlRef = useRef<string | null>(null);
   const opfsNameRef = useRef<string | null>(null);
   const conversionRef = useRef<CancellableConversion | null>(null);
@@ -1087,6 +1164,8 @@ export function useMediaBunny(
     setActiveAudioTrack(index);
     switcher(index);
   }, []);
+
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
   useEffect(() => {
     if (!(source && needsMediaBunny(filename, codecHint))) {
@@ -1262,11 +1341,21 @@ export function useMediaBunny(
         blobUrlRef.current = blobUrl;
         setState({ status: "done", src: blobUrl });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
         await cleanup();
-        if (!abortedRef.current) {
-          setState({ status: "error", message: msg });
+        if (abortedRef.current) {
+          return;
         }
+        if (err instanceof RangeReadError) {
+          reportRangeReadError(err, "playback", abortedRef);
+          setState({
+            status: "error",
+            message: err.message,
+            reason: "network",
+          });
+          return;
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        setState({ status: "error", message: msg, reason: "other" });
       }
     })();
 
@@ -1282,7 +1371,7 @@ export function useMediaBunny(
         cleanup();
       }
     };
-  }, [source, filename, codecHint]);
+  }, [source, filename, codecHint, attempt]);
 
-  return { ...state, audioTracks, activeAudioTrack, selectAudioTrack };
+  return { ...state, audioTracks, activeAudioTrack, selectAudioTrack, retry };
 }

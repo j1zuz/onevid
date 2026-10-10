@@ -1,9 +1,10 @@
 "use client";
 
 import { Button } from "@workspace/ui/components/button";
-import { ArrowLeftIcon } from "lucide-react";
+import { ArrowLeftIcon, LayersIcon, RotateCcwIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import posthog from "posthog-js";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   type NextEpisodeRef,
@@ -82,6 +83,13 @@ const PlayerTopBar = memo(function PlayerTopBar({
     </div>
   );
 });
+
+// El mensaje crudo del hook no se muestra: puede traer la URL del debrid con
+// sus tokens, y en inglés no le dice al usuario qué hacer.
+const PLAYBACK_ERROR_COPY = {
+  network: "Se perdió la conexión con la fuente.",
+  other: "No se pudo reproducir esta fuente en el navegador.",
+} as const;
 
 // Antelación con la que aparece el botón de "siguiente episodio". En un
 // episodio corto 75 s serían casi el final entero, así que se recorta a una
@@ -297,7 +305,37 @@ export function StreamOnevid({
   // selector (cambio de medio en caliente): se guarda el currentTime justo
   // antes de cambiar la fuente y se aplica una vez, en el primer `playing`.
   const pendingSeekSec = useRef<number | null>(null);
+  const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
+  // Si el próximo error de esta fuente llega después de pulsar "Reintentar".
+  // Mide si reintentar recupera la reproducción (`playback_error_shown`).
+  const retriedRef = useRef(false);
+  const errorReason =
+    mediaBunny.status === "error" ? mediaBunny.reason : null;
+  useEffect(() => {
+    if (errorReason) {
+      posthog.capture("playback_error_shown", {
+        reason: errorReason,
+        retried: retriedRef.current,
+      });
+    }
+  }, [errorReason]);
+  const handleRetry = useCallback(() => {
+    posthog.capture("playback_error_action", {
+      action: "retry",
+      reason: errorReason,
+    });
+    retriedRef.current = true;
+    mediaBunny.retry();
+  }, [errorReason, mediaBunny.retry]);
+  const handleChooseSource = useCallback(() => {
+    posthog.capture("playback_error_action", {
+      action: "choose_source",
+      reason: errorReason,
+    });
+    setSourcePickerOpen(true);
+  }, [errorReason]);
   const handleSourceChange = useCallback((source: StreamWithAddon) => {
+    retriedRef.current = false;
     const vid = document.querySelector<HTMLVideoElement>(
       ".stream-video-player-root video"
     );
@@ -440,7 +478,9 @@ export function StreamOnevid({
             activeSource={selectedSource}
             contentId={rawId}
             contentType={contentType}
+            onOpenChange={setSourcePickerOpen}
             onSelect={handleSourceChange}
+            open={sourcePickerOpen}
           />
         }
       />
@@ -505,10 +545,25 @@ export function StreamOnevid({
         )}
 
         {mediaBunny.status === "error" && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80">
-            <p className="px-6 text-center text-destructive text-sm">
-              {mediaBunny.message}
-            </p>
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/80 px-6 text-center">
+            <div className="space-y-1">
+              <p className="font-medium text-sm text-white">
+                {PLAYBACK_ERROR_COPY[mediaBunny.reason]}
+              </p>
+              <p className="text-white/70 text-xs">
+                Reintenta o elige otra fuente.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button onClick={handleRetry} size="sm">
+                <RotateCcwIcon className="mr-2 size-4" />
+                Reintentar
+              </Button>
+              <Button onClick={handleChooseSource} size="sm" variant="outline">
+                <LayersIcon className="mr-2 size-4" />
+                Elegir otra fuente
+              </Button>
+            </div>
           </div>
         )}
         {activeSrc && (

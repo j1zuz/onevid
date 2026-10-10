@@ -22,7 +22,10 @@ interface StreamSourcePickerProps {
    */
   contentId: string;
   contentType: StreamType;
+  onOpenChange: (open: boolean) => void;
   onSelect: (source: StreamWithAddon) => void;
+  /** Lo controla el player para poder abrirlo también desde el aviso de error. */
+  open: boolean;
 }
 
 function getStreamLines(source: StreamWithAddon): string[] {
@@ -108,9 +111,10 @@ export function StreamSourcePicker({
   activeSource,
   contentId,
   contentType,
+  onOpenChange,
   onSelect,
+  open,
 }: StreamSourcePickerProps) {
-  const [open, setOpen] = useState(false);
   const [sources, setSources] = useState<StreamWithAddon[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -150,7 +154,7 @@ export function StreamSourcePicker({
   }, [load]);
 
   const handleSelect = (source: StreamWithAddon) => {
-    setOpen(false);
+    onOpenChange(false);
     if (source.url !== activeSource?.url) {
       onSelect(source);
     }
@@ -161,13 +165,13 @@ export function StreamSourcePicker({
       <button
         aria-label="Cambiar medio"
         className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-        onClick={() => setOpen(true)}
+        onClick={() => onOpenChange(true)}
         type="button"
       >
         <LayersIcon className="size-5" />
       </button>
 
-      <Drawer onOpenChange={setOpen} open={open} swipeDirection="right">
+      <Drawer onOpenChange={onOpenChange} open={open} swipeDirection="right">
         <DrawerContent>
           <DrawerHeader>
             <DrawerTitle>Medios</DrawerTitle>
