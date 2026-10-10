@@ -29,7 +29,7 @@ const SITE_DESCRIPTION = "Tu reproductor de video.";
 export const metadata: Metadata = {
   title: {
     default: "onevid",
-    template: "%s | onevid",
+    template: "%s • onevid",
   },
   description: SITE_DESCRIPTION,
   metadataBase: new URL("https://onevid.hackw.tech"),
