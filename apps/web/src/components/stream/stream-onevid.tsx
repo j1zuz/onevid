@@ -319,21 +319,17 @@ export function StreamOnevid({
       });
     }
   }, [errorReason]);
-  const handleRetry = useCallback(() => {
-    posthog.capture("playback_error_action", {
-      action: "retry",
-      reason: errorReason,
-    });
+  const trackErrorAction = (action: "retry" | "choose_source") =>
+    posthog.capture("playback_error_action", { action, reason: errorReason });
+  const handleRetry = () => {
+    trackErrorAction("retry");
     retriedRef.current = true;
     mediaBunny.retry();
-  }, [errorReason, mediaBunny.retry]);
-  const handleChooseSource = useCallback(() => {
-    posthog.capture("playback_error_action", {
-      action: "choose_source",
-      reason: errorReason,
-    });
+  };
+  const handleChooseSource = () => {
+    trackErrorAction("choose_source");
     setSourcePickerOpen(true);
-  }, [errorReason]);
+  };
   const handleSourceChange = useCallback((source: StreamWithAddon) => {
     retriedRef.current = false;
     const vid = document.querySelector<HTMLVideoElement>(

@@ -26,7 +26,7 @@ export type UseMediaBunny = MediaBunnyState & {
  * `network`: se cayó una lectura de rango de la fuente remota (ver
  * `RangeReadError`). `other`: cualquier otro fallo de la conversión.
  */
-export type MediaBunnyErrorReason = "network" | "other";
+type MediaBunnyErrorReason = "network" | "other";
 
 export type MediaBunnyState =
   | { status: "idle" }
@@ -79,62 +79,24 @@ const MAX_QUOTA_RETRIES = 8;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-// Un segmento de ruta así de largo es casi siempre un token del debrid (API
-// key, hash, UUID). Se reemplaza antes de reportar la URL.
-const LONG_PATH_SEGMENT_CHARS = 16;
-
-/** Origen + ruta de la URL sin query ni segmentos largos: nunca lleva tokens. */
-function redactStreamUrl(url: string): string {
-  try {
-    const { origin, pathname } = new URL(url);
-    const path = pathname
-      .split("/")
-      .map((segment) =>
-        segment.length >= LONG_PATH_SEGMENT_CHARS ? ":redacted" : segment
-      )
-      .join("/");
-    return origin + path;
-  } catch {
-    return "invalid-url";
-  }
-}
-
 /**
  * Una lectura HTTP Range de la fuente remota falló (la conexión se cayó). El
  * mensaje es estable y no lleva la URL: la URL del debrid trae tokens, y un
  * mensaje distinto por título partía el error en un issue por película.
  */
 class RangeReadError extends Error {
-  /** URL de la fuente sin tokens (ver `redactStreamUrl`). */
-  readonly streamUrl: string;
+  /** Solo el host de la fuente: la ruta y la query pueden llevar tokens. */
+  readonly streamHost: string;
 
   constructor(url: string, cause: Error) {
     super(`Range read failed: ${cause.message}`, { cause });
     this.name = "RangeReadError";
-    this.streamUrl = redactStreamUrl(url);
+    try {
+      this.streamHost = new URL(url).host;
+    } catch {
+      this.streamHost = "invalid-url";
+    }
   }
-}
-
-// Una caída de red dispara varias lecturas fallidas a la vez (workers de
-// prefetch en paralelo, un `Input` por carril). Se reporta una sola por carga:
-// la clave es el `abortedRef` de cada ejecución del efecto.
-const reportedLoads = new WeakSet<object>();
-
-function reportRangeReadError(
-  error: RangeReadError,
-  stage: "prefetch" | "playback",
-  load: object
-) {
-  if (reportedLoads.has(load)) {
-    return;
-  }
-  reportedLoads.add(load);
-  posthog.captureException(error, {
-    $exception_fingerprint: "mediabunny-range-read-failed",
-    $issue_name: "Range read failed",
-    stage,
-    stream_url: error.streamUrl,
-  });
 }
 
 /**
@@ -147,7 +109,8 @@ function reportRangeReadError(
  * as a `RangeReadError`. A read that a conversion awaits travels the normal
  * conversion-error path (→ `setState({ status: "error" })`). A read from a
  * background prefetch worker has no awaiting caller, so mediabunny hands it to
- * `handleUnhandledError` instead of letting it escape to `unhandledrejection`.
+ * `handleUnhandledError` instead of letting it escape to `unhandledrejection`;
+ * if the connection really dropped, an awaited read fails too and reports it.
  * A read that fails only because the component unmounted mid-request keeps its
  * original bare shape, so the `before_send` filter in instrumentation-client.ts
  * drops it as noise.
@@ -166,14 +129,9 @@ function urlSourceOptions(url: string, abortedRef: { current: boolean }) {
       }
     },
     handleUnhandledError: (error: unknown) => {
-      if (abortedRef.current) {
-        return;
+      if (!abortedRef.current) {
+        console.warn("[mediabunny] background read failed:", error);
       }
-      if (error instanceof RangeReadError) {
-        reportRangeReadError(error, "prefetch", abortedRef);
-        return;
-      }
-      console.warn("[mediabunny] background read failed:", error);
     },
   };
 }
@@ -1345,17 +1303,19 @@ export function useMediaBunny(
         if (abortedRef.current) {
           return;
         }
-        if (err instanceof RangeReadError) {
-          reportRangeReadError(err, "playback", abortedRef);
-          setState({
-            status: "error",
-            message: err.message,
-            reason: "network",
+        const isNetwork = err instanceof RangeReadError;
+        if (isNetwork) {
+          posthog.captureException(err, {
+            $exception_fingerprint: "mediabunny-range-read-failed",
+            $issue_name: "Range read failed",
+            stream_host: err.streamHost,
           });
-          return;
         }
-        const msg = err instanceof Error ? err.message : String(err);
-        setState({ status: "error", message: msg, reason: "other" });
+        setState({
+          status: "error",
+          message: err instanceof Error ? err.message : String(err),
+          reason: isNetwork ? "network" : "other",
+        });
       }
     })();
 
