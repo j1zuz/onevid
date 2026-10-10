@@ -11,7 +11,10 @@
     "web:dev": "bun --filter web dev",
     "web:build": "bun --filter web build",
     "web:start": "bun --filter web start",
-    "mobile": "bun --filter onevid start"
+    "mobile": "bun --filter onevid start",
+    "tv:package": "bun --filter tv package",
+    "tv:install": "bun --filter tv install:tv",
+    "tv:launch": "bun --filter tv launch:tv"
   },
   "overrides": {
     "@types/react": "19.2.14",

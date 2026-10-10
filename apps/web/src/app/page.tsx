@@ -4,7 +4,9 @@ import Link from "next/link";
 import { buttonVariants } from "@workspace/ui/components/button";
 import { LoginDialog } from "@/components/login-dialog";
 import { LocalVideoPlayer } from "@/components/stream/local-video-player";
+import { TvDeviceLogin } from "@/components/tv/tv-device-login";
 import { auth } from "@/lib/auth";
+import { isTvUserAgent } from "@/lib/tv";
 
 // Sin sesión, onevid arranca en MODO LOCAL (reproductor de video del
 // dispositivo, sin configuración) — igual que la app móvil con useAppSurface.
@@ -16,8 +18,23 @@ import { auth } from "@/lib/auth";
 // hasta acá con sesión es porque el proxy dejó pasar la navegación (el link
 // "Modo local" del catálogo). Acá solo se usa la sesión para elegir qué
 // mostrar en el header (login vs. volver al catálogo).
-export default async function RootPage() {
-  const session = await auth.api.getSession({ headers: await headers() });
+export default async function RootPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tv?: string }>;
+}) {
+  const requestHeaders = await headers();
+  const session = await auth.api.getSession({ headers: requestHeaders });
+
+  // En una TV no se puede escribir email/contraseña con el mando, así que el
+  // login inicial va por código de dispositivo (como la app móvil): la TV
+  // muestra un código y el usuario lo aprueba desde el teléfono en /device.
+  // `?tv=1` fuerza este modo para probarlo en el navegador de escritorio.
+  const { tv } = await searchParams;
+  const isTv = isTvUserAgent(requestHeaders.get("user-agent")) || tv === "1";
+  if (isTv && !session) {
+    return <TvDeviceLogin />;
+  }
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 md:px-6">

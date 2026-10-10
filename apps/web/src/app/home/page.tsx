@@ -58,7 +58,7 @@ import {
 } from "@/lib/tmdb-catalog";
 
 export const metadata: Metadata = {
-  title: "Catálogo",
+  title: "Inicio",
 };
 
 type CatalogType = "movie" | "series";

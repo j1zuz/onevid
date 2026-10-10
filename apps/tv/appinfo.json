@@ -1,0 +1,13 @@
+{
+  "id": "tech.hackw.onevid",
+  "version": "0.0.1",
+  "vendor": "hackw",
+  "type": "web",
+  "main": "index.html",
+  "title": "onevid",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "splashBackground": "splash.png",
+  "iconColor": "#000000",
+  "requiredACG": []
+}

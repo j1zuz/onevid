@@ -15,6 +15,7 @@ import {
   type SubtitleTrackSource,
   VideoJsStreamPlayer,
 } from "@/components/stream/video-js-stream-player";
+import { useIsTv } from "@/hooks/use-is-tv";
 import { trackLabel, useMediaTracks } from "@/hooks/use-media-tracks";
 import { useMediaBunny } from "@/hooks/use-mediabunny";
 import { useNextEpisode } from "@/hooks/use-next-episode";
@@ -156,8 +157,13 @@ export function StreamOnevid({
     : "";
   const sourceCodecHint =
     typeof selectedSource?.title === "string" ? selectedSource.title : "";
+  // En TV NO se transcodifica en el navegador (mediabunny usa WebCodecs, inviable
+  // en el procesador del TV): el <video> nativo de la TV decoda MKV/HEVC/AC-3
+  // directo, así que le pasamos la URL cruda. mediabunny queda solo para el
+  // navegador de escritorio, que no sabe abrir esos formatos.
+  const isTv = useIsTv();
   const shouldUseMediaBunny = Boolean(
-    sourceUrl && needsMediaBunny(sourceFilename, sourceCodecHint)
+    !isTv && sourceUrl && needsMediaBunny(sourceFilename, sourceCodecHint)
   );
   const mediaBunny = useMediaBunny(
     shouldUseMediaBunny ? sourceUrl : null,
