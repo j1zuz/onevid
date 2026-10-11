@@ -34,7 +34,7 @@ webOS no ejecuta React Native, por eso la app de `apps/mobile` (Android TV) no s
 ```sh
 cd apps/tv
 ares-package .
-# -> tech.hackw.onevid_0.0.1_all.ipk
+# -> tech.hackw.onevid_1.0.0_all.ipk
 ```
 
 El `appinfo.json` ya incluye `"requiredACG": []` (obligatorio desde webOS TV 27 / mar-2027;
@@ -67,7 +67,7 @@ ares-device --system-info --device tv   # confirma conexion
 Instala y lanza:
 
 ```sh
-ares-install -d tv tech.hackw.onevid_0.0.1_all.ipk
+ares-install -d tv tech.hackw.onevid_1.0.0_all.ipk
 ares-launch  -d tv tech.hackw.onevid
 ```
 
