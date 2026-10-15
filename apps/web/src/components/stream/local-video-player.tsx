@@ -4,13 +4,24 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { cn } from "@workspace/ui/lib/utils";
 import { FilmIcon, GlobeIcon, RotateCcwIcon } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
-import { VideoJsStreamPlayer } from "@/components/stream/video-js-stream-player";
 import { type MediaBunnyState, useMediaBunny } from "@/hooks/use-mediabunny";
 import type { MimeType } from "@/types/stream";
 import { getMimeType, needsMediaBunny } from "@/utils/stream-codec";
 
 const HTTP_URL = /^https?:\/\//i;
+
+// El reproductor (video.js + hls.js) solo se monta cuando ya hay una fuente
+// elegida, así que se carga bajo demanda: fuera del JS inicial de "/", el modo
+// local pinta la zona de arrastre (elemento LCP) sin esperar ese paquete.
+const VideoJsStreamPlayer = dynamic(
+  () =>
+    import("@/components/stream/video-js-stream-player").then(
+      (m) => m.VideoJsStreamPlayer
+    ),
+  { loading: () => <div className="aspect-video bg-black" />, ssr: false }
+);
 
 /**
  * Radial progress indicator shown while MediaBunny transcodes the audio.
