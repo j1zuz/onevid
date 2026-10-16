@@ -1,12 +1,25 @@
 import { Skeleton } from "@workspace/ui/components/skeleton";
 
 /**
- * Shown immediately by Next.js when navigating to /home — this is what makes
- * the navigation feel instant. The shell (header shape + feed skeletons)
- * is prefetched by Next.js on <Link> hover so the user sees it with zero
- * network wait on click.
+ * Next's automatic fallback for the /home route segment — shown the instant
+ * you navigate here, while `OneVidPage` resolves the session + the lightweight
+ * profile query that decides whether to show the "¿Quién está viendo?" gate
+ * (see src/app/home/page.tsx). Deliberately neutral/blank instead of a
+ * home-shaped skeleton: a gated profile should never get a glimpse of
+ * anything that looks like it's already inside the app, even for a split
+ * second, while that decision is still pending.
  */
 export default function HomeLoading() {
+  return <main className="h-dvh w-full bg-background" />;
+}
+
+/**
+ * The actual home shell skeleton (header + hero + feed rows), used by
+ * <OneVidPage>'s own inner <Suspense> once the gate decision is already
+ * made and we're genuinely streaming in the TMDB-backed feed — not by the
+ * route-level loading above, which runs before that decision exists.
+ */
+export function HomeFeedSkeleton() {
   return (
     <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
       <header className="-mx-4 mb-6 md:-mx-6 sticky top-0 z-20 flex items-center justify-between gap-4 border-border border-b border-dashed bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:px-6">

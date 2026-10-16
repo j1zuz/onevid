@@ -1,9 +1,12 @@
 import { desc, eq } from "drizzle-orm";
 import type { Metadata } from "next";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { OneVidProfileProvider } from "@/components/stream/onevid-profile-context";
+import {
+  ACTIVE_PROFILE_COOKIE,
+  OneVidProfileProvider,
+} from "@/components/stream/onevid-profile-context";
 import { OneVidProfileSwitcher } from "@/components/stream/onevid-profile-switcher";
 import {
   OneVidSettingsPanel,
@@ -109,8 +112,15 @@ export default async function AccountPage({
     catalogs: addon.catalogs ?? [],
   }));
 
+  const activeProfileId =
+    (await cookies()).get(ACTIVE_PROFILE_COOKIE)?.value ?? null;
+
   return (
-    <OneVidProfileProvider initialProfiles={profiles}>
+    <OneVidProfileProvider
+      disableGate
+      initialActiveProfileId={activeProfileId}
+      initialProfiles={profiles}
+    >
       <main className="mx-auto flex min-h-dvh w-full max-w-2xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 md:px-6">
         {/* Mismo header que /home pero sin buscador: acá no hay catálogo que
             buscar, solo logo (vuelve a /home) + el dropdown del avatar.

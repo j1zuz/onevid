@@ -20,7 +20,7 @@ export function OneVidProfileAvatar({
   return (
     <span
       className={cn(
-        "inline-flex items-center justify-center overflow-hidden rounded-md",
+        "inline-flex items-center justify-center overflow-hidden rounded-full",
         className
       )}
     >

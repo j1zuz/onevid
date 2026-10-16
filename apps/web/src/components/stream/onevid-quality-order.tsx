@@ -82,12 +82,7 @@ export function OneVidQualityOrder() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
-        <Loader className="size-4 animate-spin" />
-        <p className="text-xs">Cargando calidades…</p>
-      </div>
-    );
+    return null;
   }
 
   const noneEnabled = order.every((entry) => !entry.enabled);

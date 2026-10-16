@@ -13,7 +13,7 @@ import { Label } from "@workspace/ui/components/label";
 import { Switch } from "@workspace/ui/components/switch";
 import { cn } from "@workspace/ui/lib/utils";
 import { LockIcon, PencilIcon, PlusIcon, TrashIcon } from "lucide-react";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { avatarImageSrc, OneVidProfileAvatar } from "./onevid-profile-avatar";
 import {
@@ -55,7 +55,7 @@ function AvatarPicker({
         <button
           aria-label={a}
           className={cn(
-            "size-10 overflow-hidden rounded-md ring-offset-background transition",
+            "size-10 overflow-hidden rounded-full ring-offset-background transition",
             value === a
               ? "ring-2 ring-primary ring-offset-2"
               : "opacity-70 hover:opacity-100"
@@ -125,7 +125,7 @@ function AuthPinField({
   }
 
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5">
+    <div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
       <Label className="text-xs" htmlFor={pinId}>
         {label}
       </Label>
@@ -142,7 +142,7 @@ function AuthPinField({
         value={value}
       />
       {resetSent ? (
-        <div className="mt-1 flex flex-col gap-1.5">
+        <div className="mt-1 flex flex-col gap-2">
           <Label className="text-xs" htmlFor={codeId}>
             Código enviado a tu correo (caduca en 10 min)
           </Label>
@@ -195,7 +195,11 @@ function AuthPinField({
 export function OneVidProfileManager({
   open,
   onOpenChange,
+  // Opens straight into editing this profile (e.g. tapped from the "¿Quién
+  // está viendo?" gate in edit mode) instead of the plain list view.
+  initialEditId,
 }: {
+  initialEditId?: string | null;
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }) {
@@ -314,6 +318,18 @@ export function OneVidProfileManager({
     setDeletingId(null);
   }
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only react to the
+  // dialog opening with a target id, not to `profiles` refreshing underneath.
+  useEffect(() => {
+    if (!(open && initialEditId)) {
+      return;
+    }
+    const target = profiles.find((p) => p.id === initialEditId);
+    if (target) {
+      startEdit(target);
+    }
+  }, [open, initialEditId]);
+
   async function handleSaveEdit(id: string) {
     setBusy(true);
     const result = await updateProfile(
@@ -358,21 +374,38 @@ export function OneVidProfileManager({
     }
   }
 
+  // Opened to edit one specific profile (e.g. from the gate's "Administrar
+  // perfiles" mode): show only that profile, not the whole account's list.
+  const focused = Boolean(initialEditId);
+  // Also narrow the list while editing any profile inline (pencil icon from
+  // the full list): seeing the other rows while filling out this one's form
+  // adds nothing and just pushes the save/cancel buttons further down.
+  const singleId = initialEditId ?? editingId;
+  const visibleProfiles = singleId
+    ? profiles.filter((p) => p.id === singleId)
+    : profiles;
+
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Administrar perfiles</DialogTitle>
-          <DialogDescription>Configura hasta {max} perfiles.</DialogDescription>
+          <DialogTitle>
+            {focused ? "Editar perfil" : "Administrar perfiles"}
+          </DialogTitle>
+          {!focused && (
+            <DialogDescription>
+              Configura hasta {max} perfiles.
+            </DialogDescription>
+          )}
         </DialogHeader>
 
         {/* Profile list */}
         <ul className="flex flex-col gap-2">
-          {profiles.map((p) => {
+          {visibleProfiles.map((p) => {
             if (editingId === p.id) {
               return (
-                <li className="rounded-md border bg-muted/30 p-2.5" key={p.id}>
-                  <div className="flex flex-col gap-2">
+                <li className="rounded-md border bg-muted/30 p-4" key={p.id}>
+                  <div className="flex flex-col gap-4">
                     <Input
                       className="h-8 text-xs"
                       onChange={(e) => setEditName(e.target.value)}
@@ -390,13 +423,13 @@ export function OneVidProfileManager({
                       />
                       Perfil infantil
                     </label>
-                    <div className="flex flex-col gap-1.5">
+                    <div className="flex flex-col gap-2">
                       <Label className="text-xs" htmlFor="edit-lock-pin">
                         {editHadPin
                           ? "Cambiar PIN del perfil (4 dígitos)"
                           : "PIN del perfil (4 dígitos, opcional)"}
                       </Label>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-3">
                         <Input
                           autoComplete="off"
                           className="h-8 w-32 text-xs"
@@ -428,7 +461,7 @@ export function OneVidProfileManager({
                         value={authPin}
                       />
                     )}
-                    <div className="flex gap-2">
+                    <div className="flex gap-3">
                       <Button
                         className="btn-primary"
                         disabled={busy || !editName.trim() || authMissing}
@@ -438,7 +471,9 @@ export function OneVidProfileManager({
                         Guardar
                       </Button>
                       <Button
-                        onClick={() => setEditingId(null)}
+                        onClick={() =>
+                          focused ? handleOpenChange(false) : setEditingId(null)
+                        }
                         size="sm"
                         variant="ghost"
                       >
@@ -529,8 +564,11 @@ export function OneVidProfileManager({
           })}
         </ul>
 
-        {/* Create: el formulario aparece sólo al pulsar "Crear perfil" */}
-        {profiles.length < max &&
+        {/* Create: el formulario aparece sólo al pulsar "Crear perfil"; oculto
+            en modo enfocado y mientras se edita un perfil (ver visibleProfiles
+            arriba, mismo criterio). */}
+        {!singleId &&
+          profiles.length < max &&
           (creating ? (
             <div className="flex flex-col gap-2 rounded-md border border-dashed p-3">
               <Label className="text-xs">Nuevo perfil</Label>

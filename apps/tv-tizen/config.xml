@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Manifiesto de la app Samsung Tizen TV (equivalente al appinfo.json de LG en
+  apps/tv). App web "hosted": el paquete .wgt es un cascaron que abre
+  https://onevid.hackw.tech en el navegador del TV. Misma web que LG y escritorio.
+
+  - El atributo `package` (5 chars) y el `id` los asigna/espera Tizen; el id debe
+    ser <packageId>.<appName>. Se regenera al crear el proyecto con Tizen Studio
+    si hiciera falta; estos valores son un punto de partida valido.
+  - `required_version` 6.0 cubre Samsung TV 2021+ (equivalente al "2017 and later"
+    conservador de LG; subir si se quiere soportar modelos mas viejos).
+-->
+<widget xmlns="http://www.w3.org/ns/widgets"
+        xmlns:tizen="http://tizen.org/ns/widgets"
+        id="http://onevid.hackw.tech/onevid"
+        version="1.0.0"
+        viewmodes="maximized">
+  <tizen:application id="3202610049.onevid"
+                     package="3202610049"
+                     required_version="6.0"/>
+  <name>onevid</name>
+  <description>onevid — reproductor de video para Smart TV.</description>
+  <author href="https://onevid.hackw.tech">hackw</author>
+  <icon src="icon.png"/>
+  <content src="index.html"/>
+
+  <!-- Permiso de red: el stub carga la web remota de onevid. -->
+  <tizen:privilege name="http://tizen.org/privilege/internet"/>
+
+  <!-- Dominios externos permitidos (CSP de Tizen). Sin esto, el TV bloquea la
+       carga de onevid.hackw.tech. '*' en subdominios por si el backend redirige. -->
+  <access origin="https://onevid.hackw.tech" subdomains="true"/>
+  <access origin="*" subdomains="true"/>
+
+  <!-- Perfil TV. -->
+  <tizen:profile name="tv"/>
+</widget>

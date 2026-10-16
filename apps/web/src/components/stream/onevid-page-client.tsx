@@ -22,10 +22,6 @@ import { type FeedSection, FeedRow } from "@/components/stream/feed-row";
 import { HeroCarousel } from "@/components/stream/hero-carousel";
 import { OneVidHeader } from "@/components/stream/onevid-header";
 import { ScrollTopFade } from "@/components/stream/scroll-top-fade";
-import {
-  type OneVidProfile,
-  OneVidProfileProvider,
-} from "@/components/stream/onevid-profile-context";
 import { HORIZONTAL_POSTER_GRID_CLASS } from "@/components/stream/poster-card";
 import {
   FEED_ROW_ITEM_LIMIT,
@@ -113,7 +109,6 @@ interface OneVidPageClientProps {
   hasTorboxKey: boolean;
   /** Hero destacado (trending película/serie), solo modo feed. */
   heroItems: MediaMeta[];
-  initialProfiles: OneVidProfile[];
   /** Modo "Ver todo": grilla completa de una sola fila. */
   posters?: MediaMeta[];
   /** La grilla corresponde a la fila general de tendencias. */
@@ -133,7 +128,6 @@ export function OneVidPageClient({
   feedSectionsPromise,
   hasTorboxKey,
   heroItems,
-  initialProfiles,
   posters,
   postersAreTopTen = false,
   postersTopTenRanks = {},
@@ -176,68 +170,65 @@ export function OneVidPageClient({
   }
 
   return (
-    <OneVidProfileProvider initialProfiles={initialProfiles}>
-      <div className="flex h-full min-h-0 flex-1 flex-col">
-        <OneVidHeader
-          discoverRows={discoverRows}
-          addons={addons}
-          feedConfigured={feedConfigured}
-          feedRows={feedRows}
-          hasTorboxKey={hasTorboxKey}
-          onMovieSelect={handleMovieSelect}
-          surface={surface}
-          setupCompleted={setupCompleted}
-        />
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <OneVidHeader
+        discoverRows={discoverRows}
+        addons={addons}
+        feedConfigured={feedConfigured}
+        feedRows={feedRows}
+        hasTorboxKey={hasTorboxKey}
+        onMovieSelect={handleMovieSelect}
+        surface={surface}
+        setupCompleted={setupCompleted}
+      />
 
-        {/* Contenedor con scroll propio (no el de <body>): así el fondo con
-            fade del borde superior puede overlayarse sobre este contenedor
-            específico. no-scrollbar oculta la barra (sigue siendo
-            scrolleable con mouse/trackpad/touch/teclado, solo sin indicador
-            visual, igual que el dropdown de búsqueda del header). */}
-        <div className="relative min-h-0 flex-1">
-          <ScrollTopFade scrollAreaRef={scrollAreaRef} />
-          {/* `data-dpad-poster-grid` va aquí, en el contenedor de TODAS las
-              filas, no en cada fila: findNextFocusable (dpad-navigation.tsx)
-              resuelve el ámbito con `closest()` y devuelve null si no encuentra
-              candidato dentro del mismo grid, así que con un grid por fila el
-              mando no podría bajar de una fila a la siguiente. */}
-          <div
-            className="no-scrollbar flex h-full flex-col gap-8 overflow-y-auto py-4"
-            data-dpad-poster-grid
-            ref={scrollAreaRef}
-          >
-            {continueViewAll ? (
-              <>
-                <BackToHomeHeader title={t("Continuar viendo")} />
-                <ContinueWatchingRow fullView />
-              </>
-            ) : viewAllTitle ? (
-              // "Ver todo" de una fila del catálogo: sin Continuar viendo
-              // arriba, solo el encabezado de vuelta y la grilla completa. Se
-              // muestra también cuando la grilla viene vacía, para no dejar
-              // al usuario atrapado sin los dropdowns que antes lo devolvían.
-              <>
-                <BackToHomeHeader title={viewAllTitle} />
-                {mainContent}
-              </>
-            ) : (
-              <>
-                {heroItems.length > 0 && (
-                  // -mt-4 para acercarlo al header: cancela el padding
-                  // superior del contenedor con scroll (py-4) sin tocar el
-                  // espaciado del resto de las filas.
-                  <div className="-mt-4">
-                    <HeroCarousel items={heroItems} />
-                  </div>
-                )}
-                <ContinueWatchingRow />
-                {mainContent}
-              </>
-            )}
-          </div>
+      {/* Contenedor con scroll propio (no el de <body>): así el fondo con
+          fade del borde superior puede overlayarse sobre este contenedor
+          específico. no-scrollbar oculta la barra (sigue siendo
+          scrolleable con mouse/trackpad/touch/teclado, solo sin indicador
+          visual, igual que el dropdown de búsqueda del header). */}
+      <div className="relative min-h-0 flex-1">
+        <ScrollTopFade scrollAreaRef={scrollAreaRef} />
+        {/* `data-dpad-poster-grid` va aquí, en el contenedor de TODAS las
+            filas, no en cada fila: findNextFocusable (dpad-navigation.tsx)
+            resuelve el ámbito con `closest()` y devuelve null si no encuentra
+            candidato dentro del mismo grid, así que con un grid por fila el
+            mando no podría bajar de una fila a la siguiente. */}
+        <div
+          className="no-scrollbar flex h-full flex-col gap-8 overflow-y-auto py-4"
+          data-dpad-poster-grid
+          ref={scrollAreaRef}
+        >
+          {continueViewAll ? (
+            <>
+              <BackToHomeHeader title={t("Continuar viendo")} />
+              <ContinueWatchingRow fullView />
+            </>
+          ) : viewAllTitle ? (
+            // "Ver todo" de una fila del catálogo: sin Continuar viendo
+            // arriba, solo el encabezado de vuelta y la grilla completa. Se
+            // muestra también cuando la grilla viene vacía, para no dejar
+            // al usuario atrapado sin los dropdowns que antes lo devolvían.
+            <>
+              <BackToHomeHeader title={viewAllTitle} />
+              {mainContent}
+            </>
+          ) : (
+            <>
+              {heroItems.length > 0 && (
+                // -mt-4 para acercarlo al header: cancela el padding
+                // superior del contenedor con scroll (py-4) sin tocar el
+                // espaciado del resto de las filas.
+                <div className="-mt-4">
+                  <HeroCarousel items={heroItems} />
+                </div>
+              )}
+              <ContinueWatchingRow />
+              {mainContent}
+            </>
+          )}
         </div>
       </div>
-
-    </OneVidProfileProvider>
+    </div>
   );
 }

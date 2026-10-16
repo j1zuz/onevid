@@ -1,15 +1,5 @@
 "use client";
 
-import { Button } from "@workspace/ui/components/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@workspace/ui/components/dialog";
-import { Input } from "@workspace/ui/components/input";
 import {
   ArrowLeftIcon,
   CheckIcon,
@@ -19,11 +9,12 @@ import {
   GaugeIcon,
   GlobeIcon,
   LockIcon,
+  PlusIcon,
   SettingsIcon,
   UserIcon,
   UsersIcon,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { type ReactNode, useState } from "react";
 import {
   type OneVidAddonSummary,
@@ -33,11 +24,8 @@ import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "@/lib/languages";
 import type { OneVidFeedRow } from "@/lib/onevid-feed";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import { OneVidProfileAvatar } from "./onevid-profile-avatar";
+import { useOneVidProfiles } from "./onevid-profile-context";
 import { OneVidQualityOrder } from "./onevid-quality-order";
-import {
-  type OneVidProfile,
-  useOneVidProfiles,
-} from "./onevid-profile-context";
 import { OneVidProfileManager } from "./onevid-profile-manager";
 
 const NEXT_LOCALE_COOKIE = "NEXT_LOCALE";
@@ -150,47 +138,28 @@ function AccountInfoView({
 }
 
 /**
- * Vista "Perfiles": la lista de cambio rápido (con flujo de PIN) que antes
- * vivía en el dropdown del avatar, más el acceso a administrar perfiles.
+ * Vista "Administrar perfiles": lista los perfiles para elegir cuál editar
+ * (igual que antes), más "Agregar perfil". El cambio rápido de perfil (con
+ * flujo de PIN) vive en el dropdown del header (onevid-profile-switcher.tsx)
+ * y en el gate "¿Quién está viendo?" (onevid-profile-gate.tsx), no acá.
  */
 function ProfilesView() {
-  const {
-    profiles,
-    activeProfileId,
-    setActiveProfileId,
-    verifyProfilePin,
-  } = useOneVidProfiles();
-  const [managerOpen, setManagerOpen] = useState(false);
-  const [pendingProfile, setPendingProfile] = useState<OneVidProfile | null>(
-    null
-  );
-  const [pinInput, setPinInput] = useState("");
-  const [pinError, setPinError] = useState(false);
-  const [verifying, setVerifying] = useState(false);
+  const { max, profiles } = useOneVidProfiles();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // `?manage=<id>` (ej. llegando desde el modo "Administrar perfiles" del
+  // gate "¿Quién está viendo?") abre directo la edición de ese perfil acá.
+  const manageId = searchParams.get("manage");
+  const [editId, setEditId] = useState<string | null>(manageId);
+  const [adding, setAdding] = useState(false);
 
-  function selectProfile(p: OneVidProfile) {
-    if (p.hasPin) {
-      setPendingProfile(p);
-      setPinInput("");
-      setPinError(false);
-      return;
-    }
-    setActiveProfileId(p.id);
-  }
-
-  async function confirmPin() {
-    if (!pendingProfile) {
-      return;
-    }
-    setVerifying(true);
-    const ok = await verifyProfilePin(pendingProfile.id, pinInput);
-    setVerifying(false);
-    if (ok) {
-      setActiveProfileId(pendingProfile.id);
-      setPendingProfile(null);
-      setPinInput("");
-    } else {
-      setPinError(true);
+  function handleDialogOpenChange(open: boolean) {
+    if (!open) {
+      setEditId(null);
+      setAdding(false);
+      if (manageId) {
+        router.replace("/home/account?view=profiles");
+      }
     }
   }
 
@@ -202,7 +171,7 @@ function ProfilesView() {
             className="flex w-full items-center gap-3 rounded-md border border-transparent px-3 py-2 text-left transition-colors hover:bg-muted"
             data-dpad-focusable
             key={p.id}
-            onClick={() => selectProfile(p)}
+            onClick={() => setEditId(p.id)}
             type="button"
           >
             <OneVidProfileAvatar
@@ -212,69 +181,24 @@ function ProfilesView() {
             />
             <span className="flex-1 truncate text-sm">{p.name}</span>
             {p.hasPin && <LockIcon className="size-3.5 text-muted-foreground" />}
-            {p.id === activeProfileId && <CheckIcon className="size-4" />}
+            <ChevronRightIcon className="size-4 text-muted-foreground" />
           </button>
         ))}
       </div>
 
-      <SettingsRow
-        icon={<SettingsIcon className="size-4" />}
-        label="Administrar perfiles"
-        onClick={() => setManagerOpen(true)}
+      {profiles.length < max && (
+        <SettingsRow
+          icon={<PlusIcon className="size-4" />}
+          label="Agregar perfil"
+          onClick={() => setAdding(true)}
+        />
+      )}
+
+      <OneVidProfileManager
+        initialEditId={editId}
+        onOpenChange={handleDialogOpenChange}
+        open={editId !== null || adding}
       />
-
-      <OneVidProfileManager onOpenChange={setManagerOpen} open={managerOpen} />
-
-      <Dialog
-        onOpenChange={(o) => {
-          if (!o) {
-            setPendingProfile(null);
-            setPinInput("");
-            setPinError(false);
-          }
-        }}
-        open={pendingProfile !== null}
-      >
-        <DialogContent className="sm:max-w-xs">
-          <DialogHeader>
-            <DialogTitle>Perfil bloqueado</DialogTitle>
-            <DialogDescription>
-              Introduce el PIN de "{pendingProfile?.name}" para continuar.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            autoComplete="off"
-            autoFocus
-            className="text-center tracking-[0.5em]"
-            inputMode="numeric"
-            maxLength={4}
-            onChange={(e) => {
-              setPinInput(e.target.value);
-              setPinError(false);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                confirmPin();
-              }
-            }}
-            placeholder="••••"
-            type="password"
-            value={pinInput}
-          />
-          {pinError && (
-            <p className="text-destructive text-xs">PIN incorrecto</p>
-          )}
-          <DialogFooter>
-            <Button
-              className="btn-primary"
-              disabled={verifying || pinInput.length !== 4}
-              onClick={confirmPin}
-            >
-              Entrar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }
@@ -311,12 +235,12 @@ export function OneVidSettingsPanel({
         />
         <SettingsRow
           icon={<SettingsIcon className="size-4" />}
-          label="Catálogo"
+          label="Configuración"
           onClick={() => setView("catalog")}
         />
         <SettingsRow
           icon={<UsersIcon className="size-4" />}
-          label={t("Perfiles")}
+          label="Administrar perfiles"
           onClick={() => setView("profiles")}
         />
         <SettingsRow

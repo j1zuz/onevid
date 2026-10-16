@@ -1,13 +1,17 @@
 import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import DetailLoading from "@/app/home/detail/[type]/[id]/loading";
 import { MovieDetailPage } from "@/components/explore-movie-dialog";
 import { DetailScrollContainer } from "@/components/stream/detail-scroll-container";
 import { OneVidHeader } from "@/components/stream/onevid-header";
-import { OneVidProfileProvider } from "@/components/stream/onevid-profile-context";
+import {
+  ACTIVE_PROFILE_COOKIE,
+  OneVidProfileProvider,
+  VERIFIED_PROFILE_COOKIE,
+} from "@/components/stream/onevid-profile-context";
 import { auth } from "@/lib/auth";
 import { oneVidProfile } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
@@ -93,13 +97,20 @@ async function StreamDetailContent({ params }: { params: Params }) {
     redirect("/home");
   }
 
+  const cookieStore = await cookies();
+  const activeProfileId = cookieStore.get(ACTIVE_PROFILE_COOKIE)?.value ?? null;
+  const verifiedProfileId =
+    cookieStore.get(VERIFIED_PROFILE_COOKIE)?.value ?? null;
+
   return (
     <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col overflow-hidden border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
       <OneVidProfileProvider
+        initialActiveProfileId={activeProfileId}
         initialProfiles={profileRows.map(({ pinHash, ...profile }) => ({
           ...profile,
           hasPin: Boolean(pinHash),
         }))}
+        initialVerifiedProfileId={verifiedProfileId}
       >
         <div className="flex h-full min-h-0 flex-1 flex-col">
           <OneVidHeader
