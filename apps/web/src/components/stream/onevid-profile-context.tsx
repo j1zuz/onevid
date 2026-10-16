@@ -79,25 +79,47 @@ const OneVidProfileContext = createContext<OneVidProfileContextValue | null>(
   null
 );
 
-// Both are session cookies (no Max-Age, so the browser drops them when it
-// fully closes), not localStorage/sessionStorage: they're also read
+// Persistent cookies (not localStorage/sessionStorage): they're read
 // server-side (see the `cookies()` reads in home/page.tsx, the detail page,
 // etc.) so the very first SSR render already knows the right active profile
 // and whether its PIN was verified — otherwise the server would always
 // default to the primary profile and flash the gate before an effect could
 // read client-only storage and correct it after hydration.
+//
+// A `Max-Age` keeps the choice across a full browser close: session cookies got
+// dropped on restart/tab-restore, so the detail page fell back to the primary
+// (locked) profile and reopened the "¿Quién está viendo?" gate even though the
+// user had already picked. 30 days mirrors how consumer streaming apps remember
+// who's watching on a personal device.
 export const ACTIVE_PROFILE_COOKIE = "onevid-active-profile";
 export const VERIFIED_PROFILE_COOKIE = "onevid-verified-profile";
+const PROFILE_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 días, en segundos
 
 function writeProfileCookie(name: string, id: string) {
   if (typeof document !== "undefined") {
-    document.cookie = `${name}=${encodeURIComponent(id)}; path=/; samesite=lax`;
+    document.cookie = `${name}=${encodeURIComponent(id)}; path=/; max-age=${PROFILE_COOKIE_MAX_AGE}; samesite=lax`;
   }
 }
 
 function clearProfileCookie(name: string) {
   if (typeof document !== "undefined") {
     document.cookie = `${name}=; path=/; max-age=0`;
+  }
+}
+
+/** Lee una cookie de perfil del navegador (cliente). `null` si no existe. */
+function readProfileCookie(name: string): string | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  if (!match) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(match[1]) || null;
+  } catch {
+    return match[1] || null;
   }
 }
 
@@ -147,6 +169,42 @@ export function OneVidProfileProvider({
   // Set by `exitProfile()` to force the gate open even for an unlocked active
   // profile; cleared again the moment a profile is (re)selected.
   const [forcedOpen, setForcedOpen] = useState(false);
+  // `false` hasta que el cliente leyó las cookies vivas. Mientras tanto NO se
+  // pinta el gate (solo un fondo neutro): el render del servidor a veces no ve la
+  // cookie recién escrita y, sin esta guarda, un perfil ya verificado veía el PIN
+  // parpadear antes de que la reconciliación lo cerrara.
+  const [reconciled, setReconciled] = useState(false);
+
+  // Reconcilia con las cookies VIVAS del navegador al montar. El servidor pasa
+  // las cookies que vio al renderizar; si una cookie recién escrita en el
+  // cliente no alcanzó ese render (se escribió justo antes de navegar, o el
+  // render vino de un prefetch/caché previo), el gate quedaría abierto aunque el
+  // navegador ya tenga el perfil verificado correcto — y volvería a pedir el PIN
+  // sin motivo. Leer `document.cookie` acá cierra esa brecha sin re-preguntar.
+  // Solo adopta ids que existan entre los perfiles; nunca "verifica" de más (si
+  // no hay cookie, no hace nada y el gate sigue, que es lo correcto).
+  useEffect(() => {
+    const cookieVerified = readProfileCookie(VERIFIED_PROFILE_COOKIE);
+    if (
+      cookieVerified &&
+      cookieVerified !== verifiedProfileId &&
+      profiles.some((p) => p.id === cookieVerified)
+    ) {
+      setVerifiedProfileIdState(cookieVerified);
+    }
+    const cookieActive = readProfileCookie(ACTIVE_PROFILE_COOKIE);
+    if (
+      cookieActive &&
+      cookieActive !== activeProfileId &&
+      profiles.some((p) => p.id === cookieActive)
+    ) {
+      setActiveProfileIdState(cookieActive);
+    }
+    setReconciled(true);
+    // Solo al montar: cada página monta su propio provider, así que esto corre
+    // en cada navegación entrante (home → detalle, player → detalle…).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // If the current active profile disappears (e.g. deleted by another tab's
   // `refresh()`), fall back to the primary one.
@@ -326,9 +384,24 @@ export function OneVidProfileProvider({
     confirmPinReset,
   ]);
 
+  // Mientras no se reconcilió con la cookie viva, un gate "abierto" según el
+  // servidor es dudoso (el server a veces no ve la cookie recién escrita): se
+  // pinta un fondo neutro en vez del PIN, para que un perfil ya verificado no vea
+  // el gate parpadear. Un gate "cerrado" sí se respeta de una (no filtra nada).
+  let gateContent: ReactNode;
+  if (value.isGateOpen) {
+    gateContent = reconciled ? (
+      <OneVidProfileGate />
+    ) : (
+      <div className="fixed inset-0 z-50 bg-background" />
+    );
+  } else {
+    gateContent = children;
+  }
+
   return (
     <OneVidProfileContext.Provider value={value}>
-      {value.isGateOpen ? <OneVidProfileGate /> : children}
+      {gateContent}
     </OneVidProfileContext.Provider>
   );
 }
