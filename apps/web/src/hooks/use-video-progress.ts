@@ -1,10 +1,9 @@
 "use client";
 
+import { ACTIVE_PROFILE_COOKIE } from "@/components/stream/onevid-profile-context";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invalidateWatchState } from "@/hooks/use-watch-state";
 
-// Key under which OneVidProfileProvider persists the active profile id.
-const PROFILE_STORAGE_KEY = "onevid-active-profile";
 const SAVE_INTERVAL_MS = 10_000; // throttle server writes to every 10 s
 const MIN_SEC = 30; // don't track accidental starts (mirrors server)
 
@@ -26,11 +25,25 @@ interface Resume {
   positionSec: number;
 }
 
+// Lee el perfil activo de la cookie que escribe OneVidProfileProvider. Se lee de
+// la cookie (y no del contexto) porque la ruta del player no monta el provider;
+// la cookie es global, así que está disponible igual. Antes leía `localStorage`,
+// pero el provider dejó de escribir ahí al migrar a cookies, así que esto
+// devolvía siempre `null` y el progreso nunca se guardaba en web.
 function readProfileId(): string | null {
-  try {
-    return localStorage.getItem(PROFILE_STORAGE_KEY);
-  } catch {
+  if (typeof document === "undefined") {
     return null;
+  }
+  const match = document.cookie.match(
+    new RegExp(`(?:^|; )${ACTIVE_PROFILE_COOKIE}=([^;]*)`)
+  );
+  if (!match) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(match[1]) || null;
+  } catch {
+    return match[1] || null;
   }
 }
 

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=1920, height=1080, initial-scale=1" />
+    <title>onevid</title>
+    <!--
+      App Samsung Tizen TV de tipo "hosted": este stub solo redirige al sitio de
+      onevid, que corre en el navegador del TV. Misma estrategia que apps/tv (LG).
+      La URL destino se fija en ONEVID_TV_URL.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #09090b;
+        color: #fff;
+        font-family: system-ui, sans-serif;
+      }
+      .loading {
+        display: flex;
+        height: 100%;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+        letter-spacing: 0.05em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="loading">onevid</div>
+    <script>
+      // El TV abre esta web en su navegador; al ser el mismo origen del backend,
+      // la sesion por cookies/SSO aplica igual que en escritorio y LG.
+      var ONEVID_TV_URL = "https://onevid.hackw.tech";
+      // location.replace evita que el stub quede en el historial, para que el
+      // boton "atras" del mando no vuelva a esta pantalla en blanco.
+      window.location.replace(ONEVID_TV_URL);
+    </script>
+    <noscript>
+      <meta http-equiv="refresh" content="0; url=https://onevid.hackw.tech" />
+    </noscript>
+  </body>
+</html>

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>onevid — UX Scenario</title>
+    <style>
+      body { font-family: "Liberation Sans", Arial, sans-serif; color: #111; margin: 40px; line-height: 1.5; }
+      h1 { font-size: 22px; border-bottom: 2px solid #333; padding-bottom: 6px; }
+      h2 { font-size: 16px; margin-top: 24px; color: #222; }
+      ol { padding-left: 20px; }
+      li { margin-bottom: 6px; }
+      .note { background: #f3f3f3; border-left: 4px solid #888; padding: 8px 12px; font-size: 13px; }
+      code { background: #eee; padding: 1px 4px; border-radius: 3px; }
+    </style>
+  </head>
+  <body>
+    <h1>onevid — UX Scenario (QA)</h1>
+
+    <h2>1. App summary</h2>
+    <p>onevid is a video streaming player. It runs in the TV browser (hosted web
+      app) and is operated with the remote control (D-pad + OK + Back).</p>
+
+    <h2>2. Test credentials</h2>
+    <p>Sign-in uses a <strong>device code</strong> (no email/password typing on the
+      TV). The demo account to approve the device is provided in the
+      "Note for Tester" field of this submission.</p>
+
+    <h2>3. Step-by-step</h2>
+    <ol>
+      <li><strong>Launch</strong>: the app opens on the sign-in screen, showing a
+        QR code and an 8-character code.</li>
+      <li><strong>Authorize the TV</strong>:
+        <ol type="a">
+          <li>Scan the QR with a phone (opens the approval page with the code
+            pre-filled), or open the shown URL and enter the code manually.</li>
+          <li>Sign in with the demo credentials and press "Approve".</li>
+          <li>The TV detects the approval and enters the catalog automatically.</li>
+        </ol>
+      </li>
+      <li><strong>Browse the catalog</strong> (remote): move with the D-pad across
+        the featured carousel and the rows. The focused item is highlighted.
+        Press OK on a title to open its detail.</li>
+      <li><strong>Play</strong>: on the detail screen, press "Play". The video
+        starts full screen. Remote controls: Play/Pause, seek, Back to return.</li>
+      <li><strong>Back and exit</strong>: the Back button navigates back through
+        the screens; from the home screen, Back exits the app.</li>
+    </ol>
+
+    <h2>4. Notes for the reviewer</h2>
+    <p class="note">Requires an internet connection (content loads over the
+      network). The sign-in code expires; the app generates a new one on its own.</p>
+  </body>
+</html>

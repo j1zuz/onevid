@@ -10,15 +10,19 @@ import {
 } from "@workspace/ui/components/empty";
 import { desc, eq } from "drizzle-orm";
 import type { Metadata } from "next";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
-import HomeLoading from "@/app/home/loading";
+import { HomeFeedSkeleton } from "@/app/home/loading";
 import { SetupStepper } from "@/components/stepper-onevid";
 import type { FeedSection } from "@/components/stream/feed-row";
 import { OneVidHeader } from "@/components/stream/onevid-header";
 import { OneVidPageClient } from "@/components/stream/onevid-page-client";
-import { OneVidProfileProvider } from "@/components/stream/onevid-profile-context";
+import {
+  ACTIVE_PROFILE_COOKIE,
+  OneVidProfileProvider,
+  VERIFIED_PROFILE_COOKIE,
+} from "@/components/stream/onevid-profile-context";
 import {
   CATALOG_VIEW_ALL_ITEM_LIMIT,
   fetchAddonCatalogResults,
@@ -73,10 +77,13 @@ type SearchParams = Promise<{
 }>;
 
 /**
- * Thin shell: only does auth + redirect (fast — reads a cookie/JWT).
- * All heavy DB queries and TMDB fetches live in <OneVidContent> which is
- * wrapped in <Suspense> by the loading.tsx segment, enabling Next.js to
- * prefetch the loading shell on <Link> hover for instant navigations.
+ * Thin shell: auth + redirect, and the lightweight profiles query (fast —
+ * no TMDB fetches). Profiles decide whether <OneVidProfileProvider> shows
+ * the "¿Quién está viendo?" gate or the real content, so this has to resolve
+ * (and the Provider has to wrap the Suspense boundary, not sit inside it)
+ * BEFORE the heavy DB/TMDB work in <OneVidContent> — otherwise a locked
+ * profile sees the home skeleton for however long that work takes, then the
+ * gate pops in after.
  */
 export default async function OneVidPage({
   searchParams,
@@ -89,12 +96,43 @@ export default async function OneVidPage({
     redirect("/");
   }
 
+  const profileRows = await db
+    .select({
+      id: oneVidProfile.id,
+      name: oneVidProfile.name,
+      avatar: oneVidProfile.avatar,
+      isKids: oneVidProfile.isKids,
+      pinHash: oneVidProfile.pinHash,
+    })
+    .from(oneVidProfile)
+    .where(eq(oneVidProfile.userId, session.user.id))
+    .orderBy(oneVidProfile.createdAt);
+  // Expose only a boolean lock flag per profile; never the hash.
+  const profiles = profileRows.map(({ pinHash, ...p }) => ({
+    ...p,
+    hasPin: Boolean(pinHash),
+  }));
+
+  const cookieStore = await cookies();
+  const activeProfileId = cookieStore.get(ACTIVE_PROFILE_COOKIE)?.value ?? null;
+  const verifiedProfileId =
+    cookieStore.get(VERIFIED_PROFILE_COOKIE)?.value ?? null;
+
   // Pass the resolved session userId down so OneVidContent doesn't need to
   // re-authenticate (avoids a second cookie read inside the Suspense boundary).
   return (
-    <Suspense fallback={<HomeLoading />}>
-      <OneVidContent searchParams={searchParams} userId={session.user.id} />
-    </Suspense>
+    <OneVidProfileProvider
+      initialActiveProfileId={activeProfileId}
+      initialProfiles={profiles}
+      initialVerifiedProfileId={verifiedProfileId}
+    >
+      <Suspense fallback={<HomeFeedSkeleton />}>
+        <OneVidContent
+          searchParams={searchParams}
+          userId={session.user.id}
+        />
+      </Suspense>
+    </OneVidProfileProvider>
   );
 }
 
@@ -107,7 +145,7 @@ async function OneVidContent({
 }) {
   const { locale: appLocale, t } = await getServerT();
 
-  const [params, oneVidRow, addonRows, profileRows] = await Promise.all([
+  const [params, oneVidRow, addonRows] = await Promise.all([
     searchParams,
     db
       .select({
@@ -132,17 +170,6 @@ async function OneVidContent({
       .from(oneVidAddon)
       .where(eq(oneVidAddon.userId, userId))
       .orderBy(desc(oneVidAddon.createdAt)),
-    db
-      .select({
-        id: oneVidProfile.id,
-        name: oneVidProfile.name,
-        avatar: oneVidProfile.avatar,
-        isKids: oneVidProfile.isKids,
-        pinHash: oneVidProfile.pinHash,
-      })
-      .from(oneVidProfile)
-      .where(eq(oneVidProfile.userId, userId))
-      .orderBy(oneVidProfile.createdAt),
   ]);
 
   // Token de lectura global del dueño; ningún usuario conecta su TMDB.
@@ -165,11 +192,6 @@ async function OneVidContent({
   const surface: FeedSurface =
     params.surface === "discover" ? "discover" : "home";
   const surfaceRows = surface === "discover" ? discoverRows : feedRows;
-  // Expose only a boolean lock flag per profile; never the hash.
-  const profiles = profileRows.map(({ pinHash, ...p }) => ({
-    ...p,
-    hasPin: Boolean(pinHash),
-  }));
 
   const oneVidSvgPath = path.join(
     process.cwd(),
@@ -251,42 +273,40 @@ async function OneVidContent({
   if (!(tmdbToken && setupCompleted)) {
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
-        <OneVidProfileProvider initialProfiles={profiles}>
-          <OneVidHeader {...headerProps} />
-          <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
-            <Empty className="min-h-0 border-0 p-0">
-              <EmptyHeader>
-                <EmptyMedia
-                  className="size-16 rounded-xl bg-transparent"
-                  variant="icon"
-                >
-                  {/* biome-ignore lint/performance/noImgElement: SVG data URI */}
-                  <img
-                    alt="onevid"
-                    className="size-8 rounded-(--radius) border border-border/70 object-contain"
-                    height={32}
-                    src={`data:image/svg+xml;utf8,${encodeURIComponent(oneVidSvg)}`}
-                    width={32}
-                  />
-                </EmptyMedia>
-                <EmptyTitle>Configura onevid para empezar</EmptyTitle>
-                <EmptyDescription>
-                  Completa los pasos para empezar a ver tu contenido.
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <SetupStepper
-                  discoverRows={discoverRows}
-                  feedConfigured={feedConfigured}
-                  feedRows={feedRows}
-                  hasTorboxKey={Boolean(torboxKey)}
-                  initialAddons={addons}
-                  setupCompleted={setupCompleted}
+        <OneVidHeader {...headerProps} />
+        <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
+          <Empty className="min-h-0 border-0 p-0">
+            <EmptyHeader>
+              <EmptyMedia
+                className="size-16 rounded-xl bg-transparent"
+                variant="icon"
+              >
+                {/* biome-ignore lint/performance/noImgElement: SVG data URI */}
+                <img
+                  alt="onevid"
+                  className="size-8 rounded-(--radius) border border-border/70 object-contain"
+                  height={32}
+                  src={`data:image/svg+xml;utf8,${encodeURIComponent(oneVidSvg)}`}
+                  width={32}
                 />
-              </EmptyContent>
-            </Empty>
-          </section>
-        </OneVidProfileProvider>
+              </EmptyMedia>
+              <EmptyTitle>Configura onevid para empezar</EmptyTitle>
+              <EmptyDescription>
+                Completa los pasos para empezar a ver tu contenido.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <SetupStepper
+                discoverRows={discoverRows}
+                feedConfigured={feedConfigured}
+                feedRows={feedRows}
+                hasTorboxKey={Boolean(torboxKey)}
+                initialAddons={addons}
+                setupCompleted={setupCompleted}
+              />
+            </EmptyContent>
+          </Empty>
+        </section>
       </main>
     );
   }
@@ -421,29 +441,27 @@ async function OneVidContent({
   if (loadError === "auth") {
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
-        <OneVidProfileProvider initialProfiles={profiles}>
-          <OneVidHeader {...headerProps} />
-          <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
-            <Empty className="min-h-0 border-0 p-0">
-              <EmptyHeader>
-                <EmptyTitle>Token TMDB inválido</EmptyTitle>
-                <EmptyDescription>
-                  Tu token ha expirado o no es válido. Configúralo de nuevo.
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <SetupStepper
-                  discoverRows={discoverRows}
-                  feedConfigured={feedConfigured}
-                  feedRows={feedRows}
-                  hasTorboxKey={Boolean(torboxKey)}
-                  initialAddons={addons}
-                  setupCompleted={false}
-                />
-              </EmptyContent>
-            </Empty>
-          </section>
-        </OneVidProfileProvider>
+        <OneVidHeader {...headerProps} />
+        <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
+          <Empty className="min-h-0 border-0 p-0">
+            <EmptyHeader>
+              <EmptyTitle>Token TMDB inválido</EmptyTitle>
+              <EmptyDescription>
+                Tu token ha expirado o no es válido. Configúralo de nuevo.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <SetupStepper
+                discoverRows={discoverRows}
+                feedConfigured={feedConfigured}
+                feedRows={feedRows}
+                hasTorboxKey={Boolean(torboxKey)}
+                initialAddons={addons}
+                setupCompleted={false}
+              />
+            </EmptyContent>
+          </Empty>
+        </section>
       </main>
     );
   }
@@ -451,20 +469,18 @@ async function OneVidContent({
   if (loadError === "network") {
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
-        <OneVidProfileProvider initialProfiles={profiles}>
-          <OneVidHeader {...headerProps} />
-          <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
-            <Empty className="min-h-0 border-0 p-0">
-              <EmptyHeader>
-                <EmptyTitle>No pudimos cargar el catálogo</EmptyTitle>
-                <EmptyDescription>
-                  Hubo un problema al conectar con TMDB. Vuelve a intentarlo en
-                  unos momentos.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          </section>
-        </OneVidProfileProvider>
+        <OneVidHeader {...headerProps} />
+        <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
+          <Empty className="min-h-0 border-0 p-0">
+            <EmptyHeader>
+              <EmptyTitle>No pudimos cargar el catálogo</EmptyTitle>
+              <EmptyDescription>
+                Hubo un problema al conectar con TMDB. Vuelve a intentarlo en
+                unos momentos.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        </section>
       </main>
     );
   }
@@ -479,7 +495,6 @@ async function OneVidContent({
         feedSectionsPromise={feedSectionsPromise}
         hasTorboxKey={Boolean(torboxKey)}
         heroItems={heroItems}
-        initialProfiles={profiles}
         posters={posters}
         postersTopTenRanks={postersTopTenRanks}
         postersAreTopTen={

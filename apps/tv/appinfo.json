@@ -1,13 +1,15 @@
 {
   "id": "tech.hackw.onevid",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "vendor": "hackw",
   "type": "web",
   "main": "index.html",
   "title": "onevid",
+  "appDescription": "Tu reproductor de video.",
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
   "splashBackground": "splash.png",
-  "iconColor": "#000000",
+  "iconColor": "#09090b",
+  "bgColor": "#09090b",
   "requiredACG": []
 }

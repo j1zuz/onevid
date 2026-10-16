@@ -5,6 +5,7 @@ import { Input } from "@workspace/ui/components/input";
 import { cn } from "@workspace/ui/lib/utils";
 import { FilmIcon, GlobeIcon, RotateCcwIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { MysticEye } from "@/components/mystic-eye";
 import { VideoJsStreamPlayer } from "@/components/stream/video-js-stream-player";
 import { type MediaBunnyState, useMediaBunny } from "@/hooks/use-mediabunny";
 import type { MimeType } from "@/types/stream";
@@ -252,7 +253,7 @@ export function LocalVideoPlayer() {
       {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: idem — solo drag&drop en el contenedor. */}
       <div
         className={cn(
-          "flex aspect-video flex-col items-center justify-center rounded-xl border border-dashed bg-repeat px-6 py-8 text-center transition-colors [background-size:48px_48px]",
+          "relative flex aspect-video flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed bg-repeat px-6 py-8 text-center transition-colors [background-size:48px_48px]",
           dragging ? "border-primary bg-primary/5" : "border-border"
         )}
         style={{ backgroundImage: "url(/pattern-tile.svg)" }}
@@ -273,115 +274,7 @@ export function LocalVideoPlayer() {
           onClick={() => inputRef.current?.click()}
           type="button"
         >
-          <span className="flex size-12 items-center justify-center rounded-xl bg-muted text-foreground">
-            <svg
-              className="size-6"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <title>Subir video</title>
-              <g className="nc-icon-wrapper" fill="none">
-                <path
-                  clipRule="evenodd"
-                  d="M3.0665 9.35256C3.62627 5.24736 7.20427 2 11.5 2C15.7459 2 19.1859 5.0787 19.8907 9.07982C22.2211 9.50238 24 11.5515 24 14C24 16.7523 21.7523 19 19 19H5C2.24772 19 0 16.7523 0 14C0 11.9104 1.26852 10.0904 3.0665 9.35256Z"
-                  data-glass="origin"
-                  fill="url(#cloud-upload-gradient-0)"
-                  fillRule="evenodd"
-                  mask="url(#cloud-upload-mask)"
-                />
-                <path
-                  clipPath="url(#cloud-upload-clip)"
-                  clipRule="evenodd"
-                  d="M3.0665 9.35256C3.62627 5.24736 7.20427 2 11.5 2C15.7459 2 19.1859 5.0787 19.8907 9.07982C22.2211 9.50238 24 11.5515 24 14C24 16.7523 21.7523 19 19 19H5C2.24772 19 0 16.7523 0 14C0 11.9104 1.26852 10.0904 3.0665 9.35256Z"
-                  data-glass="clone"
-                  fill="url(#cloud-upload-gradient-0)"
-                  fillRule="evenodd"
-                  filter="url(#cloud-upload-blur)"
-                />
-                <path
-                  d="M16.8791 16L14 16.0001V20.5C14 21.3285 13.3284 22 12.5 22H11.5C10.6716 22 10 21.3285 10 20.5V16.0001L7.1209 16C5.86315 16 5.1639 14.5451 5.94961 13.563L10.8287 7.46413C11.4292 6.71352 12.5708 6.71352 13.1713 7.46413L18.0504 13.563C18.8361 14.5451 18.1368 16 16.8791 16Z"
-                  data-glass="blur"
-                  fill="url(#cloud-upload-gradient-1)"
-                />
-                <path
-                  d="M9.99989 20.25V16H7.12098V15.25H10.7499V20.25C10.7499 20.8023 11.1976 21.25 11.7499 21.25V22C10.7834 22 9.99989 21.2165 9.99989 20.25ZM12.2499 21.25V22H11.7499V21.25H12.2499ZM13.2499 20.25V15.25H16.8788V16H13.9999V20.25C13.9999 21.2165 13.2164 22 12.2499 22V21.25C12.8022 21.25 13.2499 20.8023 13.2499 20.25ZM10.829 7.46384C11.4295 6.71371 12.5703 6.71371 13.1708 7.46384L18.0507 13.5635C18.8358 14.5456 18.1363 16 16.8788 16V15.25C17.5077 15.25 17.8576 14.5223 17.4647 14.0312L12.5858 7.93259C12.2856 7.55729 11.7142 7.55729 11.414 7.93259L6.53504 14.0312C6.14219 14.5223 6.4921 15.25 7.12098 15.25V16L7.00477 15.9961C5.82086 15.91 5.1879 14.514 5.94911 13.5625L10.829 7.46384Z"
-                  fill="url(#cloud-upload-gradient-2)"
-                />
-                <defs>
-                  <linearGradient
-                    gradientUnits="userSpaceOnUse"
-                    id="cloud-upload-gradient-0"
-                    x1="12"
-                    x2="12"
-                    y1="2"
-                    y2="19"
-                  >
-                    <stop stopColor="rgba(87, 87, 87, 1)" />
-                    <stop offset="1" stopColor="rgba(21, 21, 21, 1)" />
-                  </linearGradient>
-                  <linearGradient
-                    gradientUnits="userSpaceOnUse"
-                    id="cloud-upload-gradient-1"
-                    x1="12"
-                    x2="12"
-                    y1="6"
-                    y2="22"
-                  >
-                    <stop stopColor="rgba(227, 227, 229, 0.6)" />
-                    <stop offset="1" stopColor="rgba(187, 187, 192, 0.6)" />
-                  </linearGradient>
-                  <linearGradient
-                    gradientUnits="userSpaceOnUse"
-                    id="cloud-upload-gradient-2"
-                    x1="12"
-                    x2="12"
-                    y1="6.901"
-                    y2="15.645"
-                  >
-                    <stop stopColor="rgba(255, 255, 255, 1)" />
-                    <stop
-                      offset="1"
-                      stopColor="rgba(255, 255, 255, 1)"
-                      stopOpacity="0"
-                    />
-                  </linearGradient>
-                  <filter
-                    filterUnits="objectBoundingBox"
-                    height="400%"
-                    id="cloud-upload-blur"
-                    primitiveUnits="userSpaceOnUse"
-                    width="400%"
-                    x="-100%"
-                    y="-100%"
-                  >
-                    <feGaussianBlur
-                      edgeMode="none"
-                      height="100%"
-                      in="SourceGraphic"
-                      result="blur"
-                      stdDeviation="2"
-                      width="100%"
-                      x="0%"
-                      y="0%"
-                    />
-                  </filter>
-                  <clipPath id="cloud-upload-clip">
-                    <path
-                      d="M16.8791 16L14 16.0001V20.5C14 21.3285 13.3284 22 12.5 22H11.5C10.6716 22 10 21.3285 10 20.5V16.0001L7.1209 16C5.86315 16 5.1639 14.5451 5.94961 13.563L10.8287 7.46413C11.4292 6.71352 12.5708 6.71352 13.1713 7.46413L18.0504 13.563C18.8361 14.5451 18.1368 16 16.8791 16Z"
-                      fill="url(#cloud-upload-gradient-1)"
-                    />
-                  </clipPath>
-                  <mask id="cloud-upload-mask">
-                    <rect fill="#FFF" height="100%" width="100%" />
-                    <path
-                      d="M16.8791 16L14 16.0001V20.5C14 21.3285 13.3284 22 12.5 22H11.5C10.6716 22 10 21.3285 10 20.5V16.0001L7.1209 16C5.86315 16 5.1639 14.5451 5.94961 13.563L10.8287 7.46413C11.4292 6.71352 12.5708 6.71352 13.1713 7.46413L18.0504 13.563C18.8361 14.5451 18.1368 16 16.8791 16Z"
-                      fill="#000"
-                    />
-                  </mask>
-                </defs>
-              </g>
-            </svg>
-          </span>
+          <MysticEye className="aspect-[3/2] w-44" label="Reproductor místico" />
           <span className="flex flex-col gap-1">
             <span className="font-medium text-sm">
               Sube un video para reproducir

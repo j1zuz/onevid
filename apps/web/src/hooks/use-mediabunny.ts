@@ -1,5 +1,6 @@
 "use client";
 
+import posthog from "posthog-js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isTorboxRedirectUrl, needsMediaBunny } from "@/utils/stream-codec";
 
@@ -17,11 +18,23 @@ export type UseMediaBunny = MediaBunnyState & {
   activeAudioTrack: number;
   /** No hace nada si la fuente no tiene varias pistas o va por el camino OPFS. */
   selectAudioTrack: (index: number) => void;
+  /**
+   * Reinicia la transcodificación progresiva en `sec` (reproducción en vivo). El
+   * seek hacia adelante más allá de lo ya transcodificado se cuelga si no se
+   * reinicia la conversión; esto la relanza en la nueva posición. No hace nada
+   * fuera del camino progresivo (OPFS/nativo).
+   */
+  seekTo: (sec: number) => void;
 };
 
 export type MediaBunnyState =
   | { status: "idle" }
-  | { status: "processing"; progress: number }
+  // `mode` distingue la fase: "preparing" = arranque, mientras se intenta la
+  // reproducción progresiva (puede acabar reproduciendo en vivo, sin transcode
+  // completo) — NO se muestra porcentaje, porque la mayoría de las veces el
+  // video reproduce bien y el % sería engañoso. "transcoding" = el camino lento
+  // real (transcodifica todo antes de reproducir) — ahí sí se muestra el %.
+  | { status: "processing"; progress: number; mode: "preparing" | "transcoding" }
   // Reproducción progresiva: el <video> ya tiene una fuente reproducible
   // (MediaSource) y va recibiendo el video mientras se transcodifica, en vez
   // de esperar a que termine todo. `src` es estable durante toda la sesión.
@@ -59,14 +72,14 @@ const STREAM_VIDEO_SELECTOR = ".stream-video-player-root video";
 // la transcodificación (contrapresión): mediabunny hace `await` de cada
 // `write()`, así que no resolverlo frena la conversión y evita acumular toda
 // la película en RAM. Ver el WritableStream de `runProgressivePlayback`.
-const BUFFER_AHEAD_HIGH_SEC = 30;
+// 20 s (antes 30): un 1080p de bitrate alto (WEB-DL de Apple TV+, ~20-25 Mbps)
+// llenaba la cuota del SourceBuffer de Chromium con 30 s por delante, y al
+// arrancar (sin nada reproducido por detrás que liberar) la evicción no
+// alcanzaba → QuotaExceeded → caía al transcode completo. 20 s deja margen.
+const BUFFER_AHEAD_HIGH_SEC = 20;
 // Cuánto video ya reproducido conservamos DETRÁS del playhead al evictar para
 // liberar memoria del SourceBuffer (permite un pequeño seek hacia atrás).
 const BUFFER_BEHIND_KEEP_SEC = 10;
-// Tope de reintentos de append tras QuotaExceededError antes de rendirse (y
-// caer al camino OPFS completo). Con la contrapresión activa casi nunca se
-// llega a la cuota; esto es solo la red de seguridad.
-const MAX_QUOTA_RETRIES = 8;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -144,7 +157,7 @@ function describeDiscard(conversion: {
 }
 
 /** Minimal shape used to cancel an in-flight conversion from the caller. */
-interface CancellableConversion {
+export interface CancellableConversion {
   cancel: () => Promise<void>;
 }
 
@@ -441,6 +454,90 @@ async function transcodeToMp4(
 }
 
 /**
+ * Igual que `transcodeToMp4` pero escribe a un WritableStream arbitrario (el
+ * archivo que el usuario eligió con showSaveFilePicker) en vez de a OPFS, y no
+ * devuelve un File. Devuelve "canceled" si se abortó; lanza si falla de verdad.
+ * StreamTarget cierra el writable al terminar y lo aborta al cancelar.
+ */
+async function transcodeToWritable(
+  source: string,
+  writeStream: WritableStream,
+  onProgress: ((progress: number) => void) | undefined,
+  conversionRef: { current: CancellableConversion | null },
+  abortedRef: { current: boolean }
+): Promise<DownloadOutcome> {
+  const [
+    {
+      Input,
+      Output,
+      Conversion,
+      UrlSource,
+      ALL_FORMATS,
+      Mp4OutputFormat,
+      StreamTarget,
+    },
+    { registerAc3Decoder },
+    { registerDtsDecoder },
+    { registerAacEncoder },
+  ] = await Promise.all([
+    import("mediabunny"),
+    import("@mediabunny/ac3"),
+    import("@mediabunny/dts"),
+    import("@mediabunny/aac-encoder"),
+  ]);
+  registerAc3Decoder();
+  registerDtsDecoder();
+  registerAacEncoder();
+
+  const conversion = await Conversion.init({
+    input: new Input({
+      source: new UrlSource(source, urlSourceOptions(source, abortedRef)),
+      formats: ALL_FORMATS,
+    }),
+    output: new Output({
+      format: new Mp4OutputFormat(),
+      target: new StreamTarget(writeStream),
+    }),
+    video: async (track) => {
+      const codec = await track.getCodec();
+      return codec && PASSTHROUGH_VIDEO_CODECS.has(codec) ? {} : { codec: "avc" };
+    },
+    audio: async () => ({
+      codec: "aac",
+      numberOfChannels: 2,
+      sampleRate: 48_000,
+      bitrate: 128_000,
+      forceTranscode: true,
+    }),
+  });
+  if (!conversion.isValid) {
+    throw new Error(
+      `No se pudo procesar el archivo (${describeDiscard(conversion)}).`
+    );
+  }
+  conversionRef.current = conversion;
+  if (abortedRef.current) {
+    await conversion.cancel();
+    return "canceled";
+  }
+  conversion.onProgress = (progress) => onProgress?.(progress);
+  try {
+    await conversion.execute();
+  } catch (error) {
+    try {
+      await conversion.cancel();
+    } catch {
+      /* ya errored: el error real se relanza abajo */
+    }
+    if (abortedRef.current) {
+      return "canceled";
+    }
+    throw error;
+  }
+  return "done";
+}
+
+/**
  * Reproducción progresiva (MediaSource) en DOS carriles independientes: uno de
  * vídeo y otro de audio, cada uno con su propia `Conversion`, su `Output` y su
  * `SourceBuffer` sobre el mismo `MediaSource`.
@@ -478,6 +575,8 @@ async function runProgressivePlayback(opts: {
   onAudioTracks: (tracks: MediaBunnyAudioTrack[], activeIndex: number) => void;
   /** Publica el conmutador de pista de audio, o `null` al terminar. */
   onAudioSwitcher: (switcher: ((index: number) => void) | null) => void;
+  /** Publica el seek (reinicio de la transcodificación en un offset), o `null`. */
+  onSeekRestart: (seek: ((sec: number) => void) | null) => void;
   conversionRef: { current: CancellableConversion | null };
   abortedRef: { current: boolean };
   cleanupRef: { current: (() => void) | null };
@@ -674,7 +773,7 @@ async function runProgressivePlayback(opts: {
     if (!sb) {
       throw new Error(`SourceBuffer de ${lane.kind} no disponible`);
     }
-    for (let attempt = 0; ; attempt++) {
+    for (;;) {
       if (abortedRef.current) {
         return;
       }
@@ -690,7 +789,15 @@ async function runProgressivePlayback(opts: {
         return;
       } catch (error) {
         const name = (error as DOMException | null)?.name;
-        if (name === "QuotaExceededError" && attempt < MAX_QUOTA_RETRIES) {
+        // Buffer lleno: NO es un fallo. La reproducción va bien; solo falta
+        // espacio para seguir transcodificando por delante. Evictamos lo ya
+        // reproducido y reintentamos SIN tope — a medida que el usuario mira, el
+        // playhead avanza y libera espacio. Antes se rendía a los 8 intentos y
+        // caía a transcodificar TODA la peli ("descargarla"), que es mucho peor
+        // que esperar unos segundos. `evictBehindPlayhead` ya duerme cuando no
+        // hay nada que liberar, así que esto no es un bucle ocupado; sale al
+        // abortar (desmontar) o cuando entra espacio.
+        if (name === "QuotaExceededError") {
           await evictBehindPlayhead(sb);
           continue;
         }
@@ -853,8 +960,17 @@ async function runProgressivePlayback(opts: {
     }
   }
 
-  const runVideoLane = async () => {
+  // Estado del seek, leído por el bucle de reproducción y por los carriles para
+  // abandonar temprano si llega un destino más nuevo mientras montan. Declarado
+  // acá para quedar en alcance de `runVideoLane`/`runAudioLane`.
+  let seekTarget = 0;
+  let hasSeek = false;
+
+  const runVideoLane = async (trimStart = 0) => {
     const lane = lanes.video;
+    // Reinicio por seek: el carril ya existe, así que se reutiliza su
+    // SourceBuffer en vez de crear uno nuevo.
+    const resuming = Boolean(lane.ready && lane.sourceBuffer);
     const output = new Output({
       // `fastStart: "fragmented"` = MP4 append-only (init al frente, luego
       // moof+mdat en orden), que es lo que MSE necesita.
@@ -862,9 +978,10 @@ async function runProgressivePlayback(opts: {
       target: new StreamTarget(writableFor(lane)),
     });
     const conversion = await Conversion.init({
-      // Reutiliza el Input del sondeo: sus metadatos ya están leídos, así que
-      // se ahorra una lectura completa del `moov` por la red.
-      input: probe,
+      // En el arranque reutiliza el Input del sondeo (sus metadatos ya están
+      // leídos, ahorra una lectura del `moov`). En un reinicio por seek hace
+      // falta un lector nuevo: `probe` ya está consumido.
+      input: resuming ? makeInput() : probe,
       output,
       video: (_track, n) => (n === 1 ? {} : { discard: true }),
       audio: useSeparateAudioLane
@@ -874,6 +991,7 @@ async function runProgressivePlayback(opts: {
           // Chromium rechaza el init segment entero.
           (_track, n) =>
             n === activeAudioIndex + 1 ? aacOutputConfig : { discard: true },
+      ...(trimStart > 0 ? { trim: { start: trimStart } } : {}),
     });
     if (!conversion.isValid) {
       throw new Error(
@@ -885,7 +1003,23 @@ async function runProgressivePlayback(opts: {
       await conversion.cancel();
       return;
     }
+    // Llegó un seek más nuevo mientras montábamos este carril: abandona esta
+    // conversión para que el bucle reinicie en la posición correcta, sin
+    // transcodificar el archivo entero primero.
+    if (hasSeek) {
+      await conversion.cancel();
+      return;
+    }
     conversion.onProgress = onProgress;
+    if (resuming && lane.sourceBuffer) {
+      // El codec de salida es el mismo, así que se reutiliza el SourceBuffer.
+      // mediabunny rebasa la salida recortada a 0; `timestampOffset` la devuelve
+      // a la línea de tiempo global del <video>. Se fija ANTES de arrancar: en
+      // cuanto produzca, sus writes ya se appendean en la posición correcta.
+      lane.sourceBuffer.timestampOffset = trimStart;
+      await conversion.execute();
+      return;
+    }
     // `getMimeType()` no resuelve hasta que la conversión está produciendo, así
     // que hay que lanzar `execute()` ANTES de esperarlo: al revés se bloquean
     // mutuamente. Mientras tanto los primeros chunks quedan retenidos en
@@ -923,6 +1057,12 @@ async function runProgressivePlayback(opts: {
     }
     audioConversionRef.current = conversion;
     if (abortedRef.current) {
+      await conversion.cancel();
+      return;
+    }
+    // Un seek más nuevo llegó mientras montábamos: abandona para que el bucle
+    // reinicie en la posición correcta.
+    if (hasSeek) {
       await conversion.cancel();
       return;
     }
@@ -964,9 +1104,9 @@ async function runProgressivePlayback(opts: {
     });
     return promise;
   };
-  let audioLanePromise = watchAudioLane(
-    useSeparateAudioLane ? runAudioLane(activeAudioIndex, 0) : Promise.resolve()
-  );
+  // Lo asigna el bucle de reproducción al arrancar cada carril de audio; un
+  // cambio de pista lo reemplaza con el nuevo run.
+  let audioLanePromise: Promise<void> = Promise.resolve();
 
   /** Serializa los cambios de pista: dos clics seguidos no pueden solaparse. */
   let audioSwitchChain: Promise<void> = Promise.resolve();
@@ -1015,18 +1155,85 @@ async function runProgressivePlayback(opts: {
   };
   opts.onAudioSwitcher(useSeparateAudioLane ? switchAudioTrack : null);
 
-  try {
-    await runVideoLane();
-    // El audio puede seguir con un cambio de pista en curso.
-    await audioSwitchChain;
-    await audioLanePromise;
-  } catch (error) {
-    if (progressiveError) {
-      throw progressiveError;
+  // --- Seek (reinicio de la transcodificación en un offset) ---
+  // La conversión es secuencial: saltar más allá de lo ya transcodificado deja
+  // al <video> esperando para siempre porque ese contenido todavía no existe.
+  // `requestSeek` marca el destino y cancela las conversiones en curso; el bucle
+  // de reproducción de abajo relanza ambos carriles desde esa posición. Un scrub
+  // rápido solo actualiza el destino: el bucle converge a la última posición.
+  const requestSeek = (sec: number) => {
+    if (abortedRef.current || !Number.isFinite(sec) || sec < 0) {
+      return;
     }
-    throw error;
+    seekTarget = sec;
+    hasSeek = true;
+    void videoConversionRef.current?.cancel().catch(() => undefined);
+    void audioConversionRef.current?.cancel().catch(() => undefined);
+  };
+  opts.onSeekRestart(requestSeek);
+
+  try {
+    // Bucle de reproducción: corre ambos carriles desde `startAt`. Si llega un
+    // seek, las conversiones se cancelan y el bucle reinicia en la nueva
+    // posición. Sin seek, el carril de vídeo corre hasta el final y el bucle
+    // termina.
+    let startAt = 0;
+    for (;;) {
+      hasSeek = false;
+      if (startAt > 0) {
+        // Vaciar ambos SourceBuffer: lo buffereado es anterior al destino. Se
+        // encola en la cadena del carril para respetar los appends en vuelo.
+        for (const lane of [lanes.video, lanes.audio]) {
+          const sb = lane.sourceBuffer;
+          if (sb && lane.ready && mediaSource.readyState === "open") {
+            lane.chain = lane.chain
+              .then(async () => {
+                if (mediaSource.readyState !== "open") {
+                  return;
+                }
+                sb.remove(0, mediaSource.duration || Number.MAX_SAFE_INTEGER);
+                await waitForUpdateEnd(sb);
+              })
+              .catch(() => undefined);
+            await lane.chain;
+          }
+        }
+      }
+      audioLanePromise = watchAudioLane(
+        useSeparateAudioLane
+          ? runAudioLane(activeAudioIndex, startAt)
+          : Promise.resolve()
+      );
+      try {
+        await runVideoLane(startAt);
+        // El audio puede seguir con un cambio de pista en curso.
+        await audioSwitchChain;
+        await audioLanePromise;
+      } catch (error) {
+        // Un seek cancela las conversiones a propósito: no es una avería, hay
+        // que reiniciar en la nueva posición. Cualquier otro fallo es real.
+        const canceled =
+          error instanceof Error && /cancel/i.test(error.name + error.message);
+        if (!abortedRef.current && hasSeek && canceled) {
+          startAt = seekTarget;
+          continue;
+        }
+        if (progressiveError) {
+          throw progressiveError;
+        }
+        throw error;
+      }
+      // El carril de vídeo llegó al final. Si entró un seek justo al terminar,
+      // reiniciar; si no, la reproducción está completa.
+      if (!abortedRef.current && hasSeek) {
+        startAt = seekTarget;
+        continue;
+      }
+      break;
+    }
   } finally {
     opts.onAudioSwitcher(null);
+    opts.onSeekRestart(null);
   }
   if (progressiveError) {
     throw progressiveError;
@@ -1038,6 +1245,162 @@ async function runProgressivePlayback(opts: {
       mediaSource.endOfStream();
     } catch {
       /* ya cerrado */
+    }
+  }
+}
+
+/** Resultado de una descarga, para que la UI distinga cancelar de fallar. */
+export type DownloadOutcome = "done" | "canceled";
+
+interface SaveFilePickerWindow {
+  showSaveFilePicker?: (options?: {
+    suggestedName?: string;
+    types?: { description?: string; accept: Record<string, string[]> }[];
+  }) => Promise<FileSystemFileHandle>;
+}
+
+/** Quita caracteres inválidos para un nombre de archivo y acota el largo. */
+function sanitizeFileName(name: string): string {
+  const cleaned = name.replace(/[/\\?%*:|"<>]/g, "").trim().slice(0, 150);
+  return cleaned || "video";
+}
+
+/**
+ * Descarga una peli/serie para verla offline. Para fuentes incompatibles
+ * (MKV/HEVC/AC-3…) transcodifica a un MP4 compatible y lo escribe DIRECTO al
+ * archivo elegido por el usuario (sin inflar RAM/OPFS), reutilizando el mismo
+ * pipeline de mediabunny que la reproducción. Para fuentes ya nativas descarga
+ * el archivo original tal cual.
+ *
+ * Pensado para usuarios con mal internet: bajan el archivo completo una vez y lo
+ * ven bien, con el audio/video ya convertidos a algo que el reproductor abre.
+ *
+ * Cancelación: el caller pone `abortedRef.current = true` y, si hay conversión en
+ * curso, llama `conversionRef.current?.cancel()` — igual que el hook al desmontar.
+ */
+export async function downloadMediaFile(opts: {
+  url: string;
+  filename: string;
+  title: string;
+  codecHint?: string;
+  onProgress?: (progress: number) => void;
+  abortedRef: { current: boolean };
+  conversionRef: { current: CancellableConversion | null };
+}): Promise<DownloadOutcome> {
+  const {
+    url,
+    filename,
+    title,
+    codecHint = "",
+    onProgress,
+    abortedRef,
+    conversionRef,
+  } = opts;
+
+  // Resolver el redirect opaco de TorBox a la URL final del CDN (igual que la
+  // reproducción): solo el server puede seguir esa cadena sin romper CORS.
+  let resolved = url;
+  if (isTorboxRedirectUrl(url)) {
+    try {
+      const res = await fetch("/api/stream/resolve", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { url?: string };
+        if (typeof data.url === "string" && data.url) {
+          resolved = data.url;
+        }
+      }
+    } catch {
+      /* resolución falló → usar la URL original */
+    }
+  }
+  if (abortedRef.current) {
+    return "canceled";
+  }
+
+  const safeName = sanitizeFileName(title);
+
+  // Fuente ya reproducible de forma nativa: no hace falta transcodificar, se baja
+  // el archivo original directo.
+  if (!needsMediaBunny(filename, codecHint)) {
+    const ext = (filename.match(/\.[a-z0-9]+$/i)?.[0] ?? ".mp4").toLowerCase();
+    const anchor = document.createElement("a");
+    anchor.href = resolved;
+    anchor.download = `${safeName}${ext}`;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    onProgress?.(1);
+    return "done";
+  }
+
+  // Incompatible → transcodificar a MP4 compatible con el mismo pipeline.
+  const picker = (window as unknown as SaveFilePickerWindow).showSaveFilePicker;
+
+  if (picker) {
+    let handle: FileSystemFileHandle;
+    try {
+      handle = await picker.call(window, {
+        suggestedName: `${safeName}.mp4`,
+        types: [{ description: "Video MP4", accept: { "video/mp4": [".mp4"] } }],
+      });
+    } catch {
+      // El usuario cerró el diálogo de "guardar como".
+      return "canceled";
+    }
+    const writable = await handle.createWritable();
+    try {
+      // `createOpfsWriteStream` sirve tal cual: el writable del picker tiene la
+      // misma forma (seek + write) que el de OPFS, y StreamTarget lo cierra solo
+      // al terminar (o lo aborta al cancelar).
+      return await transcodeToWritable(
+        resolved,
+        createOpfsWriteStream(writable),
+        onProgress,
+        conversionRef,
+        abortedRef
+      );
+    } catch (error) {
+      await writable.abort().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  // Fallback sin showSaveFilePicker (Firefox/Safari): transcodificar a OPFS y
+  // ofrecer el archivo como descarga blob. Pesa en memoria/disco temporal, pero
+  // es el único camino sin la File System Access API.
+  const opfsName = `dl-${Date.now()}.mp4`;
+  try {
+    const file = await transcodeToMp4(
+      resolved,
+      opfsName,
+      (progress) => onProgress?.(progress),
+      conversionRef,
+      abortedRef
+    );
+    if (abortedRef.current) {
+      return "canceled";
+    }
+    const blobUrl = URL.createObjectURL(file);
+    const anchor = document.createElement("a");
+    anchor.href = blobUrl;
+    anchor.download = `${safeName}.mp4`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    // Dar tiempo a que el browser arranque la descarga antes de revocar.
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    return "done";
+  } finally {
+    try {
+      const root = await navigator.storage.getDirectory();
+      await root.removeEntry(opfsName);
+    } catch {
+      /* ya removido */
     }
   }
 }
@@ -1078,6 +1441,9 @@ export function useMediaBunny(
   // camino OPFS, donde el archivo ya lleva todas las pistas y no hay nada que
   // conmutar desde acá.
   const audioSwitcherRef = useRef<((index: number) => void) | null>(null);
+  // Lo publica la reproducción progresiva mientras está viva; es `null` fuera de
+  // ese camino (OPFS/nativo), donde el <video> sabe hacer seek por su cuenta.
+  const seekRef = useRef<((sec: number) => void) | null>(null);
 
   const selectAudioTrack = useCallback((index: number) => {
     const switcher = audioSwitcherRef.current;
@@ -1088,6 +1454,10 @@ export function useMediaBunny(
     switcher(index);
   }, []);
 
+  const seekTo = useCallback((sec: number) => {
+    seekRef.current?.(sec);
+  }, []);
+
   useEffect(() => {
     if (!(source && needsMediaBunny(filename, codecHint))) {
       setState({ status: "idle" });
@@ -1095,7 +1465,8 @@ export function useMediaBunny(
     }
 
     const abortedRef = { current: false };
-    setState({ status: "processing", progress: 0 });
+    // Arranque: todavía no se sabe si reproducirá en vivo. "preparing" = sin %.
+    setState({ status: "processing", progress: 0, mode: "preparing" });
     setAudioTracks([]);
     setActiveAudioTrack(0);
 
@@ -1187,6 +1558,9 @@ export function useMediaBunny(
           onAudioSwitcher: (switcher) => {
             audioSwitcherRef.current = switcher;
           },
+          onSeekRestart: (seek) => {
+            seekRef.current = seek;
+          },
           conversionRef,
           abortedRef,
           cleanupRef: mseCleanupRef,
@@ -1218,6 +1592,18 @@ export function useMediaBunny(
             progressiveError
           );
         }
+        // Telemetría del fallback: el camino progresivo (reproducir mientras se
+        // transcodifica) cayó al camino lento (transcodificar el archivo entero
+        // antes de reproducir). Sin esto no hay forma de saber POR QUÉ pasa en
+        // producción. Se manda solo el nombre del archivo y el hint de codec —
+        // NUNCA la URL de origen, que lleva el token de TorBox. `capture` respeta
+        // el opt-in del consentimiento (ver components/cookie-consent.tsx).
+        posthog.capture("mediabunny_progressive_fallback", {
+          reason: message,
+          is_non_passthrough: message === NON_PASSTHROUGH_VIDEO_ERROR,
+          filename,
+          codec_hint: codecHint,
+        });
         // Progressive no fue posible / falló → limpiar MSE y caer al camino
         // OPFS completo. Cancelamos la conversión progresiva para liberar sus
         // sesiones de WebCodecs antes de arrancar la de fallback.
@@ -1237,8 +1623,10 @@ export function useMediaBunny(
         }
         streamUrlRef.current = null;
         audioSwitcherRef.current = null;
+        seekRef.current = null;
         setAudioTracks([]);
-        setState({ status: "processing", progress: 0 });
+        // A partir de acá sí es transcodificación completa real → mostrar %.
+        setState({ status: "processing", progress: 0, mode: "transcoding" });
       }
 
       // 2) Fallback: transcodifica todo a OPFS y luego reproduce el blob.
@@ -1249,7 +1637,7 @@ export function useMediaBunny(
           opfsName,
           (progress) => {
             if (!abortedRef.current) {
-              setState({ status: "processing", progress });
+              setState({ status: "processing", progress, mode: "transcoding" });
             }
           },
           conversionRef,
@@ -1284,5 +1672,5 @@ export function useMediaBunny(
     };
   }, [source, filename, codecHint]);
 
-  return { ...state, audioTracks, activeAudioTrack, selectAudioTrack };
+  return { ...state, audioTracks, activeAudioTrack, selectAudioTrack, seekTo };
 }

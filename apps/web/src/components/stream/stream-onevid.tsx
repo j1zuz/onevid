@@ -9,6 +9,7 @@ import {
   type NextEpisodeRef,
   StreamNextEpisode,
 } from "@/components/stream/stream-next-episode";
+import { PlayerDownloadButton } from "@/components/stream/player-download-button";
 import { StreamSourcePicker } from "@/components/stream/stream-source-picker";
 import { StreamTrackPicker } from "@/components/stream/stream-track-picker";
 import {
@@ -57,12 +58,14 @@ const PlayerTopBar = memo(function PlayerTopBar({
   backHref,
   contentTitle,
   handleBack,
+  downloadButton,
   sourcePicker,
   trackPicker,
 }: {
   backHref: string;
   contentTitle: string;
   handleBack: (e: React.MouseEvent<HTMLAnchorElement>) => void;
+  downloadButton?: React.ReactNode;
   sourcePicker?: React.ReactNode;
   trackPicker?: React.ReactNode;
 }) {
@@ -79,6 +82,7 @@ const PlayerTopBar = memo(function PlayerTopBar({
         {contentTitle}
       </h1>
       {trackPicker}
+      {downloadButton}
       {sourcePicker}
     </div>
   );
@@ -337,8 +341,41 @@ export function StreamOnevid({
     }
     hasResumed.current = true;
   }, [hasPlayed, initialResume]);
+
+  // Seek en la ruta MSE: mediabunny transcodifica de forma secuencial, así que el
+  // <video> no puede saltar más allá de lo ya transcodificado (se quedaría
+  // esperando para siempre). Cuando el usuario salta FUERA del buffer, se reinicia
+  // la transcodificación en esa posición; si el destino ya está buffereado, el
+  // <video> lo resuelve solo. Esto arregla también el resume a posición tardía y
+  // el seek tras un cambio de medio en caliente, que pasan por el mismo camino.
+  useEffect(() => {
+    const video = playerRefs.video;
+    if (!(video && shouldUseMediaBunny)) {
+      return;
+    }
+    const onSeeking = () => {
+      const target = video.currentTime;
+      if (!Number.isFinite(target)) {
+        return;
+      }
+      const ranges = video.buffered;
+      for (let i = 0; i < ranges.length; i++) {
+        if (target >= ranges.start(i) - 0.5 && target <= ranges.end(i) + 0.5) {
+          return; // ya buffereado: lo maneja el <video> nativo
+        }
+      }
+      mediaBunny.seekTo(target);
+    };
+    video.addEventListener("seeking", onSeeking);
+    return () => video.removeEventListener("seeking", onSeeking);
+  }, [playerRefs.video, shouldUseMediaBunny, mediaBunny.seekTo]);
   const R = 16;
   const C = 2 * Math.PI * R;
+  // El anillo de % solo tiene sentido en transcodificación COMPLETA real. En la
+  // fase "preparing" (arranque, intentando reproducir en vivo) no se muestra:
+  // casi siempre reproduce bien enseguida y el "0%" sería engañoso.
+  const isFullTranscode =
+    mediaBunny.status === "processing" && mediaBunny.mode === "transcoding";
   const mbProgress =
     mediaBunny.status === "processing" ? mediaBunny.progress : 0;
   const mbOffset = C - mbProgress * C;
@@ -430,6 +467,16 @@ export function StreamOnevid({
       <PlayerTopBar
         backHref={backHref}
         contentTitle={contentTitle}
+        downloadButton={
+          !isTv && sourceUrl ? (
+            <PlayerDownloadButton
+              codecHint={sourceCodecHint}
+              filename={sourceFilename}
+              title={contentTitle}
+              url={sourceUrl}
+            />
+          ) : null
+        }
         handleBack={handleBack}
         trackPicker={
           <StreamTrackPicker
@@ -469,7 +516,7 @@ export function StreamOnevid({
             )}
             <div className="relative z-10 flex items-center gap-4">
               {renderLogoCenter({ logo, contentTitle })}
-              {mediaBunny.status === "processing" && (
+              {isFullTranscode && (
                 <svg className="shrink-0 drop-shadow-lg" height="44" width="44">
                   <title>Progreso de transcodificación</title>
                   <circle

@@ -19,6 +19,7 @@ import {
 import { Input } from "@workspace/ui/components/input";
 import { cn } from "@workspace/ui/lib/utils";
 import {
+  ArrowLeftRightIcon,
   BoltIcon,
   LockIcon,
   LogOutIcon,
@@ -51,6 +52,8 @@ export function OneVidProfileSwitcher() {
     profiles,
     activeProfile,
     activeProfileId,
+    exitProfile,
+    gateEnabled,
     setActiveProfileId,
     verifyProfilePin,
   } = useOneVidProfiles();
@@ -78,6 +81,15 @@ export function OneVidProfileSwitcher() {
       },
     });
   }, [router]);
+
+  function handleExitProfile() {
+    exitProfile();
+    // Pages with the gate disabled (e.g. /home/account) have nowhere to show
+    // it in place, so send the user to one that does.
+    if (!gateEnabled) {
+      router.push("/home");
+    }
+  }
 
   function selectProfile(p: OneVidProfile) {
     if (p.hasPin) {
@@ -112,14 +124,14 @@ export function OneVidProfileSwitcher() {
           aria-label="Perfil"
           className={cn(
             buttonVariants({ variant: "outline", size: "icon" }),
-            "overflow-hidden p-0"
+            "overflow-hidden rounded-full p-0"
           )}
           data-dpad-focusable
         >
           {activeProfile ? (
             <OneVidProfileAvatar
               avatar={activeProfile.avatar}
-              className="size-full rounded-md text-xs"
+              className="size-full text-xs"
               name={activeProfile.name}
             />
           ) : (
@@ -158,6 +170,10 @@ export function OneVidProfileSwitcher() {
           >
             <SettingsIcon className="size-3.5" />
             Administrar perfiles
+          </DropdownMenuItem>
+          <DropdownMenuItem data-dpad-focusable onClick={handleExitProfile}>
+            <ArrowLeftRightIcon className="size-3.5" />
+            Salir del perfil
           </DropdownMenuItem>
 
           <DropdownMenuSeparator />

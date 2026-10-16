@@ -1,12 +1,12 @@
 {
   "name": "tv",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "license": "Apache-2.0",
   "private": true,
   "description": "App LG webOS (POC hosted) que reusa la web de onevid. Hito dev-mode.",
   "scripts": {
     "package": "ares-package .",
-    "install:tv": "ares-install -d tv tech.hackw.onevid_0.0.1_all.ipk",
+    "install:tv": "ares-install -d tv tech.hackw.onevid_1.0.0_all.ipk",
     "launch:tv": "ares-launch -d tv tech.hackw.onevid",
     "launch:sim": "ares-launch -s . ",
     "inspect:tv": "ares-inspect -d tv -o tech.hackw.onevid"

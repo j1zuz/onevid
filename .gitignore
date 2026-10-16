@@ -27,3 +27,8 @@ out/
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+
+# local dev skills (anatomy, installed via `npx skills add`) — tooling, not product
+/.agents/
+/.claude/skills/
+/skills-lock.json
