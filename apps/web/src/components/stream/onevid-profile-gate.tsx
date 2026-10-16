@@ -13,6 +13,7 @@ import { Input } from "@workspace/ui/components/input";
 import { LockIcon, PencilIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { MysticEye } from "@/components/mystic-eye";
 import { OneVidProfileAvatar } from "./onevid-profile-avatar";
 import {
   type OneVidProfile,
@@ -72,7 +73,10 @@ export function OneVidProfileGate() {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-10 bg-background px-6">
-      <h1 className="font-semibold text-2xl">¿Quién está viendo?</h1>
+      <div className="flex flex-col items-center gap-4">
+        <MysticEye className="aspect-[3/2] w-52" label="Mirando" />
+        <h1 className="font-semibold text-2xl">¿Quién está viendo?</h1>
+      </div>
       <div className="flex flex-wrap items-center justify-center gap-8">
         {profiles.map((p) => (
           <button
