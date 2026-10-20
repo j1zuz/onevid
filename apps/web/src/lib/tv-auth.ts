@@ -63,8 +63,22 @@ export async function pollDeviceToken(deviceCode: string): Promise<PollOutcome> 
     }),
   });
   const body = (await res.json().catch(() => null)) as DeviceTokenBody | null;
-  // Éxito: el backend ya dejó la cookie de sesión en este navegador.
+
   if (res.ok && body?.access_token) {
+    // El backend solo devuelve un Bearer token — no setea cookie automáticamente
+    // (el ctx.json final del handler sobreescribe los response headers borrando
+    // el Set-Cookie que pusó setNewSession). Intercambiamos el Bearer por una
+    // cookie real llamando a /api/auth/get-session con Authorization: Bearer,
+    // que pasa por el bearer plugin y sí deja la Set-Cookie en el browser.
+    try {
+      await fetch("/api/auth/get-session", {
+        method: "GET",
+        headers: { Authorization: `Bearer ${body.access_token}` },
+        credentials: "include",
+      });
+    } catch {
+      // Si falla, el usuario seguirá sin cookie pero al menos evitamos el crash.
+    }
     return { kind: "approved" };
   }
   switch (body?.error) {
