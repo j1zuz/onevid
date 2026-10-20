@@ -1,13 +1,12 @@
 // Flujo de autorización de dispositivo (OAuth 2.0 Device Authorization, RFC 8628)
-// para el login desde una TV. Es el equivalente web de apps/mobile/src/lib/auth.ts:
-// la TV pide un código, lo muestra en pantalla y hace polling; el usuario lo
-// aprueba desde el teléfono en /device.
+// para el login desde una TV o desde la web (p. ej. móvil en el login dialog).
+// Equivalente web de apps/mobile/src/lib/auth.ts: el cliente pide un código,
+// lo muestra y hace polling; el usuario lo aprueba en /device desde otro
+// dispositivo ya autenticado.
 //
-// Diferencia con el móvil: aquí corremos en un navegador REAL y al mismo origen,
-// así que no hace falta guardar un Bearer. Al aprobarse, /device/token llama a
-// `setNewSession` en el backend y deja la COOKIE de sesión en este navegador
-// (verificado en el handler de better-auth), por lo que el resto de la web
-// funciona tal cual y basta con navegar a /home.
+// /device/token solo devuelve un Bearer (session.token). En navegador hay que
+// intercambiarlo por la cookie firmada vía POST /api/auth/device/cookie antes
+// de navegar a /home (las páginas RSC leen cookie, no Authorization).
 
 // Mismo client_id que la app móvil (hackw-tv); el backend no valida el id
 // (sin `validateClient`), pero mantenerlo igual alinea telemetría y reglas.
@@ -52,10 +51,30 @@ interface DeviceTokenBody {
   error_description?: string;
 }
 
+async function exchangeAccessTokenForCookie(
+  accessToken: string
+): Promise<boolean> {
+  try {
+    const res = await fetch("/api/auth/device/cookie", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({ access_token: accessToken }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function pollDeviceToken(deviceCode: string): Promise<PollOutcome> {
   const res = await fetch("/api/auth/device/token", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({
       grant_type: "urn:ietf:params:oauth:grant-type:device_code",
       device_code: deviceCode,
@@ -65,19 +84,13 @@ export async function pollDeviceToken(deviceCode: string): Promise<PollOutcome> 
   const body = (await res.json().catch(() => null)) as DeviceTokenBody | null;
 
   if (res.ok && body?.access_token) {
-    // El backend solo devuelve un Bearer token — no setea cookie automáticamente
-    // (el ctx.json final del handler sobreescribe los response headers borrando
-    // el Set-Cookie que pusó setNewSession). Intercambiamos el Bearer por una
-    // cookie real llamando a /api/auth/get-session con Authorization: Bearer,
-    // que pasa por el bearer plugin y sí deja la Set-Cookie en el browser.
-    try {
-      await fetch("/api/auth/get-session", {
-        method: "GET",
-        headers: { Authorization: `Bearer ${body.access_token}` },
-        credentials: "include",
-      });
-    } catch {
-      // Si falla, el usuario seguirá sin cookie pero al menos evitamos el crash.
+    const cookieSet = await exchangeAccessTokenForCookie(body.access_token);
+    if (!cookieSet) {
+      return {
+        kind: "error",
+        message:
+          "Se aprobó el código pero no se pudo activar la sesión en este navegador. Intenta de nuevo.",
+      };
     }
     return { kind: "approved" };
   }

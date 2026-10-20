@@ -126,8 +126,7 @@ export function LoginDialog() {
       switch (outcome.kind) {
         case "approved":
           setCodeStatus("approved");
-          // La cookie de sesión ya quedó seteada por pollDeviceToken antes de
-          // retornar "approved", así que navegamos directo a /home.
+          // pollDeviceToken ya intercambió el Bearer por cookie de sesión.
           window.location.replace(CALLBACK_URL);
           return;
         case "pending":

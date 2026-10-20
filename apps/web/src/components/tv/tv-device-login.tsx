@@ -19,8 +19,8 @@ import {
 } from "@/lib/tv-auth";
 
 // Pantalla de login para TV: muestra un código que el usuario aprueba desde el
-// teléfono en /device, mientras la TV hace polling. Al aprobarse, el backend
-// deja la cookie de sesión en este navegador y mandamos a /home.
+// teléfono en /device, mientras la TV hace polling. Al aprobarse,
+// pollDeviceToken deja la cookie de sesión y mandamos a /home.
 
 type Status = "loading" | "waiting" | "approved" | "error";
 
@@ -113,7 +113,7 @@ export function TvDeviceLogin() {
       switch (outcome.kind) {
         case "approved":
           setStatus("approved");
-          // Cookie de sesión ya puesta por el backend → entra al catálogo.
+          // Cookie de sesión ya puesta por pollDeviceToken → entra al catálogo.
           window.location.replace("/home");
           return;
         case "pending":
