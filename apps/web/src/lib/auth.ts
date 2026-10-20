@@ -22,6 +22,7 @@ import {
   verification,
 } from "./auth-schema";
 import { db } from "./db";
+import { deviceSessionCookie } from "./device-session-cookie";
 
 function parseLocaleFromMagicLinkUrl(url: string): SupportedLanguage {
   try {
@@ -107,6 +108,8 @@ export const auth = betterAuth({
       interval: "5s",
       schema: {}, // workaround: better-auth marca `schema` como obligatorio bajo zod v4
     }),
+    // Intercambia el Bearer de /device/token por cookie de sesión (login web/TV).
+    deviceSessionCookie(),
     magicLink({
       storeToken: "hashed",
       sendMagicLink: async ({ email, url }) => {
