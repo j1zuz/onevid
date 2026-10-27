@@ -1,15 +1,17 @@
 "use client";
 
 import { Badge } from "@workspace/ui/components/badge";
-import { Button } from "@workspace/ui/components/button";
+import {
+  Button,
+  buttonVariants,
+} from "@workspace/ui/components/button";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import {
-  CheckIcon,
-  CopyIcon,
   LoaderIcon,
   RefreshCwIcon,
   TimerIcon,
 } from "lucide-react";
+import Link from "next/link";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -59,7 +61,6 @@ export function TvDeviceLogin() {
   const [data, setData] = useState<DeviceCodeData | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(REFRESH_SECONDS);
-  const [copied, setCopied] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   // Un solo ciclo de polling vivo a la vez: el ref corta el anterior al reiniciar
   // o desmontar, para que dos bucles no compitan por el mismo device_code.
@@ -192,19 +193,6 @@ export function TvDeviceLogin() {
     };
   }, [data]);
 
-  const copyCode = useCallback(async () => {
-    if (!data) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(data.user_code);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* el portapapeles puede estar bloqueado; el código sigue visible */
-    }
-  }, [data]);
-
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-10 bg-background px-6 py-12 text-center">
       <div className="flex flex-col items-center gap-2">
@@ -258,33 +246,22 @@ export function TvDeviceLogin() {
               e ingresa el código:
             </p>
           </div>
-          <button
-            className="group flex flex-col items-center gap-2 rounded-2xl border border-border bg-card px-10 py-6 transition-colors hover:border-primary focus-visible:border-primary focus-visible:outline-none"
-            data-dpad-focusable
-            onClick={copyCode}
-            type="button"
-          >
+          <div className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-card px-10 py-6">
             <span className="font-mono text-4xl tracking-[0.3em] text-foreground">
               {formatUserCode(data.user_code)}
             </span>
-            <span className="flex items-center gap-1.5 text-muted-foreground text-sm">
-              {copied ? (
-                <>
-                  <CheckIcon className="size-4 text-primary" />
-                  ¡Copiado!
-                </>
-              ) : (
-                <>
-                  <CopyIcon className="size-4" />
-                  Copiar código
-                </>
-              )}
-            </span>
-          </button>
+          </div>
           <Badge className="gap-1.5 px-3 py-1 text-sm" variant="secondary">
             <TimerIcon className="size-4" />
             Nuevo código en {formatCountdown(secondsLeft)}
           </Badge>
+          <Link
+            className={buttonVariants({ variant: "outline" })}
+            data-dpad-focusable
+            href="/?local=1"
+          >
+            Continuar sin cuenta
+          </Link>
         </div>
       ) : null}
 

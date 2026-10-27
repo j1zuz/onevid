@@ -8,6 +8,10 @@ import { NextResponse } from "next/server";
 // quedarse ahí. La única señal que los distingue sin ensuciar la URL con un
 // query param es el Referer: si viene de /home, se deja pasar.
 export function proxy(request: NextRequest) {
+  if (request.nextUrl.searchParams.get("local") === "1") {
+    return;
+  }
+
   const hasSession = Boolean(getSessionCookie(request));
   if (!hasSession) {
     return;

@@ -21,7 +21,7 @@ import { isTvUserAgent } from "@/lib/tv";
 export default async function RootPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tv?: string }>;
+  searchParams: Promise<{ tv?: string; local?: string }>;
 }) {
   const requestHeaders = await headers();
   const session = await auth.api.getSession({ headers: requestHeaders });
@@ -30,8 +30,10 @@ export default async function RootPage({
   // login inicial va por código de dispositivo (como la app móvil): la TV
   // muestra un código y el usuario lo aprueba desde el teléfono en /device.
   // `?tv=1` fuerza este modo para probarlo en el navegador de escritorio.
-  const { tv } = await searchParams;
-  const isTv = isTvUserAgent(requestHeaders.get("user-agent")) || tv === "1";
+  const { tv, local } = await searchParams;
+  const isTv =
+    local !== "1" &&
+    (isTvUserAgent(requestHeaders.get("user-agent")) || tv === "1");
   if (isTv && !session) {
     return <TvDeviceLogin />;
   }
