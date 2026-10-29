@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@workspace/ui/components/button";
+import { cn } from "@workspace/ui/lib/utils";
 import { ArrowLeftIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -21,6 +22,7 @@ import { trackLabel, useMediaTracks } from "@/hooks/use-media-tracks";
 import { useMediaBunny } from "@/hooks/use-mediabunny";
 import { useNextEpisode } from "@/hooks/use-next-episode";
 import { useWatchProgress } from "@/hooks/use-video-progress";
+import { tmdbImage } from "@/lib/tmdb";
 import { getTmdbLogo } from "@/lib/tmdb-logo-client";
 import type { MimeType, StreamWithAddon } from "@/types/stream";
 import { getMimeType, needsMediaBunny } from "@/utils/stream-codec";
@@ -146,6 +148,10 @@ export function StreamOnevid({
   // aunque el medio fuera nativo y arrancara al instante.
   const [isBuffering, setIsBuffering] = useState(false);
   const [hasPlayed, setHasPlayed] = useState(false);
+  // En móvil vertical el player se pinta girado 90°: así se ve en horizontal y
+  // el usuario tiene que girar el teléfono para verlo bien (no forzamos la
+  // rotación del sistema).
+  const [isPortraitMobile, setIsPortraitMobile] = useState(false);
 
   // Extract filename from source URL for MediaBunny detection.
   const sourceUrl =
@@ -195,6 +201,15 @@ export function StreamOnevid({
     []
   );
   const browserTracks = useMediaTracks(playerRefs.video, playerRefs.media);
+  useEffect(() => {
+    const query = window.matchMedia(
+      "(max-width: 767px) and (orientation: portrait)"
+    );
+    const update = () => setIsPortraitMobile(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
   // Subtítulos de los addons. Se piden aparte de los medios porque mediabunny
   // no expone las pistas incrustadas del archivo (su API solo lee vídeo y
   // audio), así que en la ruta MSE no habría ninguna. Montados como `<track>`
@@ -258,6 +273,12 @@ export function StreamOnevid({
     },
     [usesMediaBunnyAudio, mediaBunny.selectAudioTrack, browserTracks.selectAudio]
   );
+  // El fondo se pinta a pantalla completa (1920+), así que pedimos la versión
+  // grande a TMDB. El `contentBackground` original se mantiene para el progreso
+  // guardado (tarjetas de Continuar viendo), que no necesita tanta resolución.
+  const backgroundArt =
+    tmdbImage(contentBackground, "original") ?? contentBackground;
+
   const { onTimeUpdate, onEnded, initialResume } = useWatchProgress({
     mediaId: contentId,
     mediaType: contentType,
@@ -441,8 +462,8 @@ export function StreamOnevid({
       <div
         className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-center bg-cover bg-no-repeat"
         style={
-          contentBackground
-            ? { backgroundImage: `url(${contentBackground})` }
+          backgroundArt
+            ? { backgroundImage: `url(${backgroundArt})` }
             : { backgroundColor: "#000" }
         }
       >
@@ -463,7 +484,14 @@ export function StreamOnevid({
 
   // Player
   return (
-    <div className="group/player fixed inset-0 z-50 flex flex-col bg-gray-950">
+    <div
+      className={cn(
+        "group/player fixed z-50 flex flex-col bg-gray-950",
+        isPortraitMobile
+          ? "top-1/2 left-1/2 h-[100dvw] w-[100dvh] -translate-x-1/2 -translate-y-1/2 rotate-90"
+          : "inset-0"
+      )}
+    >
       <PlayerTopBar
         backHref={backHref}
         contentTitle={contentTitle}
@@ -504,13 +532,13 @@ export function StreamOnevid({
             player (si el medio es nativo y arranca al instante, no se muestra). */}
         {(isBuffering || mediaBunny.status === "processing") && (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/30">
-            {contentBackground && (
+            {backgroundArt && (
               // biome-ignore lint/performance/noImgElement: external CDN background
               <img
                 alt=""
                 className="absolute inset-0 size-full object-cover opacity-40"
                 height={1080}
-                src={contentBackground}
+                src={backgroundArt}
                 width={1920}
               />
             )}

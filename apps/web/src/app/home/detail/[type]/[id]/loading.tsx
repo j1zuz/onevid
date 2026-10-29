@@ -26,13 +26,17 @@ export default function DetailLoading() {
 
         <DetailScrollContainer>
           <div className="-mt-4">
-            <section className="relative mb-2 aspect-video min-h-56 w-full overflow-hidden rounded-(--radius) border border-border/70 bg-muted shadow-md shadow-zinc-950/30 md:aspect-[21/9] md:min-h-96">
+            {/* Mismo formato que el hero real: póster vertical en móvil y
+                backdrop 21:9 en escritorio, para que no salte al cargar. */}
+            <section className="relative mb-2 aspect-[4/5] w-full overflow-hidden rounded-(--radius) border border-border/70 bg-muted shadow-md shadow-zinc-950/30 md:aspect-[21/9] md:min-h-96">
               <Skeleton className="absolute inset-0 rounded-none" />
               <div className="absolute inset-0 bg-gradient-to-t from-background via-background/10 to-transparent" />
-              <div className="absolute inset-x-0 bottom-0 flex flex-col items-start gap-3 p-5 md:p-10">
-                <Skeleton className="h-14 w-64 rounded-md md:h-20 md:w-96" />
-                <Skeleton className="h-5 w-full max-w-2xl rounded-md" />
-                <Skeleton className="h-5 w-3/4 max-w-2xl rounded-md" />
+              <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-3 p-5 pb-8 md:items-start md:p-10">
+                <div className="hidden flex-col items-center gap-3 md:flex md:items-start">
+                  <Skeleton className="h-14 w-64 rounded-md md:h-20 md:w-96" />
+                  <Skeleton className="h-5 w-full max-w-2xl rounded-md" />
+                  <Skeleton className="h-5 w-3/4 max-w-2xl rounded-md" />
+                </div>
                 <div className="flex gap-2">
                   <Skeleton className="h-8 w-28 rounded-md" />
                   <Skeleton className="h-8 w-24 rounded-md" />

@@ -68,10 +68,9 @@ export interface FeedRowWithId extends OneVidFeedRow {
 export const FEED_MAX_ROWS = 10;
 
 /**
- * Pósters visibles por fila en /home antes de "Ver todo": una sola fila, sin
- * wrap. Coincide con el máximo de columnas de la grilla horizontal
- * (`HORIZONTAL_POSTER_GRID_CLASS`, `xl:grid-cols-4`, ver poster-card.tsx), así
- * nunca se ve una segunda fila a medias en el ancho de pantalla más común.
+ * Pósters por fila en /home antes de "Ver todo". La fila es un carrusel
+ * horizontal (`POSTER_ROW_CLASS`, ver poster-card.tsx): entra alrededor de una
+ * tarjeta y media en móvil y el resto se descubre deslizando o con "Ver todo".
  */
 export const FEED_ROW_ITEM_LIMIT = 4;
 

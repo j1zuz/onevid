@@ -19,12 +19,22 @@ interface PosterCardProps {
 }
 
 /**
- * Grilla para tarjetas horizontales (16:9): menos columnas que la de pósters
- * verticales para que se vean más grandes, aunque entren menos por fila. La
- * comparten `FeedRow` y `ContinueWatchingRow` (incluido su skeleton de carga).
+ * Grilla de las vistas "Ver todo": en móvil usa dos columnas (a diferencia de
+ * la fila del inicio, que deja una tarjeta grande por fila).
  */
-export const HORIZONTAL_POSTER_GRID_CLASS =
-  "grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4";
+export const VIEW_ALL_GRID_CLASS =
+  "grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4";
+
+/**
+ * Fila horizontal del inicio (estilo carrusel): las tarjetas van una al lado de
+ * otra y se deslizan hacia los lados, en vez de apilarse hacia abajo.
+ */
+export const POSTER_ROW_CLASS =
+  "no-scrollbar -mx-2 flex snap-x snap-mandatory gap-4 overflow-x-auto px-2 pb-1";
+
+/** Ancho fijo de cada tarjeta dentro de la fila horizontal. */
+export const POSTER_ROW_ITEM_CLASS =
+  "w-64 shrink-0 snap-start sm:w-72";
 
 /**
  * Tarjeta de póster con overlay de play. La comparten la grilla de "Ver todo"

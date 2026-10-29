@@ -64,26 +64,33 @@ export async function GET(request: NextRequest) {
     }
 
     const normalizedQuery = query.toLowerCase();
+    // Relevancia por nombre y, entre iguales, popularidad de TMDB. Antes se
+    // desempataba por año descendente, así que los especiales/reboots recientes
+    // tapaban al título original ("Los Simpson", 1989).
+    const matchScore = (name: string) => {
+      if (name === normalizedQuery) {
+        return 3;
+      }
+      if (name.startsWith(normalizedQuery)) {
+        return 2;
+      }
+      if (name.includes(normalizedQuery)) {
+        return 1;
+      }
+      return 0;
+    };
     const ranked = merged.sort((a, b) => {
       const aName = a.name?.toLowerCase() ?? "";
       const bName = b.name?.toLowerCase() ?? "";
 
-      const aStarts = aName.startsWith(normalizedQuery) ? 1 : 0;
-      const bStarts = bName.startsWith(normalizedQuery) ? 1 : 0;
-      if (aStarts !== bStarts) {
-        return bStarts - aStarts;
+      const byMatch = matchScore(bName) - matchScore(aName);
+      if (byMatch !== 0) {
+        return byMatch;
       }
 
-      const aIncludes = aName.includes(normalizedQuery) ? 1 : 0;
-      const bIncludes = bName.includes(normalizedQuery) ? 1 : 0;
-      if (aIncludes !== bIncludes) {
-        return bIncludes - aIncludes;
-      }
-
-      const aYear = Number.parseInt(a.year ?? "0", 10);
-      const bYear = Number.parseInt(b.year ?? "0", 10);
-      if (!(Number.isNaN(aYear) || Number.isNaN(bYear)) && aYear !== bYear) {
-        return bYear - aYear;
+      const byPopularity = (b.popularity ?? 0) - (a.popularity ?? 0);
+      if (byPopularity !== 0) {
+        return byPopularity;
       }
 
       return aName.localeCompare(bName);

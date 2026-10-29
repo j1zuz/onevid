@@ -253,7 +253,11 @@ export function LocalVideoPlayer() {
       {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: idem — solo drag&drop en el contenedor. */}
       <div
         className={cn(
-          "relative flex aspect-video flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed bg-repeat px-6 py-8 text-center transition-colors [background-size:48px_48px]",
+          // En móvil la relación de aspecto fija recortaba el panel (el ojo, el
+          // separador y la barra de URL no cabían en 16:9). Solo la aplicamos a
+          // partir de `sm`, donde hay altura suficiente; en móvil el alto lo
+          // marca el contenido.
+          "relative flex flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed bg-repeat px-4 py-6 text-center transition-colors sm:aspect-video sm:px-6 sm:py-8 [background-size:48px_48px]",
           dragging ? "border-primary bg-primary/5" : "border-border"
         )}
         style={{ backgroundImage: "url(/pattern-tile.svg)" }}
@@ -268,19 +272,25 @@ export function LocalVideoPlayer() {
           loadFile(e.dataTransfer.files?.[0]);
         }}
       >
-      <div className="relative flex w-full max-w-md flex-col items-center gap-4 rounded-xl bg-popover/70 p-6 ring-1 ring-foreground/10 before:pointer-events-none before:absolute before:inset-0 before:-z-1 before:rounded-[inherit] before:backdrop-blur-2xl before:backdrop-saturate-150">
+      <div className="relative flex w-full max-w-md flex-col items-center gap-3 rounded-xl bg-popover/70 p-4 ring-1 ring-foreground/10 before:pointer-events-none before:absolute before:inset-0 before:-z-1 before:rounded-[inherit] before:backdrop-blur-2xl before:backdrop-saturate-150 sm:gap-4 sm:p-6">
         <button
-          className="flex w-full cursor-pointer flex-col items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted/40"
+          className="flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg p-1 transition-colors hover:bg-muted/40 sm:gap-3 sm:p-2"
           onClick={() => inputRef.current?.click()}
           type="button"
         >
-          <MysticEye className="aspect-[3/2] w-44" label="Reproductor místico" />
+          <MysticEye
+            className="aspect-[3/2] w-28 sm:w-44"
+            label="Reproductor místico"
+          />
           <span className="flex flex-col gap-1">
             <span className="font-medium text-sm">
               Sube un video para reproducir
             </span>
             <span className="text-muted-foreground text-xs">
-              Arrastra un archivo aquí o haz clic para seleccionarlo.
+              <span className="sm:hidden">Toca para seleccionarlo.</span>
+              <span className="hidden sm:inline">
+                Arrastra un archivo aquí o haz clic para seleccionarlo.
+              </span>
             </span>
           </span>
         </button>
@@ -292,7 +302,7 @@ export function LocalVideoPlayer() {
         </div>
 
         <form
-          className="flex w-full items-center gap-2"
+          className="flex w-full flex-col gap-2 sm:flex-row sm:items-center"
           onSubmit={(e) => {
             e.preventDefault();
             loadUrl(urlInput);
@@ -301,7 +311,7 @@ export function LocalVideoPlayer() {
           <div className="relative flex-1">
             <GlobeIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              className="h-8 pl-8"
+              className="h-9 pl-8 sm:h-8"
               onChange={(e) => setUrlInput(e.target.value)}
               placeholder="URL de video o stream en vivo…"
               type="url"
@@ -309,7 +319,7 @@ export function LocalVideoPlayer() {
             />
           </div>
           <Button
-            className="btn-primary h-8 shrink-0"
+            className="btn-primary h-9 w-full shrink-0 sm:h-8 sm:w-auto"
             disabled={!urlInput.trim()}
             size="sm"
             type="submit"

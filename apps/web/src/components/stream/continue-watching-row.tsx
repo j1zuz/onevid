@@ -6,8 +6,10 @@ import { ChevronRightIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
-  HORIZONTAL_POSTER_GRID_CLASS,
+  POSTER_ROW_CLASS,
+  POSTER_ROW_ITEM_CLASS,
   PosterCard,
+  VIEW_ALL_GRID_CLASS,
 } from "@/components/stream/poster-card";
 import { useOneVidProfiles } from "@/components/stream/onevid-profile-context";
 import { FEED_ROW_ITEM_LIMIT } from "@/lib/onevid-feed";
@@ -41,6 +43,9 @@ export function ContinueWatchingRow({
   // the section below it doesn't render first and then get pushed down once
   // this data arrives); `[]` = loaded, nothing to resume (hide the row).
   const [items, setItems] = useState<ContinueWatchingItem[] | null>(null);
+  // La vista completa ("Ver todo") usa una grilla de dos columnas en móvil;
+  // la fila del inicio es un carrusel que se desliza hacia los lados.
+  const gridClass = fullView ? VIEW_ALL_GRID_CLASS : POSTER_ROW_CLASS;
 
   // Depende también de `language`: al cambiar idioma queremos re-pedir los
   // títulos ya localizados (el endpoint los traduce leyendo la cookie
@@ -86,14 +91,19 @@ export function ContinueWatchingRow({
             {t("Continuar viendo")}
           </h2>
         )}
-        <div className={HORIZONTAL_POSTER_GRID_CLASS}>
+        <div className={gridClass}>
           {/* Mismo tope que la grilla real (FEED_ROW_ITEM_LIMIT): antes
               mostraba 5 placeholders contra un máximo de 4 columnas y el
               skeleton se veía en 2 filas mientras el contenido real quedaba
               en 1 sola. */}
           {Array.from({ length: FEED_ROW_ITEM_LIMIT }, (_, i) => i).map(
             (key) => (
-              <div className="space-y-1" key={key}>
+              <div
+                className={
+                  fullView ? "space-y-1" : `${POSTER_ROW_ITEM_CLASS} space-y-1`
+                }
+                key={key}
+              >
                 <div className="aspect-video w-full animate-pulse rounded-(--radius) bg-muted/40" />
                 <div className="mx-auto h-4 w-3/4 animate-pulse rounded bg-muted/40" />
               </div>
@@ -147,7 +157,7 @@ export function ContinueWatchingRow({
       {/* Sin `data-dpad-poster-grid` propio: el ámbito lo pone el contenedor del
           feed (onevid-page-client.tsx) para que el mando pueda bajar de esta
           fila a las siguientes. */}
-      <div className={HORIZONTAL_POSTER_GRID_CLASS}>
+      <div className={gridClass}>
         {visibleItems.map((item) => {
           const pct =
             item.durationSec > 0
@@ -156,13 +166,20 @@ export function ContinueWatchingRow({
                   Math.round((item.positionSec / item.durationSec) * 100)
                 )
               : 0;
-          return (
+          const card = (
             <PosterCard
               item={item}
               key={`${item.type}-${item.id}`}
               orientation="horizontal"
               progressPct={pct}
             />
+          );
+          return fullView ? (
+            card
+          ) : (
+            <div className={POSTER_ROW_ITEM_CLASS} key={`${item.type}-${item.id}`}>
+              {card}
+            </div>
           );
         })}
       </div>

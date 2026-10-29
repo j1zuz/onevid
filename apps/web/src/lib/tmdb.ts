@@ -110,6 +110,7 @@ export interface MediaMeta {
   logo?: string;
   name: string;
   networks?: NetworkRef[];
+  popularity?: number;
   poster?: string;
   related?: MediaMeta[];
   releaseDate?: string;
@@ -141,6 +142,7 @@ export interface SeriesMetaResponse {
   logo?: string;
   name: string;
   networks?: NetworkRef[];
+  popularity?: number;
   poster?: string;
   related?: MediaMeta[];
   releaseDate?: string;
@@ -344,6 +346,7 @@ interface TmdbMovieResult {
   imdb_id?: string;
   name?: string;
   overview?: string;
+  popularity?: number;
   poster_path?: string | null;
   release_date?: string;
   title?: string;
@@ -358,6 +361,7 @@ interface TmdbTvResult {
   id: number;
   name?: string;
   overview?: string;
+  popularity?: number;
   poster_path?: string | null;
   vote_average?: number;
 }
@@ -468,6 +472,7 @@ function mapMovieToMeta(
       ? `${TMDB_IMAGE_BASE}/w780${item.backdrop_path}`
       : undefined,
     description: item.overview || undefined,
+    popularity: item.popularity,
     year: (item.release_date || item.first_air_date)?.slice(0, 4) || undefined,
     imdbRating: item.vote_average
       ? String(Number(item.vote_average).toFixed(1))
@@ -498,6 +503,7 @@ function mapTvToMeta(
       ? `${TMDB_IMAGE_BASE}/w780${item.backdrop_path}`
       : undefined,
     description: item.overview || undefined,
+    popularity: item.popularity,
     year: (item.first_air_date || undefined)?.slice(0, 4) || undefined,
     imdbRating: item.vote_average
       ? String(Number(item.vote_average).toFixed(1))
@@ -789,12 +795,15 @@ export async function fetchRelated(
   );
 
   return (data.results ?? [])
-    .slice(0, RELATED_LIMIT)
     .map((item) =>
       type === "movie"
         ? mapMovieToMeta(item as TmdbMovieResult, genreMap)
         : mapTvToMeta(item as TmdbTvResult, genreMap)
-    );
+    )
+    // Orden por popularidad (no por fecha): así destacan los títulos más
+    // conocidos, no solo los estrenos recientes.
+    .sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))
+    .slice(0, RELATED_LIMIT);
 }
 
 function mapNetworks(items: TmdbTvNetwork[] | undefined): NetworkRef[] {

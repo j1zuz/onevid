@@ -1,8 +1,8 @@
 "use client";
 
 import {
-  HORIZONTAL_POSTER_GRID_CLASS,
   PosterCard,
+  VIEW_ALL_GRID_CLASS,
 } from "@/components/stream/poster-card";
 import type { MediaMeta } from "@/lib/tmdb";
 
@@ -21,7 +21,7 @@ export function ExploreMovieGrid({
 }: ExploreMovieGridProps) {
   return (
     <div className="container mx-auto flex flex-col gap-8 px-2">
-      <section className={HORIZONTAL_POSTER_GRID_CLASS} data-dpad-poster-grid>
+      <section className={VIEW_ALL_GRID_CLASS} data-dpad-poster-grid>
         {posters.map((item, index) => (
           <PosterCard
             item={item}

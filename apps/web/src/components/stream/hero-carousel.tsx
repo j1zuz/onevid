@@ -69,65 +69,83 @@ export function HeroCarousel({ items }: { items: MediaMeta[] }) {
 
   const activeLogo = activeKey ? logoByKey[activeKey] : null;
   const art = tmdbImage(active.background ?? active.poster, HERO_IMAGE_SIZE);
+  // En móvil el hero pasa a formato póster vertical (más alto que ancho) usando
+  // el póster en vez del backdrop, que recortado a 16:9 se veía diminuto.
+  // 4:5 es vertical pero sin llegar a la altura completa de un póster 2:3.
+  const posterArt = tmdbImage(
+    active.poster ?? active.background,
+    "w780" as const
+  );
 
   return (
     <section
       // min-h además de aspect-ratio: red de seguridad para que la sección
       // nunca quede en 0 de alto si el aspect-ratio no llega a calcularse
-      // dentro del contenedor flex-col que la envuelve.
-      className="relative mb-2 aspect-video w-full min-h-56 overflow-hidden rounded-(--radius) border border-border/70 bg-muted md:aspect-[21/9] md:min-h-96"
+      // dentro del contenedor flex-col que la envuelve. En móvil no hay
+      // aspect-ratio en la sección: el alto lo marca el póster.
+      className="relative mb-2 w-full overflow-hidden rounded-(--radius) border border-border/70 bg-muted md:aspect-[21/9] md:min-h-96"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
       <Link
-        className="block h-full"
+        className="block"
         data-dpad-focusable
         href={`/home/detail/${active.type}/${encodeURIComponent(active.id)}`}
       >
-        <div className="relative h-full w-full">
+        <div className="relative aspect-[4/5] w-full md:absolute md:inset-0 md:aspect-auto md:h-full">
           {/* Sin motion/react para esto: la imagen siempre visible de
               entrada (opacity-100 fijo), sin depender de que una animación
               JS termine de aplicarse para que se vea algo. El `key` sigue
-              forzando un elemento nuevo por diapositiva. */}
-          {/* biome-ignore lint/performance/noImgElement: external CDN backdrop */}
-          <img
-            alt={active.name}
-            // object-top en vez de center: los backdrops de TMDB suelen tener
-            // la cara/sujeto principal arriba, y con "center" el recorte a
-            // 16:9/21:9 se la comía por igual arriba y abajo.
-            className="absolute inset-0 h-full w-full object-cover object-top"
-            // El backdrop del hero es el elemento LCP de /home: se descarga con
-            // prioridad alta para que gane la carrera a las carátulas (lazy) y
-            // demás recursos.
-            fetchPriority="high"
-            key={activeKey}
-            loading="eager"
-            src={art}
-          />
+              forzando un elemento nuevo por diapositiva. Al usar <picture>
+              el navegador descarga solo la variante que toca: póster en
+              móvil y backdrop en escritorio. */}
+          <picture>
+            <source media="(max-width: 767px)" srcSet={posterArt} />
+            {/* biome-ignore lint/performance/noImgElement: external CDN backdrop */}
+            <img
+              alt={active.name}
+              // object-top en vez de center: los backdrops de TMDB suelen tener
+              // la cara/sujeto principal arriba, y con "center" el recorte a
+              // 16:9/21:9 se la comía por igual arriba y abajo. En móvil el
+              // póster ya viene encuadrado, así que se centra.
+              className="absolute inset-0 h-full w-full object-cover object-center md:object-top"
+              // El backdrop del hero es el elemento LCP de /home: se descarga con
+              // prioridad alta para que gane la carrera a las carátulas (lazy) y
+              // demás recursos.
+              fetchPriority="high"
+              key={activeKey}
+              loading="eager"
+              src={art}
+            />
+          </picture>
 
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background via-background/10 to-transparent"
           />
 
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-start gap-3 p-5 md:p-10">
-            {activeLogo ? (
-              // biome-ignore lint/performance/noImgElement: external CDN logo
-              <img
-                alt={active.name}
-                className="max-h-14 max-w-64 object-contain drop-shadow-lg md:max-h-24 md:max-w-96"
-                src={activeLogo}
-              />
-            ) : (
-              <h2 className="max-w-lg font-bold text-white text-xl drop-shadow-lg md:text-4xl">
-                {active.name}
-              </h2>
-            )}
-            {active.description && (
-              <p className="line-clamp-2 max-w-lg text-sm text-white/90 drop-shadow-lg md:line-clamp-3 md:text-base">
-                {active.description}
-              </p>
-            )}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-3 p-5 pb-8 text-center md:items-start md:p-10 md:text-left">
+            {/* En móvil solo queda el póster y el botón: el logo y la sinopsis
+                se ocultan para no duplicar el arte del póster. */}
+            <div className="hidden flex-col items-center gap-3 md:flex md:items-start">
+              {activeLogo ? (
+                // biome-ignore lint/performance/noImgElement: external CDN logo
+                <img
+                  alt={active.name}
+                  className="max-h-14 max-w-64 object-contain drop-shadow-lg md:max-h-24 md:max-w-96"
+                  src={activeLogo}
+                />
+              ) : (
+                <h2 className="max-w-lg font-bold text-white text-xl drop-shadow-lg md:text-4xl">
+                  {active.name}
+                </h2>
+              )}
+              {active.description && (
+                <p className="line-clamp-2 max-w-lg text-sm text-white/90 drop-shadow-lg md:line-clamp-3 md:text-base">
+                  {active.description}
+                </p>
+              )}
+            </div>
             <span className="btn-primary inline-flex items-center gap-1.5 rounded-4xl px-4 py-2 font-medium text-sm">
               <PlayIcon className="size-4 fill-current" />
               Reproducir
