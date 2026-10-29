@@ -10,6 +10,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { OneVidAddonSummary } from "@/components/stepper-onevid";
 import { OneVidProfileSwitcher } from "@/components/stream/onevid-profile-switcher";
 import { useDebouncedSearch } from "@/hooks/use-debounced-search";
+import {
+  SEARCH_INPUT_ID,
+  SEARCH_STORAGE_KEY,
+} from "@/lib/search-storage";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { FeedSurface, OneVidFeedRow } from "@/lib/onevid-feed";
 import type { MediaMeta } from "@/lib/tmdb";
@@ -78,7 +82,9 @@ export function OneVidHeader({
     submit,
   } = useDebouncedSearch<SearchMeta>({
     buildUrl: buildSearchUrl,
+    inputId: SEARCH_INPUT_ID,
     parse: parseSearchResults,
+    storageKey: SEARCH_STORAGE_KEY,
   });
   // `open` es independiente de la respuesta del fetch a propósito: antes el
   // dropdown se abría al *recibir* los resultados, así que en la primera
@@ -99,6 +105,17 @@ export function OneVidHeader({
     (value: string) => {
       search(value);
       setOpen(value.trim().length > 0);
+      // Persistimos la búsqueda para recuperarla al recargar. El <script> de
+      // abajo la vuelve a poner en el input antes del primer pintado.
+      try {
+        if (value.trim()) {
+          localStorage.setItem(SEARCH_STORAGE_KEY, value);
+        } else {
+          localStorage.removeItem(SEARCH_STORAGE_KEY);
+        }
+      } catch {
+        /* almacenamiento bloqueado o lleno */
+      }
     },
     [search]
   );
@@ -117,6 +134,11 @@ export function OneVidHeader({
     setOpen(false);
     // En móvil el campo vive en un overlay: al borrar, se vuelve al header.
     setMobileSearchOpen(false);
+    try {
+      localStorage.removeItem(SEARCH_STORAGE_KEY);
+    } catch {
+      /* almacenamiento bloqueado */
+    }
   }, [resetSearch]);
 
   useEffect(() => {
@@ -142,6 +164,18 @@ export function OneVidHeader({
     setMobileSearchOpen(false);
     setOpen(false);
   }, []);
+
+  // Query que sobrevivió a la hidratación (el usuario escribió antes de que
+  // React tomara el control): la buscamos y abrimos el dropdown una vez.
+  const restoredQueryRef = useRef(searchQuery);
+  useEffect(() => {
+    const restored = restoredQueryRef.current.trim();
+    if (!restored) {
+      return;
+    }
+    search(restoredQueryRef.current);
+    setOpen(true);
+  }, [search]);
 
   function renderSearchResults() {
     // Solo caemos al skeleton cuando no hay nada que mostrar. Si ya había
@@ -302,6 +336,7 @@ export function OneVidHeader({
                 <Input
                   className="w-full pr-8 pl-9"
                   data-dpad-focusable
+                  id={SEARCH_INPUT_ID}
                   onChange={(e) => handleSearchChange(e.target.value)}
                   onFocus={() => {
                     if (hasQuery) {

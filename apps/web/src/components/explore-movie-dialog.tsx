@@ -51,14 +51,22 @@ interface ExploreMovieDialogProps {
 }
 
 export function MovieDetailPage({
+  initialSeason,
   movie,
   onPlay,
 }: {
+  initialSeason?: number;
   movie: MediaMeta;
   onPlay?: () => void;
 }) {
   return (
-    <MovieDialogContent isOpen movie={movie} onPlay={onPlay} pageMode />
+    <MovieDialogContent
+      initialSeason={initialSeason}
+      isOpen
+      movie={movie}
+      onPlay={onPlay}
+      pageMode
+    />
   );
 }
 
@@ -232,11 +240,13 @@ export function ExploreMovieDialog({
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: complex dialog with source fetching and state management
 function MovieDialogContent({
+  initialSeason,
   movie,
   onPlay,
   isOpen,
   pageMode = false,
 }: {
+  initialSeason?: number;
   isOpen: boolean;
   movie: MediaMeta;
   onPlay?: () => void;
@@ -475,8 +485,24 @@ function MovieDialogContent({
     }
     setSeriesLoading(true);
     try {
+      // La temporada pedida puede venir del server (?season=N) o, si la
+      // página se sirvió desde la caché del router sin ese param, del propio
+      // window.location. Pedimos ya los episodios de esa temporada para no
+      // volver siempre a la 1.
+      const urlSeason =
+        pageMode && typeof window !== "undefined"
+          ? Number(new URLSearchParams(window.location.search).get("season"))
+          : Number.NaN;
+      const wanted =
+        initialSeason && initialSeason > 0
+          ? initialSeason
+          : urlSeason > 0
+            ? urlSeason
+            : undefined;
+      const seasonQuery = wanted ? `&season=${wanted}` : "";
+
       const res = await fetch(
-        `/api/series-meta?id=${encodeURIComponent(movie.id)}`
+        `/api/series-meta?id=${encodeURIComponent(movie.id)}${seasonQuery}`
       );
       if (res.ok) {
         const data = (await res.json()) as {
@@ -486,7 +512,12 @@ function MovieDialogContent({
         setSeasons(data.seasons);
         setEpisodes(data.episodes);
         if (data.seasons.length > 0) {
-          setSelectedSeason(data.seasons[0]);
+          // Si la temporada pedida no existe en la serie, caemos a la primera.
+          setSelectedSeason(
+            wanted && data.seasons.includes(wanted)
+              ? wanted
+              : data.seasons[0]
+          );
         }
         setSeriesLoaded(true);
         return data.episodes[0] ?? null;
@@ -497,7 +528,7 @@ function MovieDialogContent({
       setSeriesLoading(false);
     }
     return null;
-  }, [episodes, movie.id, seriesLoaded, seriesLoading]);
+  }, [episodes, initialSeason, movie.id, pageMode, seriesLoaded, seriesLoading]);
 
   const loadSeasonEpisodes = useCallback(
     async (season: number) => {
@@ -1128,6 +1159,27 @@ function MovieDialogContent({
                                         setSeasonDropdownOpen(false);
                                         if (s !== selectedSeason) {
                                           void loadSeasonEpisodes(s);
+                                        }
+                                        // Guardamos la temporada en la URL: al
+                                        // volver del player (o recargar) se
+                                        // mantiene la que se estaba viendo.
+                                        if (pageMode) {
+                                          try {
+                                            const url = new URL(
+                                              window.location.href
+                                            );
+                                            url.searchParams.set(
+                                              "season",
+                                              String(s)
+                                            );
+                                            window.history.replaceState(
+                                              window.history.state,
+                                              "",
+                                              url
+                                            );
+                                          } catch {
+                                            /* historial no disponible */
+                                          }
                                         }
                                       }}
                                       type="button"

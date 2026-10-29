@@ -5,6 +5,7 @@ import { NuqsAdapter } from "nuqs/adapters/next/app";
 import "@workspace/ui/globals.css";
 import { Toaster } from "@workspace/ui/components/sonner";
 import { CookieConsent } from "@/components/cookie-consent";
+import { SearchRestoreScript } from "@/components/stream/search-restore-script";
 import { DpadNavigation } from "@/components/dpad-navigation";
 import { ReactScan } from "@/components/react-scan";
 import { OnevidI18nProvider } from "@/lib/onevid-i18n-context";
@@ -85,6 +86,7 @@ export default async function RootLayout({
             <CookieConsent />
           </NuqsAdapter>
         </OnevidI18nProvider>
+        <SearchRestoreScript />
         <Toaster />
       </body>
     </html>
