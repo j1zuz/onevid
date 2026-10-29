@@ -88,8 +88,9 @@ export function HeroCarousel({ items }: { items: MediaMeta[] }) {
       onMouseLeave={() => setPaused(false)}
     >
       <Link
-        className="block"
+        className="group block"
         data-dpad-focusable
+        data-dpad-no-hover
         href={`/home/detail/${active.type}/${encodeURIComponent(active.id)}`}
       >
         <div className="relative aspect-[4/5] w-full md:absolute md:inset-0 md:aspect-auto md:h-full">
@@ -108,7 +109,7 @@ export function HeroCarousel({ items }: { items: MediaMeta[] }) {
               // la cara/sujeto principal arriba, y con "center" el recorte a
               // 16:9/21:9 se la comía por igual arriba y abajo. En móvil el
               // póster ya viene encuadrado, así que se centra.
-              className="absolute inset-0 h-full w-full object-cover object-center md:object-top"
+              className="absolute inset-0 h-full w-full object-cover object-center transition-[filter] duration-200 group-hover:brightness-125 md:object-top"
               // El backdrop del hero es el elemento LCP de /home: se descarga con
               // prioridad alta para que gane la carrera a las carátulas (lazy) y
               // demás recursos.
