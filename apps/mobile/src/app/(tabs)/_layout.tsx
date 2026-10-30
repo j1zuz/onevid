@@ -3,6 +3,7 @@ import { Tabs, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Platform, View } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 import { TabIcon, type TabIconName } from '@/components/tab-icon';
 import { TvSidebar } from '@/components/tv-sidebar';
 import { useAppSurface } from '@/hooks/use-app-surface';
@@ -45,6 +46,9 @@ export default function TabsLayout() {
   // porque no es parte de AppSurface.
   const surface = useAppSurface();
   const authed = surface?.authed ?? false;
+  // Cambio de pestaña con un desplazamiento suave en móvil; en TV (sin tab bar,
+  // se navega con el rail) y con "reducir movimiento" se cambia en seco.
+  const reduceMotion = useReducedMotion();
   const [avatar, setAvatar] = useState<string | undefined>(undefined);
   useFocusEffect(
     useCallback(() => {
@@ -77,6 +81,8 @@ export default function TabsLayout() {
             borderTopColor: '#222',
           },
           sceneStyle: { backgroundColor: COLORS.background },
+          animation:
+            Platform.isTV || reduceMotion ? 'none' : 'shift',
           tabBarActiveTintColor: '#fff',
           tabBarInactiveTintColor: '#9ca3af',
         }}

@@ -13,6 +13,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
 import { useEffect, useState } from 'react';
 import { Platform, StatusBar as RNStatusBar } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 import {
   initialWindowMetrics,
   SafeAreaProvider,
@@ -68,6 +69,11 @@ function RootLayout() {
   // visible y usable (Time to Interactive). Lo llamamos al terminar el overlay
   // AnimatedSplash. Es idempotente: solo la primera llamada registra la medición.
   const { markInteractive } = useObserve();
+
+  // "Reducir movimiento" del sistema: HeroUI Native lo respeta solo en sus
+  // componentes; las transiciones de pantalla las gestiona el Stack, así que
+  // las desactivamos aquí también.
+  const reduceMotion = useReducedMotion();
 
   // Idioma efectivo: si el usuario eligió uno en Perfil (override) manda ése; si
   // no, seguimos el idioma del dispositivo. Así no forzamos idioma por defecto,
@@ -145,7 +151,13 @@ function RootLayout() {
                   screenOptions={{
                     headerShown: false,
                     contentStyle: { backgroundColor: COLORS.background },
-                    animation: 'none',
+                    // Transiciones de pantalla: en TV no (rendimiento y uso con
+                    // mando) y con "reducir movimiento" tampoco; en móvil el
+                    // push desliza desde la derecha.
+                    animation:
+                      Platform.isTV || reduceMotion
+                        ? 'none'
+                        : 'slide_from_right',
                   }}
                 >
                   {/* Expo 56 recomienda declarar la orientación por ruta. El lock
@@ -153,7 +165,12 @@ function RootLayout() {
                       pero la navegación ya presenta esta pantalla en landscape. */}
                   <Stack.Screen
                     name="player"
-                    options={{ orientation: 'landscape' }}
+                    options={{
+                      orientation: 'landscape',
+                      // El reproductor ocupa toda la pantalla: un fundido se
+                      // siente mejor que el empuje lateral.
+                      animation: reduceMotion ? 'none' : 'fade',
+                    }}
                   />
                 </Stack>
               </AppSurfaceProvider>
