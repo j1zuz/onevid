@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { FlatList, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
+import { LocalVideoImport } from '@/components/local-video-import';
 import { PosterCard } from '@/components/poster-card';
 import { PosterRow } from '@/components/home/poster-row';
 import { useAppSurface } from '@/hooks/use-app-surface';
@@ -122,8 +123,11 @@ export default function DiscoverTab() {
 
   if (surface == null)
     return <View style={{ flex: 1, backgroundColor: COLORS.background }} />;
-  // Modo local, o stream sin sesión (TV): empty state pidiendo iniciar sesión.
-  if (surface.showLocal || !surface.authed)
+  // Modo local: Descubrir pasa a servir para agregar videos propios a la
+  // biblioteca local (galería o URL), sin cuenta.
+  if (surface.showLocal) return <LocalVideoImport />;
+  // Stream sin sesión (TV): empty state pidiendo iniciar sesión.
+  if (!surface.authed)
     return (
       <View
         style={{

@@ -8,6 +8,7 @@ import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
 import { PosterRow } from '@/components/home/poster-row';
+import { LocalVideoLibrary } from '@/components/local-video-library';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import type { MediaMeta } from '@/lib/api';
 import { navigateToDetail } from '@/lib/detail-nav';
@@ -49,8 +50,11 @@ export default function LibraryTab() {
 
   if (surface == null)
     return <View style={{ flex: 1, backgroundColor: COLORS.background }} />;
-  // Modo local, o stream sin sesión (TV): empty state pidiendo iniciar sesión.
-  if (surface.showLocal || !surface.authed)
+  // Modo local: la Biblioteca pasa a ser la de los videos propios del
+  // dispositivo (agregados desde Descubrir), no la de la cuenta.
+  if (surface.showLocal) return <LocalVideoLibrary />;
+  // Stream sin sesión (TV): empty state pidiendo iniciar sesión.
+  if (!surface.authed)
     return (
       <View
         style={{

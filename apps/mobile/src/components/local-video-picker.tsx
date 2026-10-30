@@ -1,12 +1,14 @@
 import { Globe, Upload } from 'lucide-react-native';
 import { Spinner, Typography, useToast } from 'heroui-native';
 import { router } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, TextInput, useWindowDimensions, View } from 'react-native';
 import { GodRaysBand } from '@/components/god-rays-band';
 import { tvFocusRing, useTvFocus } from '@/hooks/use-tv-focus';
+import { addLocalVideo } from '@/lib/local-videos';
 import { COLORS } from '@/lib/theme';
 
 // Quita la extensión del nombre de archivo para usarlo como título legible.
@@ -23,6 +25,7 @@ export function LocalVideoPicker() {
   const { t } = useTranslation();
   const { height: windowHeight } = useWindowDimensions();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [picking, setPicking] = useState(false);
   const [urlInput, setUrlInput] = useState('');
 
@@ -49,8 +52,10 @@ export function LocalVideoPicker() {
     } catch {
       /* URL sin path usable: dejamos "Video" */
     }
+    // Queda guardado en la Biblioteca local para volver a verlo luego.
+    void addLocalVideo(queryClient, { uri: url, title });
     router.push({ pathname: '/player', params: { url, title } });
-  }, [urlInput, toast, t]);
+  }, [urlInput, toast, t, queryClient]);
 
   const handlePick = useCallback(async () => {
     if (picking) return;
@@ -81,9 +86,12 @@ export function LocalVideoPicker() {
         });
         return;
       }
+      const title = stripExt(asset.fileName ?? 'Video');
+      // Queda guardado en la Biblioteca local para volver a verlo luego.
+      void addLocalVideo(queryClient, { uri: asset.uri, title });
       router.push({
         pathname: '/player',
-        params: { url: asset.uri, title: stripExt(asset.fileName ?? 'Video') },
+        params: { url: asset.uri, title },
       });
     } catch (e) {
       toast.show({
@@ -94,7 +102,7 @@ export function LocalVideoPicker() {
     } finally {
       setPicking(false);
     }
-  }, [picking, toast, t]);
+  }, [picking, toast, t, queryClient]);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
