@@ -115,6 +115,21 @@ function RootLayout() {
     };
   }, []);
 
+  // La bienvenida (sin sesión) ya muestra el logo grande: nos saltamos el
+  // overlay animado para no enseñar la misma marca dos veces seguidas.
+  const skipAnimatedSplash = !hasToken && appMode !== 'local';
+  useEffect(() => {
+    if (!authReady || !skipAnimatedSplash) return;
+    // Con el overlay desactivado, el splash nativo se oculta en cuanto la
+    // bienvenida alcanza a pintarse.
+    const id = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => undefined);
+      setSplashDone(true);
+      markInteractive();
+    }, 120);
+    return () => clearTimeout(id);
+  }, [authReady, skipAnimatedSplash, markInteractive]);
+
   const handleSplashLayoutReady = () => {
     // El overlay ya está pintado (negro + banda de video + logo), así que es
     // seguro quitar el splash nativo sin que se vea ningún hueco.
@@ -127,11 +142,16 @@ function RootLayout() {
 
   // Con sesión en modo stream abrimos SIEMPRE en la selección de perfil: en cada
   // arranque en frío se elige perfil (y se pide su PIN si lo tiene), en vez de
-  // recordar el último indefinidamente. Sin sesión, o en modo local (el usuario
-  // eligió "sin cuenta"/local), abrimos directo en los tabs. `initialRouteName`
-  // solo aplica al lanzar, así que el picker no reaparece al cambiar de tab.
+  // recordar el último indefinidamente. Sin sesión y sin haber elegido "sin
+  // cuenta" abrimos la bienvenida (iniciar sesión / continuar sin cuenta). En
+  // modo local, los tabs. `initialRouteName` solo aplica al lanzar, así que el
+  // picker no reaparece al cambiar de tab.
   const initialRoute =
-    hasToken && appMode === 'stream' ? 'profiles' : '(tabs)';
+    hasToken && appMode === 'stream'
+      ? 'profiles'
+      : !hasToken && appMode !== 'local'
+        ? 'welcome'
+        : '(tabs)';
 
   return (
     <PostHogProvider client={posthog}>
@@ -174,7 +194,7 @@ function RootLayout() {
                   />
                 </Stack>
               </AppSurfaceProvider>
-              {!splashDone ? (
+              {!splashDone && !skipAnimatedSplash ? (
                 <AnimatedSplash
                   onLayoutReady={handleSplashLayoutReady}
                   onFinish={() => {

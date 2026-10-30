@@ -1,6 +1,5 @@
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
-import { LogIn } from 'lucide-react-native';
 import { GlassIcon } from '@/components/glass-icon';
 import { LanguageSheet } from '@/components/language-sheet';
 import { SUPPORTED_LANGUAGES } from '@/lib/i18n/languages';
@@ -16,7 +15,7 @@ import { type ComponentProps, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Platform, Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { StreamLoginSheet } from '@/components/stream-login-sheet';
+import { LoginOptionsSheet } from '@/components/login-options-sheet';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { type AppMode, setAppMode } from '@/lib/app-mode';
 import { apiFetch } from '@/lib/api';
@@ -141,6 +140,14 @@ export default function SettingsTab() {
     setLoginOpen(true);
   }, []);
 
+  // Vuelve a la bienvenida (salir del modo local): deja el modo por defecto
+  // para que un arranque en frío vuelva a mostrar la elección de cuenta.
+  const handleBackToWelcome = useCallback(async () => {
+    await setAppMode('stream');
+    await surface?.refresh();
+    router.replace('/welcome');
+  }, [surface]);
+
   // `surface`, `profile` y la sesión resuelven en ticks distintos vía
   // SecureStore/fetch aunque no haya red lenta; sin este gate combinado cada
   // bloque de abajo aparece por separado apenas resuelve, dando el efecto de
@@ -173,33 +180,43 @@ export default function SettingsTab() {
         {ready ? (
           <>
             {authed === false ? (
-              <Card>
-                <Card.Body className="gap-3">
-                  <View className="flex-row items-center gap-3">
-                    <View
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 12,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: '#27272a',
-                      }}
-                    >
-                      <LogIn size={24} color="#e5e7eb" />
-                    </View>
-                    <View className="flex-1">
-                      <Typography type="h5">{t('Modo Stream')}</Typography>
-                      <Typography type="body-sm" color="muted">
+              <>
+                <Card>
+                  <Card.Body className="items-center gap-4">
+                    <Image
+                      source={require('../../../assets/images/onevid-icon.png')}
+                      contentFit="cover"
+                      style={{ width: 68, height: 68, borderRadius: 18 }}
+                    />
+                    <View className="items-center gap-1">
+                      <Typography type="h5" align="center">
+                        {t('Modo Stream')}
+                      </Typography>
+                      <Typography type="body-sm" color="muted" align="center">
                         {t('Inicia sesión para el modo stream.')}
                       </Typography>
                     </View>
-                  </View>
-                  <FocusButton onPress={handleLogin}>
-                    {t('Iniciar sesión')}
-                  </FocusButton>
-                </Card.Body>
-              </Card>
+                    <FocusButton
+                      onPress={handleLogin}
+                      size="sm"
+                      style={{ alignSelf: 'stretch' }}
+                    >
+                      {t('Iniciar sesión')}
+                    </FocusButton>
+                  </Card.Body>
+                </Card>
+
+                {/* Salida del modo local: vuelve a la pantalla de bienvenida
+                    para poder elegir iniciar sesión u otra opción. */}
+                <FocusButton
+                  onPress={handleBackToWelcome}
+                  variant="ghost"
+                  size="sm"
+                  style={{ alignSelf: 'stretch' }}
+                >
+                  {t('Volver')}
+                </FocusButton>
+              </>
             ) : null}
 
             {authed === true && error ? (
@@ -346,7 +363,7 @@ export default function SettingsTab() {
         )}
       </ScrollView>
 
-      <StreamLoginSheet
+      <LoginOptionsSheet
         visible={loginOpen}
         onClose={() => setLoginOpen(false)}
       />

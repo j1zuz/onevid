@@ -17,5 +17,9 @@ export default function Index() {
     return <View style={{ flex: 1, backgroundColor: COLORS.background }} />;
   // showLocal === false ⇒ modo stream con sesión (ver computeSurface).
   if (surface.authed && !surface.showLocal) return <Redirect href="/profiles" />;
+  // Sin sesión y sin haber elegido "continuar sin cuenta" (modo local): primero
+  // la bienvenida, en vez de caer directo al modo local.
+  if (!surface.authed && surface.mode !== 'local')
+    return <Redirect href="/welcome" />;
   return <Redirect href="/home" />;
 }
