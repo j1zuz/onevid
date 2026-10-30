@@ -46,7 +46,7 @@
         "expo-updates": "~56.0.22",
         "expo-video": "~56.1.4",
         "expo-web-browser": "~56.0.5",
-        "heroui-native": "^1.0.4",
+        "heroui-native": "^1.0.11",
         "i18next": "^26.3.5",
         "lucide-react-native": "^1.17.0",
         "posthog-react-native": "^4.67.0",
@@ -81,7 +81,7 @@
     },
     "apps/tv": {
       "name": "tv",
-      "version": "0.0.1",
+      "version": "1.0.0",
     },
     "apps/web": {
       "name": "web",
@@ -1868,7 +1868,7 @@
 
     "hermes-parser": ["hermes-parser@0.25.1", "", { "dependencies": { "hermes-estree": "0.25.1" } }, "sha512-6pEjquH3rqaI6cYAXYPcz9MS4rY6R4ngRgrgfDshRptUZIc3lw0MCIJIGDj9++mfySOuPTHB4nrSW99BCvOPIA=="],
 
-    "heroui-native": ["heroui-native@1.0.5", "", { "peerDependencies": { "@gorhom/bottom-sheet": "^5.2.9", "react": ">=19.0.0", "react-native": ">=0.81.0", "react-native-gesture-handler": "^2.28.0", "react-native-reanimated": "^4.1.1", "react-native-safe-area-context": "^5.6.0", "react-native-screens": ">=4", "react-native-svg": "^15.12.1", "react-native-worklets": ">=0.5.1", "tailwind-merge": "^3.4.0", "tailwind-variants": "^3.2.2" }, "optionalPeers": ["@gorhom/bottom-sheet", "react-native-screens"] }, "sha512-8yE2N4aI9dhg0VYsLPxORgqOnThq1iBsTjZkqyKElkIWxsN8LxTp9shlrQR6bz1VasGn+xAilpzmKerUfPopAQ=="],
+    "heroui-native": ["heroui-native@1.0.11", "", { "peerDependencies": { "@gorhom/bottom-sheet": "^5.2.9", "expo-blur": ">=14.0.0", "react": ">=19.0.0", "react-native": ">=0.81.0", "react-native-gesture-handler": "^2.28.0 || ^3.0.0", "react-native-reanimated": "^4.1.1", "react-native-safe-area-context": "^5.6.0", "react-native-screens": ">=4", "react-native-svg": "^15.12.1", "react-native-worklets": ">=0.5.1", "tailwind-merge": "^3.4.0", "tailwind-variants": "^3.2.2" }, "optionalPeers": ["@gorhom/bottom-sheet", "expo-blur", "react-native-screens"] }, "sha512-JC7aLZPQKqyaqlkzYx/VzAygj7pNr6mBO8/8QtbUwD6lgR5KjlMSs7ImHjDIIr0H/9nF5hixxq/sqrXM5sW63A=="],
 
     "hls.js": ["hls.js@1.6.16", "", {}, "sha512-VSIRpLfRwlAAdGL4wiTucx2ScRipo0ed1FBatWkyt832jC4CReKstga6yIhYVwGu9LOBjuX9wzmRMeQdBJtzEA=="],
 
