@@ -274,7 +274,7 @@ export default function EditProfileScreen() {
         <View style={{ alignItems: 'center' }}>
           <Image
             source={avatarSource(avatar)}
-            style={{ width: 120, height: 120, borderRadius: 24 }}
+            style={{ width: 120, height: 120, borderRadius: 60 }}
             contentFit="cover"
           />
         </View>
@@ -493,7 +493,7 @@ function AvatarOption({
         style={{
           width: 72,
           height: 72,
-          borderRadius: 16,
+          borderRadius: 36,
           overflow: 'hidden',
           borderWidth: selected || focused ? 3 : 0,
           borderColor: focused ? '#4f9dff' : '#fff',

@@ -223,7 +223,7 @@ export default function SettingsTab() {
                 <Card.Body className="flex-row items-center gap-4">
                   <Image
                     source={avatarSource(profile?.avatar)}
-                    style={{ width: 56, height: 56, borderRadius: 14 }}
+                    style={{ width: 56, height: 56, borderRadius: 28 }}
                     contentFit="cover"
                   />
                   <View className="flex-1 gap-0.5">
@@ -300,7 +300,7 @@ export default function SettingsTab() {
                 aparezca todo de una vez en vez de bloque a bloque. */}
             <Card>
               <Card.Body className="flex-row items-center gap-4">
-                <Skeleton style={{ width: 56, height: 56, borderRadius: 14 }} />
+                <Skeleton style={{ width: 56, height: 56, borderRadius: 28 }} />
                 <View style={{ flex: 1, gap: 6 }}>
                   <Skeleton style={{ width: 44, height: 12, borderRadius: 4 }} />
                   <Skeleton style={{ width: 110, height: 20, borderRadius: 4 }} />

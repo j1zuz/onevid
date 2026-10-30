@@ -31,6 +31,9 @@ import {
 import { COLORS } from '@/lib/theme';
 
 const AVATAR = 104;
+// Avatares circulares (`rounded-full` en la web). Lo usan la tarjeta real, el
+// botón de agregar y el skeleton de carga para que todos tengan la misma forma.
+const AVATAR_RADIUS = AVATAR / 2;
 // Alto fijo del área del nombre: nombre (body-sm, lineHeight 24) + gap 3 +
 // candado 12. Reservarlo en TODAS las tarjetas (con o sin PIN) y en el skeleton
 // hace que la grilla sea uniforme y no salte al cargar.
@@ -185,7 +188,11 @@ export default function ProfilesScreen() {
               // nombre body-sm) para que la grilla no salte al cargar.
               <View key={i} style={{ alignItems: 'center', gap: 10, width: AVATAR }}>
                 <Skeleton
-                  style={{ width: AVATAR, height: AVATAR, borderRadius: 20 }}
+                  style={{
+                    width: AVATAR,
+                    height: AVATAR,
+                    borderRadius: AVATAR_RADIUS,
+                  }}
                 />
                 {/* Mismo alto reservado que las tarjetas reales (nombre +
                     candado) para que la grilla no cambie de altura al cargar. */}
@@ -280,7 +287,7 @@ function ProfileCard({
           {
             width: AVATAR,
             height: AVATAR,
-            borderRadius: 20,
+            borderRadius: AVATAR_RADIUS,
             overflow: 'hidden',
             opacity: editing ? 0.6 : 1,
           },
@@ -321,7 +328,7 @@ function AddCard({ onPress }: { onPress: () => void }) {
           {
             width: AVATAR,
             height: AVATAR,
-            borderRadius: 20,
+            borderRadius: AVATAR_RADIUS,
             alignItems: 'center',
             justifyContent: 'center',
             backgroundColor: 'rgba(255,255,255,0.08)',
