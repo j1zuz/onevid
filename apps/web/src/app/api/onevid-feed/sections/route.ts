@@ -21,7 +21,11 @@ import {
   getDefaultRows,
   parseFeedRows,
 } from "@/lib/onevid-feed";
-import { resolveFeed } from "@/lib/onevid-feed-sections";
+import {
+  resolveFeed,
+  resolveFeedSections,
+  resolveHero,
+} from "@/lib/onevid-feed-sections";
 import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { posthogServerCapture } from "@/lib/posthog-server";
 import { getServerT } from "@/lib/server-t";
@@ -101,7 +105,69 @@ export async function GET(request: NextRequest) {
 
   const { locale: appLocale, t } = await getServerT();
 
+  // Carga progresiva en la app: `only=hero` resuelve solo el carrusel (lo
+  // primero que se pinta) y `only=sections` solo las filas. Sin `only` se
+  // devuelve todo junto, como antes (compatible con clientes antiguos).
+  const only = request.nextUrl.searchParams.get("only");
+
   try {
+    if (only === "hero") {
+      const heroResult = await resolveHero({
+        tmdbLocale: getTmdbLocale(appLocale),
+        tmdbRegion: getTmdbRegion(appLocale),
+        token: tmdbToken,
+      });
+      if (heroResult.authFailed) {
+        return NextResponse.json(
+          { error: "TMDB token invalid or expired" },
+          { status: 401 }
+        );
+      }
+      return NextResponse.json({
+        configured: parsed !== null,
+        error: null,
+        hero: heroResult.hero,
+        sections: [],
+      });
+    }
+
+    if (only === "sections") {
+      const sectionsResult = await resolveFeedSections({
+        addonsById,
+        itemsPerRow,
+        networksById: new Map(getNetworkOptions().map((n) => [n.id, n])),
+        rows,
+        t,
+        tmdbLocale: getTmdbLocale(appLocale),
+        tmdbRegion: getTmdbRegion(appLocale),
+        token: tmdbToken,
+      });
+      if (sectionsResult.authFailed) {
+        return NextResponse.json(
+          { error: "TMDB token invalid or expired" },
+          { status: 401 }
+        );
+      }
+      posthogServerCapture({
+        event: "onevid_feed_sections_requested",
+        distinctId: session.user.id,
+        properties: {
+          configured: parsed !== null,
+          row_count: rows.length,
+          section_count: sectionsResult.sections.length,
+          surface,
+        },
+      }).catch(() => {
+        /* ignore */
+      });
+      return NextResponse.json({
+        configured: parsed !== null,
+        error: sectionsResult.allRowsFailed ? "network" : null,
+        hero: [],
+        sections: sectionsResult.sections,
+      });
+    }
+
     const feed = await resolveFeed({
       addonsById,
       itemsPerRow,
