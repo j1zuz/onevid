@@ -2,11 +2,19 @@ import { Image } from 'expo-image';
 import { BlurTargetView, BlurView } from 'expo-blur';
 import { PressableFeedback, Typography } from 'heroui-native';
 import { CircleCheck } from 'lucide-react-native';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Image as NativeImage, View } from 'react-native';
+import Svg, { ClipPath, Defs, Image as SvgImage, Path } from 'react-native-svg';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { type MediaMeta, tmdbImage } from '@/lib/api';
 import { useImageGeneration } from '@/lib/image-refresh';
+
+// Badge de Top 10: mismo tamaño (h-7 w-11) y misma silueta que la web.
+const RANK_BADGE_W = 44;
+const RANK_BADGE_H = 28;
+// El `clip-path` de la web recorta el borde derecho del badge: arriba mide
+// 100 % y abajo el 82 % (44 → 36). El trozo que se quita es este triángulo.
+const RANK_BADGE_CUT = 8;
 
 interface PosterCardProps {
   item: MediaMeta;
@@ -38,6 +46,12 @@ export function PosterCard({
   const containerStyle = width != null ? { width } : undefined;
   const { focused, focusProps } = useTvFocus();
   const blurTargetRef = useRef<View>(null);
+  // Tamaño real de la tarjeta, medido sólo cuando hay badge de Top 10: el blur
+  // del badge es una copia de la carátula a ese tamaño, alineada con ella, para
+  // que muestre la esquina (lo que hay detrás) y no la carátula entera encogida.
+  const [cardSize, setCardSize] = useState<{ w: number; h: number } | null>(
+    null,
+  );
   // Cambia al salir del reproductor: fuerza a expo-image a recargar la carátula
   // (que en Android queda en gris tras la superficie de vídeo). Ver image-refresh.
   const imgGen = useImageGeneration();
@@ -46,6 +60,11 @@ export function PosterCard({
   const imgPath = landscape ? (item.background ?? item.poster) : item.poster;
   const imgSize = landscape ? 'w780' : 'w500';
   const imageSource = imgPath ? (tmdbImage(imgPath, imgSize) ?? imgPath) : null;
+  // Tamaño con el que se dibujan las copias del arte dentro del badge: el real
+  // de la tarjeta para quedar alineadas con ella (y mientras aún no está
+  // medido, el del propio badge, que dura un solo frame).
+  const artW = cardSize?.w ?? RANK_BADGE_W;
+  const artH = cardSize?.h ?? RANK_BADGE_H;
   return (
     <PressableFeedback
       onPress={onPress}
@@ -55,6 +74,18 @@ export function PosterCard({
     >
       <View
         className="w-full overflow-hidden bg-muted"
+        onLayout={
+          rank != null
+            ? (e) => {
+                const { width: w, height: h } = e.nativeEvent.layout;
+                setCardSize((prev) =>
+                  prev && Math.abs(prev.w - w) < 0.5 && Math.abs(prev.h - h) < 0.5
+                    ? prev
+                    : { w, h },
+                );
+              }
+            : undefined
+        }
         style={[
           {
             aspectRatio: landscape ? 16 / 9 : 2 / 3,
@@ -85,16 +116,29 @@ export function PosterCard({
               contentFit="cover"
               transition={150}
               cachePolicy="memory-disk"
-              style={{ width: '100%', height: '100%' }}
+              // 1 px de más por cada lado: al mantener pulsada la tarjeta,
+              // PressableFeedback la escala (0.985) y el redondeo subpíxel
+              // dejaba ver una línea del `bg-muted` del contenedor en el borde
+              // inferior. Con el pequeño desborde (que recorta la tarjeta) la
+              // imagen siempre cubre hasta el borde.
+              style={{
+                position: 'absolute',
+                top: -1,
+                left: -1,
+                right: -1,
+                bottom: -1,
+              }}
             />
           ) : null}
         </BlurTargetView>
-        {/* Badge de Top 10, con la MISMA forma que la web: bordes superior e
-            izquierdo rectos y solo el derecho en diagonal. Antes se inclinaba
-            todo el contenedor con skewX, que torcía también el borde izquierdo
-            y el número. Aquí el recuadro exterior recorta recto y la diagonal la
-            pone el relleno inclinado de dentro, que sobresale por la izquierda
-            (fuera del recorte) para que ese lado siga viéndose recto. */}
+        {/* Badge de Top 10 con la MISMA forma que la web: 44x28 (h-7 w-11),
+            esquina superior izquierda redondeada y borde derecho en diagonal
+            (arriba ancho, abajo al 82 %). El fondo va recortado por el propio
+            contenedor (rectángulo con esquina redondeada) y el "corte" diagonal
+            se dibuja encima con la carátula nítida recortada a ese triángulo:
+            así el badge se ve cortado como en la web, sin depender de máscaras
+            ni de skew (en Android/TV el `overflow: hidden` de una vista
+            transformada no recorta y el badge salía cuadrado). */}
         {rank != null && rank >= 1 && rank <= 10 ? (
           <View
             className="overflow-hidden"
@@ -102,59 +146,79 @@ export function PosterCard({
               position: 'absolute',
               top: 0,
               left: 0,
-              width: 50,
-              height: 32,
-              justifyContent: 'flex-start',
+              width: RANK_BADGE_W,
+              height: RANK_BADGE_H,
               borderTopLeftRadius: 10,
-              borderTopRightRadius: 6,
             }}
           >
-            <View
-              style={{
-                position: 'absolute',
-                top: -6,
-                bottom: -6,
-                left: -24,
-                // Dejamos libre el extremo derecho: al inclinar este relleno se
-                // forma una diagonal visible en vez de volver a cubrir todo el
-                // rectángulo exterior.
-                right: 8,
-                overflow: 'hidden',
-                transform: [{ skewX: '-18deg' }],
-              }}
-            >
-              {/* En Android BlurView devolvía una placa gris en FlatList incluso
-                  con BlurTargetView. Una copia desenfocada del mismo backdrop es
-                  determinista en móvil y TV y conserva colores/textura reales. */}
-              {imageSource ? (
-                <NativeImage
-                  source={{ uri: imageSource }}
-                  resizeMode="cover"
-                  blurRadius={7}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    right: 0,
-                    bottom: 0,
-                    left: 0,
-                  }}
-                />
-              ) : null}
-              <View
+            {/* Copia de la carátula al tamaño real de la tarjeta y alineada
+                con ella, desenfocada: el badge toma la esquina de la carátula
+                (lo que hay detrás) y el color combina con la tarjeta. Se usa
+                una copia con `blurRadius` en vez de `BlurView` porque en
+                Android/TV el BlurView devolvía una placa gris. */}
+            {imageSource ? (
+              <NativeImage
+                source={{ uri: imageSource }}
+                resizeMode="cover"
+                blurRadius={18}
                 style={{
                   position: 'absolute',
                   top: 0,
-                  right: 0,
-                  bottom: 0,
                   left: 0,
-                  backgroundColor: 'rgba(0,0,0,0.2)',
+                  width: artW,
+                  height: artH,
                 }}
               />
-            </View>
+            ) : null}
+            {/* Tinte suave, como el bg-black/20 de la web. */}
+            <View
+              style={{
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                bottom: 0,
+                left: 0,
+                backgroundColor: 'rgba(0,0,0,0.15)',
+              }}
+            />
+            {/* Corte diagonal: carátula nítida (la misma que hay detrás del
+                badge, alineada con la tarjeta) recortada al triángulo que la
+                web quita con el clip-path. */}
+            {imageSource ? (
+              <Svg
+                pointerEvents="none"
+                style={{ position: 'absolute', top: 0, left: 0 }}
+                width={RANK_BADGE_W}
+                height={RANK_BADGE_H}
+              >
+                <Defs>
+                  <ClipPath id="rank-cut">
+                    <Path
+                      d={`M${RANK_BADGE_W - RANK_BADGE_CUT} ${RANK_BADGE_H} L${RANK_BADGE_W} 0 L${RANK_BADGE_W} ${RANK_BADGE_H} Z`}
+                    />
+                  </ClipPath>
+                </Defs>
+                <SvgImage
+                  href={imageSource}
+                  x={0}
+                  y={0}
+                  width={artW}
+                  height={artH}
+                  preserveAspectRatio="xMidYMid slice"
+                  clipPath="url(#rank-cut)"
+                />
+              </Svg>
+            ) : null}
             <Typography
               type="body"
               weight="medium"
-              style={{ color: '#fff', paddingTop: 3, paddingLeft: 7 }}
+              numberOfLines={1}
+              style={{
+                color: '#fff',
+                paddingTop: 1,
+                paddingLeft: 6,
+                lineHeight: 26,
+              }}
             >
               #{rank}
             </Typography>
