@@ -4,7 +4,7 @@
     "slug": "onevid",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./assets/images/onevid-transparent.png",
+    "icon": "./assets/images/onevid-icon.png",
     "scheme": "onevid",
     "buildCacheProvider": "eas",
     "userInterfaceStyle": "dark",
@@ -16,7 +16,7 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#000000",
-        "foregroundImage": "./assets/images/onevid-transparent.png",
+        "foregroundImage": "./assets/images/onevid-icon.png",
         "monochromeImage": "./assets/images/onevid-transparent.png"
       },
       "predictiveBackGestureEnabled": false,
@@ -39,11 +39,12 @@
     },
     "plugins": [
       "expo-router",
+      "./plugins/withSplashIconBackground",
       [
         "expo-splash-screen",
         {
           "backgroundColor": "#000000",
-          "image": "./assets/images/onevid-transparent.png",
+          "image": "./assets/images/onevid-icon.png",
           "imageWidth": 200
         }
       ],
