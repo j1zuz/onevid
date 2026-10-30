@@ -164,11 +164,12 @@ export default function DetailPage() {
     staleTime: 60 * 60 * 1000,
   });
   const trailerKey = trailerQuery.data?.trailer ?? null;
-  // Incluye trailerQuery: si solo esperamos detailQuery, el botón de Tráiler
-  // puede aparecer un instante después de que el skeleton ya desapareció,
-  // reacomodando la fila de botones (mismo problema de "cascada" que en los
-  // tabs — ver useAppSurface).
-  const loading = detailQuery.isLoading || trailerQuery.isLoading;
+  // Skeleton SOLO si no hay nada que pintar. Al abrir desde el catálogo la
+  // query viene sembrada con poster/título/sinopsis (navigateToDetail), así que
+  // la pantalla se muestra al instante y el tráiler/temporadas llegan después
+  // en segundo plano. Antes se esperaba también a `trailerQuery`, y por eso
+  // entrar al detalle (o volver del reproductor) mostraba el skeleton completo.
+  const loading = detailQuery.isLoading && detailQuery.data == null;
 
   useEffect(() => {
     if (!trailerQuery.isSuccess || trackedTrailerKey.current === trailerKey) {

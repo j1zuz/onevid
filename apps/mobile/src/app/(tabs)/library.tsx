@@ -11,7 +11,7 @@ import { PosterRow } from '@/components/home/poster-row';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import type { MediaMeta } from '@/lib/api';
 import { navigateToDetail } from '@/lib/detail-nav';
-import { getFavorites, getWatchlistItems } from '@/lib/saved';
+import { libraryQuery as libraryQueryOptions } from '@/lib/library';
 import { COLORS } from '@/lib/theme';
 
 export default function LibraryTab() {
@@ -32,20 +32,8 @@ export default function LibraryTab() {
   // pestaña. La pantalla de detalle invalida esta key al guardar/quitar, así
   // que la lista se actualiza en segundo plano sin parpadeo.
   const libraryQuery = useQuery({
+    ...libraryQueryOptions(),
     enabled: streamMode,
-    queryKey: ['library'],
-    queryFn: async () => {
-      const [favM, favS, watM, watS] = await Promise.all([
-        getFavorites('movie').catch(() => []),
-        getFavorites('series').catch(() => []),
-        getWatchlistItems('movie').catch(() => []),
-        getWatchlistItems('series').catch(() => []),
-      ]);
-      return {
-        favorites: interleave(favM, favS),
-        watchlist: interleave(watM, watS),
-      };
-    },
   });
 
   const favorites = libraryQuery.data?.favorites ?? [];
@@ -158,12 +146,3 @@ function Section({
   );
 }
 
-function interleave<T>(a: T[], b: T[]): T[] {
-  const out: T[] = [];
-  const len = Math.max(a.length, b.length);
-  for (let i = 0; i < len; i += 1) {
-    if (a[i]) out.push(a[i]);
-    if (b[i]) out.push(b[i]);
-  }
-  return out;
-}

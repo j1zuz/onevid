@@ -20,7 +20,11 @@ import { LocalVideoPicker } from '@/components/local-video-picker';
 import { StreamLoginScreen } from '@/components/stream-login-screen';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { type MediaMeta } from '@/lib/api';
-import { continueWatchingQuery, feedSectionsQuery } from '@/lib/home-feed';
+import {
+  continueWatchingQuery,
+  feedHeroQuery,
+  feedSectionsQuery,
+} from '@/lib/home-feed';
 import { navigateToDetail } from '@/lib/detail-nav';
 import { COLORS } from '@/lib/theme';
 
@@ -71,25 +75,31 @@ export default function HomeTab() {
       }
     }, [catalogEnabled, queryClient]),
   );
-  // Una sola petición para todo el feed: el backend resuelve las filas que el
-  // usuario configuró en la web (más el hero) y las devuelve ya con sus items,
-  // en vez de que la app pida fila por fila.
-  const feedQuery = useQuery({
+  // Carga progresiva: el hero viaja en su propia query (resuelve mucho antes que
+  // las filas, que necesitan N catálogos de TMDB). Así el carrusel se pinta
+  // primero y las filas van apareciendo debajo, sin bloquear todo con un
+  // skeleton de pantalla completa.
+  const heroQuery = useQuery({
+    ...feedHeroQuery(lang),
+    enabled: catalogEnabled,
+    // Evita el skeleton al re-habilitarse la query (volver al Inicio, cambiar de
+    // idioma): se conserva lo anterior mientras se revalida.
+    placeholderData: keepPreviousData,
+  });
+  const sectionsQuery = useQuery({
     ...feedSectionsQuery(lang),
     enabled: catalogEnabled,
-    // Mismo motivo que continueQuery: evitar el skeleton de pantalla completa
-    // cuando la query se re-habilita al volver al Inicio o al cambiar de idioma.
     placeholderData: keepPreviousData,
   });
 
-  const sections = feedQuery.data?.sections ?? [];
-  const heroItems = feedQuery.data?.hero ?? [];
-  // El Inicio completo depende del feed, no del historial. Si "Continuar viendo"
-  // aún se está actualizando, simplemente aparece después; nunca volvemos a tapar
-  // un hero/filas ya precargados con el skeleton de pantalla completa.
-  const loading = feedQuery.isLoading && feedQuery.data == null;
+  const sections = sectionsQuery.data?.sections ?? [];
+  const heroItems = heroQuery.data?.hero ?? [];
+  const heroLoading = heroQuery.isLoading && heroQuery.data == null;
+  const rowsLoading = sectionsQuery.isLoading && sectionsQuery.data == null;
+  // "Continuar viendo" nunca tapa un hero/filas ya precargados: si aún se está
+  // actualizando, simplemente aparece después.
   const error =
-    feedQuery.isError || feedQuery.data?.error === 'network'
+    sectionsQuery.isError || sectionsQuery.data?.error === 'network'
       ? t('No pudimos cargar el catálogo. Reintenta en un momento.')
       : null;
 
@@ -143,7 +153,7 @@ export default function HomeTab() {
         LinearGradientComponent={ExpoLinearGradient}
       >
       <ScrollView contentContainerStyle={{ paddingBottom: 32, gap: 24 }}>
-        {loading ? (
+        {heroLoading ? (
           <View style={{ height: heroSkeletonHeight, width: '100%' }}>
             <Skeleton style={{ width: '100%', height: '100%', borderRadius: 0 }} />
             <Svg
@@ -175,7 +185,7 @@ export default function HomeTab() {
           />
         ) : null}
 
-        {loading
+        {rowsLoading
           ? Array.from({ length: SKELETON_ROWS }).map((_, i) => (
               <PosterRow
                 items={[]}
@@ -197,7 +207,7 @@ export default function HomeTab() {
               />
             ))}
 
-        {error && !loading ? (
+        {error && !rowsLoading ? (
           <Typography
             type="body-sm"
             color="muted"

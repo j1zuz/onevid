@@ -16,10 +16,12 @@ import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { avatarSource } from '@/lib/avatars';
 import {
   feedSectionsQuery,
+  prefetchDiscover,
   prefetchFeed,
   prefetchHome,
   warmProfileFeed,
 } from '@/lib/home-feed';
+import { prefetchLibrary } from '@/lib/library';
 import type { FeedSectionsResponse } from '@/lib/api';
 import {
   type Profile,
@@ -42,7 +44,6 @@ const NAME_AREA_H = 39;
 export default function ProfilesScreen() {
   const { manage } = useLocalSearchParams<{ manage?: string }>();
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const { i18n } = useTranslation();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [max, setMax] = useState(5);
@@ -53,6 +54,8 @@ export default function ProfilesScreen() {
   const pinWarmupRef = useRef<{
     profileId: string;
     promise: Promise<FeedSectionsResponse | null>;
+    /** Feed ya resuelto: permite sembrar la cache antes de navegar. */
+    feed?: FeedSectionsResponse | null;
   } | null>(null);
 
   const load = useCallback(async () => {
@@ -86,7 +89,11 @@ export default function ProfilesScreen() {
     loadActiveProfile()
       .catch(() => undefined)
       .finally(() => {
-        if (!cancelled) void prefetchFeed(queryClient, i18n.language);
+        if (cancelled) return;
+        void prefetchFeed(queryClient, i18n.language);
+        // Descubrir también se abre desde los tabs: que su primer render no
+        // muestre skeleton, igual que Inicio.
+        void prefetchDiscover(queryClient, i18n.language);
       });
     return () => {
       cancelled = true;
@@ -94,41 +101,52 @@ export default function ProfilesScreen() {
   }, [queryClient, i18n.language]);
 
   const enter = useCallback(
-    async (p: Profile) => {
-      const warmed =
+    (p: Profile) => {
+      // Feed que se empezó a descargar mientras se escribía el PIN (si aplica).
+      const warm =
         pinWarmupRef.current?.profileId === p.id
-          ? await pinWarmupRef.current.promise
+          ? pinWarmupRef.current
           : null;
-      // Esperamos a que el cambio de perfil termine ANTES de navegar:
-      // setActiveProfile fija el id en memoria (apiFetch ya lo usa), vacía el
-      // cache de React Query del perfil anterior si cambió (así el Inicio nunca
-      // alcanza a pintar las filas de otro perfil) y persiste en SecureStore.
-      await setActiveProfile(p);
-      // `setActiveProfile` limpia las queries del perfil anterior. Si el usuario
-      // venía escribiendo un PIN, reusamos el feed que se descargó durante ese
-      // tiempo y lo sembramos bajo la misma key que consume Inicio.
-      if (warmed) {
+      pinWarmupRef.current = null;
+
+      // `setActiveProfile` fija el id del perfil en memoria de forma síncrona
+      // (apiFetch ya lo manda en X-Profile-Id) y, si cambió, vacía la cache del
+      // perfil anterior antes de navegar. La escritura en SecureStore sigue en
+      // segundo plano.
+      const activated = setActiveProfile(p);
+
+      // Si el feed tibio ya llegó mientras se tecleaba el PIN, lo sembramos
+      // antes de navegar: Inicio pinta las filas de inmediato y sin skeleton.
+      const seed = (feed: FeedSectionsResponse) => {
         queryClient.setQueryData(
           feedSectionsQuery(i18n.language).queryKey,
-          warmed,
+          feed,
         );
-      }
-      // Con el perfil ya activo (header X-Profile-Id correcto) precalentamos el
-      // Inicio completo ANTES de navegar, para que la pantalla nunca alcance a
-      // pintar su skeleton. Si el PIN ya calentó el feed, esta llamada reutiliza
-      // la misma cache y sólo inicia los datos propios del perfil.
-      try {
-        await prefetchHome(queryClient, i18n.language);
-        router.replace('/home');
-      } catch {
-        toast.show({
-          variant: 'danger',
-          label: 'No pudimos cargar el Inicio',
-          description: 'Revisa tu conexión e intenta nuevamente.',
-        });
-      }
+      };
+      if (warm?.feed) seed(warm.feed);
+
+      // Entramos YA: antes se esperaba al feed tibio y a `prefetchHome` antes
+      // de navegar, así que tras teclear el PIN la pantalla se quedaba unos
+      // segundos "cargando". Lo que falte se completa en segundo plano.
+      router.replace('/home');
+
+      // Precarga en segundo plano: si el feed tibio no había llegado, se
+      // siembra al resolverse, y luego se lanza el resto (Continuar viendo +
+      // carátulas). React Query deduplica con las queries que ya montó Inicio.
+      void (async () => {
+        await activated;
+        // La Biblioteca depende del perfil activo (X-Profile-Id): se precarga en
+        // cuanto queda activado, en paralelo con el resto, para que su pestaña
+        // abra sin skeleton.
+        prefetchLibrary(queryClient);
+        if (!warm?.feed && warm) {
+          const feed = await warm.promise;
+          if (feed) seed(feed);
+        }
+        await prefetchHome(queryClient, i18n.language).catch(() => undefined);
+      })();
     },
-    [queryClient, i18n.language, toast],
+    [queryClient, i18n.language],
   );
 
   const handlePick = useCallback(
@@ -141,10 +159,17 @@ export default function ProfilesScreen() {
         // Empieza en cuanto aparece el PIN: los segundos que el usuario tarda en
         // escribirlo se aprovechan para descargar JSON y primeras carátulas.
         // No activamos el perfil ni pedimos "Continuar viendo" hasta validarlo.
-        pinWarmupRef.current = {
+        const entry = {
           profileId: p.id,
           promise: warmProfileFeed(p.id),
+          feed: null as FeedSectionsResponse | null,
         };
+        pinWarmupRef.current = entry;
+        // Guardamos el resultado en cuanto llega para poder sembrar la cache
+        // antes de navegar (sin esperar al feed después del PIN).
+        void entry.promise.then((feed) => {
+          if (pinWarmupRef.current === entry) entry.feed = feed;
+        });
         setPinFor(p);
         return;
       }
