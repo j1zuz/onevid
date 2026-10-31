@@ -7,6 +7,7 @@ import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import { useAppSurface } from '@/hooks/use-app-surface';
 import { useDeviceLogin } from '@/hooks/use-device-login';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 
@@ -29,10 +30,14 @@ export function LoginOptionsSheet({
   const googleFocus = useTvFocus();
   const codeFocus = useTvFocus();
 
-  const onApproved = useCallback(() => {
+  const surface = useAppSurface();
+  const onApproved = useCallback(async () => {
+    // Refrescamos la surface antes de navegar para que ninguna pantalla
+    // intermedia (Inicio/Perfil) pinte el modo local por un instante.
+    await surface?.refresh();
     onClose();
     router.replace('/profiles');
-  }, [onClose]);
+  }, [onClose, surface]);
 
   const login = useDeviceLogin(visible, onApproved);
 

@@ -6,6 +6,7 @@ import { useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GodRaysBand } from '@/components/god-rays-band';
 import { StreamLoginContent } from '@/components/stream-login-content';
+import { useAppSurface } from '@/hooks/use-app-surface';
 import { useDeviceLogin } from '@/hooks/use-device-login';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { setAppMode } from '@/lib/app-mode';
@@ -27,9 +28,13 @@ export function StreamLoginScreen({
   const { t } = useTranslation();
   const { height } = useWindowDimensions();
   const { focused, focusProps } = useTvFocus();
-  const onApproved = useCallback(() => {
+  const surface = useAppSurface();
+  const onApproved = useCallback(async () => {
+    // Refrescamos la surface ANTES de navegar: si no, el Inicio/Perfil monta
+    // con el estado del boot (sin sesión) y se ve un instante el modo local.
+    await surface?.refresh();
     router.replace('/profiles');
-  }, []);
+  }, [surface]);
   const login = useDeviceLogin(true, onApproved);
 
   // Permite entrar sin cuenta (requerido por la revisión de Google Play en TV):
