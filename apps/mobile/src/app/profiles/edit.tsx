@@ -489,33 +489,40 @@ function AvatarOption({
   const { focused, focusProps } = useTvFocus();
   return (
     <Pressable onPress={onPress} {...focusProps}>
-      <View
-        style={{
-          width: 72,
-          height: 72,
-          borderRadius: 36,
-          overflow: 'hidden',
-          borderWidth: selected || focused ? 3 : 0,
-          borderColor: focused ? '#4f9dff' : '#fff',
-        }}
-      >
-        <Image
-          source={avatarSource(avatarKey)}
-          style={{ width: '100%', height: '100%' }}
-          contentFit="cover"
-        />
+      {/* El avatar va recortado en círculo; el check de "seleccionado" vive
+          FUERA de ese recorte (antes lo cortaba y el círculo parecía mordido). */}
+      <View style={{ width: 72, height: 72 }}>
+        <View
+          style={{
+            width: 72,
+            height: 72,
+            borderRadius: 36,
+            overflow: 'hidden',
+            borderWidth: selected || focused ? 3 : 0,
+            borderColor: focused ? '#4f9dff' : '#fff',
+          }}
+        >
+          <Image
+            source={avatarSource(avatarKey)}
+            style={{ width: '100%', height: '100%' }}
+            contentFit="cover"
+          />
+        </View>
         {selected ? (
           <View
             style={{
               position: 'absolute',
-              right: 4,
-              bottom: 4,
+              right: -1,
+              bottom: -1,
+              width: 22,
+              height: 22,
+              borderRadius: 11,
               backgroundColor: '#fff',
-              borderRadius: 999,
-              padding: 2,
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
-            <Check size={12} color="#000" />
+            <Check size={13} color="#000" />
           </View>
         ) : null}
       </View>
