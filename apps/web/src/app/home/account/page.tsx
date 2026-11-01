@@ -141,7 +141,7 @@ export default async function AccountPage({
               alt="onevid"
               className="size-8 rounded-md border border-border/70 bg-card p-1"
               height={32}
-              src="/onevid.svg"
+              src="/onevid-pwa-512.png"
               width={32}
             />
           </Link>

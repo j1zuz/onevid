@@ -1,5 +1,3 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import {
   Empty,
   EmptyContent,
@@ -193,12 +191,6 @@ async function OneVidContent({
     params.surface === "discover" ? "discover" : "home";
   const surfaceRows = surface === "discover" ? discoverRows : feedRows;
 
-  const oneVidSvgPath = path.join(
-    process.cwd(),
-    "src/components/img/onevid.svg"
-  );
-  const oneVidSvg = await fs.readFile(oneVidSvgPath, "utf8");
-
   // Con cualquiera de estos params estamos en la vista "Ver todo" (la grilla
   // completa de una fila); sin ellos, /home es el feed configurado.
   const viewAll = Boolean(params.type || params.catalog || params.network);
@@ -286,7 +278,7 @@ async function OneVidContent({
                   alt="onevid"
                   className="size-8 rounded-(--radius) border border-border/70 object-contain"
                   height={32}
-                  src={`data:image/svg+xml;utf8,${encodeURIComponent(oneVidSvg)}`}
+                  src="/onevid-pwa-512.png"
                   width={32}
                 />
               </EmptyMedia>
