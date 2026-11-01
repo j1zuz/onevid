@@ -372,15 +372,18 @@ async function transcodeToMp4(
     { registerAc3Decoder },
     { registerDtsDecoder },
     { registerAacEncoder },
+    { registerTrueHdDecoder },
   ] = await Promise.all([
     import("mediabunny"),
     import("@mediabunny/ac3"),
     import("@mediabunny/dts"),
     import("@mediabunny/aac-encoder"),
+    import("@mediabunny/truehd"),
   ]);
 
   registerAc3Decoder();
   registerDtsDecoder();
+  registerTrueHdDecoder();
   // Forzar SIEMPRE el encoder AAC del polyfill (AAC-LC garantizado): el encoder
   // nativo de Chromium a veces produce HE-AAC y su esds no coincide con el mime
   // "mp4a.40.2" declarado, y Chromium rechaza el append (code 4).
@@ -479,14 +482,17 @@ async function transcodeToWritable(
     { registerAc3Decoder },
     { registerDtsDecoder },
     { registerAacEncoder },
+    { registerTrueHdDecoder },
   ] = await Promise.all([
     import("mediabunny"),
     import("@mediabunny/ac3"),
     import("@mediabunny/dts"),
     import("@mediabunny/aac-encoder"),
+    import("@mediabunny/truehd"),
   ]);
   registerAc3Decoder();
   registerDtsDecoder();
+  registerTrueHdDecoder();
   registerAacEncoder();
 
   const conversion = await Conversion.init({
@@ -601,15 +607,18 @@ async function runProgressivePlayback(opts: {
     { registerAc3Decoder },
     { registerDtsDecoder },
     { registerAacEncoder },
+    { registerTrueHdDecoder },
   ] = await Promise.all([
     import("mediabunny"),
     import("@mediabunny/ac3"),
     import("@mediabunny/dts"),
     import("@mediabunny/aac-encoder"),
+    import("@mediabunny/truehd"),
   ]);
 
   registerAc3Decoder();
   registerDtsDecoder();
+  registerTrueHdDecoder();
   // Forzar SIEMPRE el encoder AAC del polyfill (AAC-LC garantizado). El encoder
   // nativo de Chromium a veces produce HE-AAC (object type 5/29) y entonces el
   // esds del `moov` no coincide con el `mp4a.40.2` declarado en el SourceBuffer.
