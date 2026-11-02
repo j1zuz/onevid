@@ -12,9 +12,20 @@ interface UseDebouncedSearchOptions<T> {
   /** Construye la URL a consultar a partir de la query ya recortada. */
   buildUrl: (query: string) => string;
   delayMs?: number;
+  /**
+   * Id del input controlado. Permite recuperar lo que el usuario escribió
+   * antes de que React hidrate: sin esto, la hidratación reinicia la query a ""
+   * y le borra el texto (ver hydration-safe-inputs).
+   */
+  inputId?: string;
   minLength?: number;
   /** Extrae la lista de resultados del JSON de la respuesta. */
   parse: (payload: unknown) => T[];
+  /**
+   * Clave de localStorage donde se guarda la última query. Sirve para
+   * restaurarla también en remontajes dentro de la SPA (sin recarga completa).
+   */
+  storageKey?: string;
 }
 
 interface UseDebouncedSearchResult<T> {
@@ -46,10 +57,33 @@ interface UseDebouncedSearchResult<T> {
 export function useDebouncedSearch<T>({
   buildUrl,
   delayMs = DEFAULT_DELAY_MS,
+  inputId,
   minLength = DEFAULT_MIN_LENGTH,
   parse,
+  storageKey,
 }: UseDebouncedSearchOptions<T>): UseDebouncedSearchResult<T> {
-  const [query, setQuery] = useState("");
+  // Inicializador perezoso: primero el DOM (lo tecleado antes de hidratar o lo
+  // que el script inline repuso desde localStorage) y, si el input aún no
+  // existe (montaje en cliente), el último valor guardado.
+  const [query, setQuery] = useState(() => {
+    if (typeof window === "undefined") {
+      return "";
+    }
+    if (inputId) {
+      const el = document.getElementById(inputId);
+      if (el instanceof HTMLInputElement && el.value) {
+        return el.value;
+      }
+    }
+    if (storageKey) {
+      try {
+        return localStorage.getItem(storageKey) ?? "";
+      } catch {
+        /* almacenamiento bloqueado */
+      }
+    }
+    return "";
+  });
   const [results, setResults] = useState<T[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);

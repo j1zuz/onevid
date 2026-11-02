@@ -13,6 +13,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
 import { useEffect, useState } from 'react';
 import { Platform, StatusBar as RNStatusBar } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 import {
   initialWindowMetrics,
   SafeAreaProvider,
@@ -69,6 +70,11 @@ function RootLayout() {
   // AnimatedSplash. Es idempotente: solo la primera llamada registra la medición.
   const { markInteractive } = useObserve();
 
+  // "Reducir movimiento" del sistema: HeroUI Native lo respeta solo en sus
+  // componentes; las transiciones de pantalla las gestiona el Stack, así que
+  // las desactivamos aquí también.
+  const reduceMotion = useReducedMotion();
+
   // Idioma efectivo: si el usuario eligió uno en Perfil (override) manda ése; si
   // no, seguimos el idioma del dispositivo. Así no forzamos idioma por defecto,
   // pero respetamos la elección manual aunque cambie el locale del sistema.
@@ -109,6 +115,21 @@ function RootLayout() {
     };
   }, []);
 
+  // La bienvenida (sin sesión) ya muestra el logo grande: nos saltamos el
+  // overlay animado para no enseñar la misma marca dos veces seguidas.
+  const skipAnimatedSplash = !hasToken && appMode !== 'local';
+  useEffect(() => {
+    if (!authReady || !skipAnimatedSplash) return;
+    // Con el overlay desactivado, el splash nativo se oculta en cuanto la
+    // bienvenida alcanza a pintarse.
+    const id = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => undefined);
+      setSplashDone(true);
+      markInteractive();
+    }, 120);
+    return () => clearTimeout(id);
+  }, [authReady, skipAnimatedSplash, markInteractive]);
+
   const handleSplashLayoutReady = () => {
     // El overlay ya está pintado (negro + banda de video + logo), así que es
     // seguro quitar el splash nativo sin que se vea ningún hueco.
@@ -121,11 +142,16 @@ function RootLayout() {
 
   // Con sesión en modo stream abrimos SIEMPRE en la selección de perfil: en cada
   // arranque en frío se elige perfil (y se pide su PIN si lo tiene), en vez de
-  // recordar el último indefinidamente. Sin sesión, o en modo local (el usuario
-  // eligió "sin cuenta"/local), abrimos directo en los tabs. `initialRouteName`
-  // solo aplica al lanzar, así que el picker no reaparece al cambiar de tab.
+  // recordar el último indefinidamente. Sin sesión y sin haber elegido "sin
+  // cuenta" abrimos la bienvenida (iniciar sesión / continuar sin cuenta). En
+  // modo local, los tabs. `initialRouteName` solo aplica al lanzar, así que el
+  // picker no reaparece al cambiar de tab.
   const initialRoute =
-    hasToken && appMode === 'stream' ? 'profiles' : '(tabs)';
+    hasToken && appMode === 'stream'
+      ? 'profiles'
+      : !hasToken && appMode !== 'local'
+        ? 'welcome'
+        : '(tabs)';
 
   return (
     <PostHogProvider client={posthog}>
@@ -145,7 +171,13 @@ function RootLayout() {
                   screenOptions={{
                     headerShown: false,
                     contentStyle: { backgroundColor: COLORS.background },
-                    animation: 'none',
+                    // Transiciones de pantalla: en TV no (rendimiento y uso con
+                    // mando) y con "reducir movimiento" tampoco; en móvil el
+                    // push desliza desde la derecha.
+                    animation:
+                      Platform.isTV || reduceMotion
+                        ? 'none'
+                        : 'slide_from_right',
                   }}
                 >
                   {/* Expo 56 recomienda declarar la orientación por ruta. El lock
@@ -153,11 +185,16 @@ function RootLayout() {
                       pero la navegación ya presenta esta pantalla en landscape. */}
                   <Stack.Screen
                     name="player"
-                    options={{ orientation: 'landscape' }}
+                    options={{
+                      orientation: 'landscape',
+                      // El reproductor ocupa toda la pantalla: un fundido se
+                      // siente mejor que el empuje lateral.
+                      animation: reduceMotion ? 'none' : 'fade',
+                    }}
                   />
                 </Stack>
               </AppSurfaceProvider>
-              {!splashDone ? (
+              {!splashDone && !skipAnimatedSplash ? (
                 <AnimatedSplash
                   onLayoutReady={handleSplashLayoutReady}
                   onFinish={() => {

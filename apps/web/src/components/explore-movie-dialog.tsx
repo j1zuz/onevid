@@ -51,14 +51,22 @@ interface ExploreMovieDialogProps {
 }
 
 export function MovieDetailPage({
+  initialSeason,
   movie,
   onPlay,
 }: {
+  initialSeason?: number;
   movie: MediaMeta;
   onPlay?: () => void;
 }) {
   return (
-    <MovieDialogContent isOpen movie={movie} onPlay={onPlay} pageMode />
+    <MovieDialogContent
+      initialSeason={initialSeason}
+      isOpen
+      movie={movie}
+      onPlay={onPlay}
+      pageMode
+    />
   );
 }
 
@@ -232,11 +240,13 @@ export function ExploreMovieDialog({
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: complex dialog with source fetching and state management
 function MovieDialogContent({
+  initialSeason,
   movie,
   onPlay,
   isOpen,
   pageMode = false,
 }: {
+  initialSeason?: number;
   isOpen: boolean;
   movie: MediaMeta;
   onPlay?: () => void;
@@ -475,8 +485,24 @@ function MovieDialogContent({
     }
     setSeriesLoading(true);
     try {
+      // La temporada pedida puede venir del server (?season=N) o, si la
+      // página se sirvió desde la caché del router sin ese param, del propio
+      // window.location. Pedimos ya los episodios de esa temporada para no
+      // volver siempre a la 1.
+      const urlSeason =
+        pageMode && typeof window !== "undefined"
+          ? Number(new URLSearchParams(window.location.search).get("season"))
+          : Number.NaN;
+      const wanted =
+        initialSeason && initialSeason > 0
+          ? initialSeason
+          : urlSeason > 0
+            ? urlSeason
+            : undefined;
+      const seasonQuery = wanted ? `&season=${wanted}` : "";
+
       const res = await fetch(
-        `/api/series-meta?id=${encodeURIComponent(movie.id)}`
+        `/api/series-meta?id=${encodeURIComponent(movie.id)}${seasonQuery}`
       );
       if (res.ok) {
         const data = (await res.json()) as {
@@ -486,7 +512,12 @@ function MovieDialogContent({
         setSeasons(data.seasons);
         setEpisodes(data.episodes);
         if (data.seasons.length > 0) {
-          setSelectedSeason(data.seasons[0]);
+          // Si la temporada pedida no existe en la serie, caemos a la primera.
+          setSelectedSeason(
+            wanted && data.seasons.includes(wanted)
+              ? wanted
+              : data.seasons[0]
+          );
         }
         setSeriesLoaded(true);
         return data.episodes[0] ?? null;
@@ -497,7 +528,7 @@ function MovieDialogContent({
       setSeriesLoading(false);
     }
     return null;
-  }, [episodes, movie.id, seriesLoaded, seriesLoading]);
+  }, [episodes, initialSeason, movie.id, pageMode, seriesLoaded, seriesLoading]);
 
   const loadSeasonEpisodes = useCallback(
     async (season: number) => {
@@ -672,93 +703,109 @@ function MovieDialogContent({
       {pageMode && (
         <div className="-mt-4">
           <section
-            className="relative mb-2 aspect-video min-h-56 overflow-hidden rounded-(--radius) border border-border/70 bg-muted transition-[filter] duration-200 hover:brightness-125 md:aspect-[21/9] md:min-h-96"
+            // Igual que el hero de /home: en móvil el póster va en vertical
+            // (4:5) y sin logo/descripción duplicados; el backdrop 21:9 se
+            // mantiene en escritorio.
+            className="relative mb-2 w-full overflow-hidden rounded-(--radius) border border-border/70 bg-muted transition-[filter] duration-200 hover:brightness-125 md:aspect-[21/9] md:min-h-96"
           >
-            {movie.background ? (
-              // biome-ignore lint/performance/noImgElement: external CDN backdrop
-              <img
-                alt=""
-                className="absolute inset-0 h-full w-full object-cover object-top"
-                fetchPriority="high"
-                loading="eager"
-                src={tmdbImage(movie.background, "w1280")}
-              />
-            ) : (
-              <div className="absolute inset-0 bg-muted" />
-            )}
-            <div className="absolute inset-0 bg-gradient-to-t from-background via-background/10 to-transparent" />
-            <div className="absolute inset-x-0 bottom-0 flex flex-col items-start gap-3 p-5 md:p-10">
-              {movie.logo ? (
-                // biome-ignore lint/performance/noImgElement: external CDN logo
-                <img
-                  alt={movie.name}
-                  className="max-h-14 max-w-64 object-contain drop-shadow-lg md:max-h-24 md:max-w-96"
-                  src={movie.logo}
-                />
-              ) : (
-                <h1 className="max-w-lg font-bold text-white text-xl drop-shadow-lg md:text-4xl">
-                  {movie.name}
-                </h1>
-              )}
-              {movie.description && (
-                <p className="line-clamp-2 max-w-lg text-sm text-white/90 drop-shadow-lg md:line-clamp-3 md:text-base">
-                  {movie.description}
-                </p>
-              )}
-              <div className="pointer-events-auto flex flex-wrap items-center gap-2">
-              <Button
-                className="btn-primary"
-                data-dpad-focusable
-                disabled={startingPlayback || sourcesLoading || seriesLoading}
-                onClick={handlePlayFirstAvailable}
-                size="sm"
-              >
-                {startingPlayback ? (
-                  <Loader className="size-3.5 animate-spin" />
-                ) : (
-                  <Play className="size-3.5 fill-current" />
-                )}
-                {startingPlayback ? "Cargando..." : "Reproducir"}
-              </Button>
-              <Button
-                data-dpad-focusable
-                disabled={savingFavorite}
-                onClick={toggleFavorite}
-                size="sm"
-                variant="outline"
-              >
-                <Heart
-                  className={cn(
-                    "size-3.5",
-                    favorite && "fill-red-500 text-red-500"
+            <div className="relative aspect-[4/5] w-full md:absolute md:inset-0 md:aspect-auto md:h-full">
+              <picture>
+                <source
+                  media="(max-width: 767px)"
+                  srcSet={tmdbImage(
+                    movie.poster ?? movie.background,
+                    "w780"
                   )}
                 />
-                Favorito
-              </Button>
-              <Button
-                className={cn(watchlist && "btn-primary")}
-                data-dpad-focusable
-                disabled={savingWatchlist}
-                onClick={toggleWatchlist}
-                size="sm"
-                variant={watchlist ? "default" : "outline"}
-              >
-                <Bookmark
-                  className={cn("size-3.5", watchlist && "fill-current")}
-                />
-                Ver después
-              </Button>
-              {trailerLoaded && trailerKey && (
-                <Button
-                  data-dpad-focusable
-                  onClick={() => setShowTrailer((v) => !v)}
-                  size="sm"
-                  variant={showTrailer ? "default" : "outline"}
-                >
-                  <Film className="size-3.5" />
-                  Tráiler
-                </Button>
-              )}
+                {movie.background ? (
+                  // biome-ignore lint/performance/noImgElement: external CDN backdrop
+                  <img
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover object-center md:object-top"
+                    fetchPriority="high"
+                    loading="eager"
+                    src={tmdbImage(movie.background, "w1280")}
+                  />
+                ) : (
+                  <div className="absolute inset-0 bg-muted" />
+                )}
+              </picture>
+              <div className="absolute inset-0 bg-gradient-to-t from-background via-background/10 to-transparent" />
+              <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-3 p-5 pb-8 text-center md:items-start md:p-10 md:text-left">
+                {/* En móvil se oculta solo el logo (el póster ya trae el
+                    título); la sinopsis se mantiene. */}
+                {movie.logo ? (
+                  // biome-ignore lint/performance/noImgElement: external CDN logo
+                  <img
+                    alt={movie.name}
+                    className="hidden max-h-14 max-w-64 object-contain drop-shadow-lg md:block md:max-h-24 md:max-w-96"
+                    src={movie.logo}
+                  />
+                ) : (
+                  <h1 className="hidden max-w-lg font-bold text-white text-xl drop-shadow-lg md:block md:text-4xl">
+                    {movie.name}
+                  </h1>
+                )}
+                {movie.description && (
+                  <p className="line-clamp-2 max-w-lg text-sm text-white/90 drop-shadow-lg md:line-clamp-3 md:text-base">
+                    {movie.description}
+                  </p>
+                )}
+                <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2 md:justify-start">
+                  <Button
+                    className="btn-primary"
+                    data-dpad-focusable
+                    disabled={startingPlayback || sourcesLoading || seriesLoading}
+                    onClick={handlePlayFirstAvailable}
+                    size="sm"
+                  >
+                    {startingPlayback ? (
+                      <Loader className="size-3.5 animate-spin" />
+                    ) : (
+                      <Play className="size-3.5 fill-current" />
+                    )}
+                    {startingPlayback ? "Cargando..." : "Reproducir"}
+                  </Button>
+                  <Button
+                    data-dpad-focusable
+                    disabled={savingFavorite}
+                    onClick={toggleFavorite}
+                    size="sm"
+                    variant="outline"
+                  >
+                    <Heart
+                      className={cn(
+                        "size-3.5",
+                        favorite && "fill-red-500 text-red-500"
+                      )}
+                    />
+                    Favorito
+                  </Button>
+                  <Button
+                    className={cn(watchlist && "btn-primary")}
+                    data-dpad-focusable
+                    disabled={savingWatchlist}
+                    onClick={toggleWatchlist}
+                    size="sm"
+                    variant={watchlist ? "default" : "outline"}
+                  >
+                    <Bookmark
+                      className={cn("size-3.5", watchlist && "fill-current")}
+                    />
+                    Ver después
+                  </Button>
+                  {trailerLoaded && trailerKey && (
+                    <Button
+                      data-dpad-focusable
+                      onClick={() => setShowTrailer((v) => !v)}
+                      size="sm"
+                      variant={showTrailer ? "default" : "outline"}
+                    >
+                      <Film className="size-3.5" />
+                      Tráiler
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           </section>
@@ -1113,6 +1160,27 @@ function MovieDialogContent({
                                         if (s !== selectedSeason) {
                                           void loadSeasonEpisodes(s);
                                         }
+                                        // Guardamos la temporada en la URL: al
+                                        // volver del player (o recargar) se
+                                        // mantiene la que se estaba viendo.
+                                        if (pageMode) {
+                                          try {
+                                            const url = new URL(
+                                              window.location.href
+                                            );
+                                            url.searchParams.set(
+                                              "season",
+                                              String(s)
+                                            );
+                                            window.history.replaceState(
+                                              window.history.state,
+                                              "",
+                                              url
+                                            );
+                                          } catch {
+                                            /* historial no disponible */
+                                          }
+                                        }
                                       }}
                                       type="button"
                                     >
@@ -1134,7 +1202,7 @@ function MovieDialogContent({
                           <div
                             className={cn(
                               pageMode
-                                ? "grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4"
+                                ? "grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-4"
                                 : "space-y-2"
                             )}
                           >
@@ -1305,7 +1373,7 @@ function MovieDialogContent({
               movie.related.length > 0 && (
               <section className="space-y-3 pt-4">
                 <h2 className="font-semibold text-lg">Relacionadas</h2>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-4">
                   {movie.related.map((related) => (
                     <PosterCard
                       item={related}

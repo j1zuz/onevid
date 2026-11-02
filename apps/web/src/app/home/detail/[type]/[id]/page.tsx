@@ -42,15 +42,27 @@ export async function generateMetadata(_props: {
  * The TMDB fetch lives in <StreamDetailContent> inside <Suspense> so
  * Next.js can prefetch the loading.tsx shell on <Link> hover.
  */
-export default function StreamDetailPage({ params }: { params: Params }) {
+export default function StreamDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Params;
+  searchParams: Promise<{ season?: string }>;
+}) {
   return (
     <Suspense fallback={<DetailLoading />}>
-      <StreamDetailContent params={params} />
+      <StreamDetailContent params={params} searchParams={searchParams} />
     </Suspense>
   );
 }
 
-async function StreamDetailContent({ params }: { params: Params }) {
+async function StreamDetailContent({
+  params,
+  searchParams,
+}: {
+  params: Params;
+  searchParams: Promise<{ season?: string }>;
+}) {
   const session = await auth.api.getSession({ headers: await headers() });
 
   if (!session?.user?.id) {
@@ -58,6 +70,8 @@ async function StreamDetailContent({ params }: { params: Params }) {
   }
 
   const { type: typeParam, id: rawId } = await params;
+  const { season: seasonParam } = await searchParams;
+  const initialSeason = Number(seasonParam) > 0 ? Number(seasonParam) : undefined;
   const id = decodeURIComponent(rawId);
   const { locale: appLocale } = await getServerT();
   const tmdbLocale = getTmdbLocale(appLocale);
@@ -122,7 +136,7 @@ async function StreamDetailContent({ params }: { params: Params }) {
             setupCompleted={true}
           />
           <DetailScrollContainer>
-            <MovieDetailPage movie={meta} />
+            <MovieDetailPage initialSeason={initialSeason} movie={meta} />
           </DetailScrollContainer>
         </div>
       </OneVidProfileProvider>

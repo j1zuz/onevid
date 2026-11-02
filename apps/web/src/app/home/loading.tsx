@@ -39,7 +39,7 @@ export function HomeFeedSkeleton() {
 
       <div className="no-scrollbar flex min-h-0 flex-1 flex-col gap-8 overflow-hidden py-4">
         <div className="-mt-4">
-          <Skeleton className="mb-2 aspect-video min-h-56 w-full rounded-(--radius) md:aspect-[21/9] md:min-h-96" />
+          <Skeleton className="mb-2 aspect-[4/5] w-full rounded-(--radius) md:aspect-[21/9] md:min-h-96" />
         </div>
         <ContinueRowSkeleton />
         <FeedRowSkeleton />

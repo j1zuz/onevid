@@ -5,7 +5,8 @@ import { cn } from "@workspace/ui/lib/utils";
 import { ChevronRightIcon } from "lucide-react";
 import Link from "next/link";
 import {
-  HORIZONTAL_POSTER_GRID_CLASS,
+  POSTER_ROW_CLASS,
+  POSTER_ROW_ITEM_CLASS,
   PosterCard,
 } from "@/components/stream/poster-card";
 import type { FeedSection } from "@/lib/onevid-feed-sections";
@@ -50,18 +51,22 @@ export function FeedRow({ section }: { section: FeedSection }) {
           </Link>
         )}
       </div>
-      <div className={HORIZONTAL_POSTER_GRID_CLASS}>
-        {section.items.map((item, index) => (
-          <PosterCard
-            item={item}
+      <div className={POSTER_ROW_CLASS}>
+        {section.items.map((item) => (
+          <div
+            className={POSTER_ROW_ITEM_CLASS}
             key={`${item.type}-${item.id}`}
-            orientation="horizontal"
-            rank={
-              section.topTen
-                ? section.topTenRanks[`${item.type}-${item.id}`]
-                : undefined
-            }
-          />
+          >
+            <PosterCard
+              item={item}
+              orientation="horizontal"
+              rank={
+                section.topTen
+                  ? section.topTenRanks[`${item.type}-${item.id}`]
+                  : undefined
+              }
+            />
+          </div>
         ))}
       </div>
     </section>

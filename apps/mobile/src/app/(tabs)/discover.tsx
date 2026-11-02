@@ -7,18 +7,15 @@ import { useTranslation } from 'react-i18next';
 import { FlatList, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
+import { LocalVideoImport } from '@/components/local-video-import';
 import { PosterCard } from '@/components/poster-card';
 import { PosterRow } from '@/components/home/poster-row';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { useResponsive } from '@/hooks/use-responsive';
-import {
-  apiFetch,
-  type FeedSectionsResponse,
-  type MediaMeta,
-} from '@/lib/api';
+import { apiFetch, type MediaMeta } from '@/lib/api';
 import { navigateToDetail } from '@/lib/detail-nav';
 import { COLORS } from '@/lib/theme';
-import { prefetchMediaImages } from '@/lib/home-feed';
+import { discoverSectionsQuery, prefetchMediaImages } from '@/lib/home-feed';
 
 // Filas de skeleton mientras llega el feed: no sabemos cuántas trae hasta que
 // responde el backend.
@@ -60,11 +57,7 @@ export default function DiscoverTab() {
   // "Descubrir" del paso 2), no un selector de cadena local: así esta pantalla
   // y la web muestran lo mismo. Igual que el Inicio, en una sola petición.
   const feedQuery = useQuery({
-    queryKey: ['feed-sections', 'discover', lang],
-    queryFn: () =>
-      apiFetch<FeedSectionsResponse>(
-        '/api/onevid-feed/sections?surface=discover',
-      ),
+    ...discoverSectionsQuery(lang),
     enabled: catalogEnabled && !isSearching,
   });
   const sections = useMemo(
@@ -130,8 +123,11 @@ export default function DiscoverTab() {
 
   if (surface == null)
     return <View style={{ flex: 1, backgroundColor: COLORS.background }} />;
-  // Modo local, o stream sin sesión (TV): empty state pidiendo iniciar sesión.
-  if (surface.showLocal || !surface.authed)
+  // Modo local: Descubrir pasa a servir para agregar videos propios a la
+  // biblioteca local (galería o URL), sin cuenta.
+  if (surface.showLocal) return <LocalVideoImport />;
+  // Stream sin sesión (TV): empty state pidiendo iniciar sesión.
+  if (!surface.authed)
     return (
       <View
         style={{

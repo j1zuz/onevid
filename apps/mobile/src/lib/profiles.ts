@@ -40,13 +40,16 @@ export async function setActiveProfile(p: Profile): Promise<void> {
   const previousId = getActiveProfileId();
   setActiveProfileId(p.id);
   // `apiFetch` manda `X-Profile-Id` en cada llamada, así que la MISMA query key
-  // (p. ej. ['continue-watching', lang] o ['feed-sections', lang], que no
-  // incluyen el perfil) tiene una respuesta distinta por perfil. Con el
-  // staleTime de 5 min de lib/query.ts, sin limpiar el cache un perfil podría
-  // ver las filas cacheadas de otro perfil de la casa ("Continuar viendo"
-  // ajeno). Al cambiar de perfil vaciamos el cache para que cada pantalla vuelva
-  // a pedir los datos del perfil activo en vez de servir los del anterior.
-  if (previousId !== p.id) queryClient.clear();
+  // (p. ej. ['continue-watching', lang]) puede tener una respuesta distinta por
+  // perfil. Al cambiar de perfil hay que vaciar SOLO lo que es por perfil, para
+  // que nadie vea datos del perfil anterior. El catálogo (Inicio, Descubrir,
+  // detalle, búsqueda…) NO depende del perfil: se conserva para que al entrar
+  // no se vuelva a ver el skeleton (antes se limpiaba todo con `clear()`).
+  if (previousId !== p.id) {
+    for (const key of ['continue-watching', 'watch-state', 'library', 'saved']) {
+      queryClient.removeQueries({ queryKey: [key] });
+    }
+  }
   await SecureStore.setItemAsync(ACTIVE_KEY, JSON.stringify(p));
 }
 

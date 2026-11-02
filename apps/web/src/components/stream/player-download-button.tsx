@@ -1,6 +1,11 @@
 "use client";
 
 import { DownloadIcon, XIcon } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type CancellableConversion,
@@ -107,13 +112,18 @@ export function PlayerDownloadButton({
   if (state.status === "downloading") {
     const offset = C - state.progress * C;
     return (
-      <button
-        aria-label="Cancelar descarga"
-        className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-        onClick={cancel}
-        type="button"
-      >
-        <svg className="-rotate-90 absolute" height="30" viewBox="0 0 30 30" width="30">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              aria-label="Cancelar descarga"
+              className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+              onClick={cancel}
+              type="button"
+            />
+          }
+        >
+          <svg className="-rotate-90 absolute" height="30" viewBox="0 0 30 30" width="30">
           <title>Progreso de descarga</title>
           <circle
             cx="15"
@@ -136,19 +146,28 @@ export function PlayerDownloadButton({
             strokeWidth="2.5"
           />
         </svg>
-        <XIcon className="size-4" />
-      </button>
+          <XIcon className="size-4" />
+        </TooltipTrigger>
+        <TooltipContent>Cancelar descarga</TooltipContent>
+      </Tooltip>
     );
   }
 
   return (
-    <button
-      aria-label="Descargar"
-      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-      onClick={start}
-      type="button"
-    >
-      <DownloadIcon className="size-5" />
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            aria-label="Descargar"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            onClick={start}
+            type="button"
+          />
+        }
+      >
+        <DownloadIcon className="size-5" />
+      </TooltipTrigger>
+      <TooltipContent>Descargar</TooltipContent>
+    </Tooltip>
   );
 }

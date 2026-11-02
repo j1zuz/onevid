@@ -8,10 +8,11 @@ import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
 import { PosterRow } from '@/components/home/poster-row';
+import { LocalVideoLibrary } from '@/components/local-video-library';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import type { MediaMeta } from '@/lib/api';
 import { navigateToDetail } from '@/lib/detail-nav';
-import { getFavorites, getWatchlistItems } from '@/lib/saved';
+import { libraryQuery as libraryQueryOptions } from '@/lib/library';
 import { COLORS } from '@/lib/theme';
 
 export default function LibraryTab() {
@@ -32,20 +33,8 @@ export default function LibraryTab() {
   // pestaña. La pantalla de detalle invalida esta key al guardar/quitar, así
   // que la lista se actualiza en segundo plano sin parpadeo.
   const libraryQuery = useQuery({
+    ...libraryQueryOptions(),
     enabled: streamMode,
-    queryKey: ['library'],
-    queryFn: async () => {
-      const [favM, favS, watM, watS] = await Promise.all([
-        getFavorites('movie').catch(() => []),
-        getFavorites('series').catch(() => []),
-        getWatchlistItems('movie').catch(() => []),
-        getWatchlistItems('series').catch(() => []),
-      ]);
-      return {
-        favorites: interleave(favM, favS),
-        watchlist: interleave(watM, watS),
-      };
-    },
   });
 
   const favorites = libraryQuery.data?.favorites ?? [];
@@ -61,8 +50,11 @@ export default function LibraryTab() {
 
   if (surface == null)
     return <View style={{ flex: 1, backgroundColor: COLORS.background }} />;
-  // Modo local, o stream sin sesión (TV): empty state pidiendo iniciar sesión.
-  if (surface.showLocal || !surface.authed)
+  // Modo local: la Biblioteca pasa a ser la de los videos propios del
+  // dispositivo (agregados desde Descubrir), no la de la cuenta.
+  if (surface.showLocal) return <LocalVideoLibrary />;
+  // Stream sin sesión (TV): empty state pidiendo iniciar sesión.
+  if (!surface.authed)
     return (
       <View
         style={{
@@ -158,12 +150,3 @@ function Section({
   );
 }
 
-function interleave<T>(a: T[], b: T[]): T[] {
-  const out: T[] = [];
-  const len = Math.max(a.length, b.length);
-  for (let i = 0; i < len; i += 1) {
-    if (a[i]) out.push(a[i]);
-    if (b[i]) out.push(b[i]);
-  }
-  return out;
-}

@@ -1,5 +1,3 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import {
   Empty,
   EmptyContent,
@@ -193,12 +191,6 @@ async function OneVidContent({
     params.surface === "discover" ? "discover" : "home";
   const surfaceRows = surface === "discover" ? discoverRows : feedRows;
 
-  const oneVidSvgPath = path.join(
-    process.cwd(),
-    "src/components/img/onevid.svg"
-  );
-  const oneVidSvg = await fs.readFile(oneVidSvgPath, "utf8");
-
   // Con cualquiera de estos params estamos en la vista "Ver todo" (la grilla
   // completa de una fila); sin ellos, /home es el feed configurado.
   const viewAll = Boolean(params.type || params.catalog || params.network);
@@ -274,7 +266,7 @@ async function OneVidContent({
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
         <OneVidHeader {...headerProps} />
-        <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
+        <section className="mt-8 rounded-xl bg-background p-8">
           <Empty className="min-h-0 border-0 p-0">
             <EmptyHeader>
               <EmptyMedia
@@ -286,7 +278,7 @@ async function OneVidContent({
                   alt="onevid"
                   className="size-8 rounded-(--radius) border border-border/70 object-contain"
                   height={32}
-                  src={`data:image/svg+xml;utf8,${encodeURIComponent(oneVidSvg)}`}
+                  src="/onevid-pwa-512.png"
                   width={32}
                 />
               </EmptyMedia>
@@ -442,7 +434,7 @@ async function OneVidContent({
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
         <OneVidHeader {...headerProps} />
-        <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
+        <section className="mt-8 rounded-xl bg-background p-8">
           <Empty className="min-h-0 border-0 p-0">
             <EmptyHeader>
               <EmptyTitle>Token TMDB inválido</EmptyTitle>
@@ -470,7 +462,7 @@ async function OneVidContent({
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
         <OneVidHeader {...headerProps} />
-        <section className="mt-8 rounded-xl border border-dashed bg-background p-8">
+        <section className="mt-8 rounded-xl bg-background p-8">
           <Empty className="min-h-0 border-0 p-0">
             <EmptyHeader>
               <EmptyTitle>No pudimos cargar el catálogo</EmptyTitle>

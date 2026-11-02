@@ -22,7 +22,10 @@ import { type FeedSection, FeedRow } from "@/components/stream/feed-row";
 import { HeroCarousel } from "@/components/stream/hero-carousel";
 import { OneVidHeader } from "@/components/stream/onevid-header";
 import { ScrollTopFade } from "@/components/stream/scroll-top-fade";
-import { HORIZONTAL_POSTER_GRID_CLASS } from "@/components/stream/poster-card";
+import {
+  POSTER_ROW_CLASS,
+  POSTER_ROW_ITEM_CLASS,
+} from "@/components/stream/poster-card";
 import {
   FEED_ROW_ITEM_LIMIT,
   type FeedSurface,
@@ -87,12 +90,14 @@ function FeedRowsSkeleton() {
       key={`feed-skeleton-${rowIndex.toString()}`}
     >
       <Skeleton className="h-7 w-40" />
-      <div className={HORIZONTAL_POSTER_GRID_CLASS}>
+      <div className={POSTER_ROW_CLASS}>
         {Array.from({ length: FEED_ROW_ITEM_LIMIT }).map((_, cardIndex) => (
-          <Skeleton
-            className="aspect-video w-full rounded-(--radius)"
+          <div
+            className={POSTER_ROW_ITEM_CLASS}
             key={`feed-skeleton-${rowIndex.toString()}-${cardIndex.toString()}`}
-          />
+          >
+            <Skeleton className="aspect-video w-full rounded-(--radius)" />
+          </div>
         ))}
       </div>
     </section>

@@ -201,7 +201,7 @@ export function TvDeviceLogin() {
           alt="onevid"
           className="size-12 rounded-md border border-border/70 bg-card p-1.5"
           height={48}
-          src="/onevid.svg"
+          src="/onevid-pwa-512.png"
           width={48}
         />
         <span className="font-semibold text-xl">onevid</span>

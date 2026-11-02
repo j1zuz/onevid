@@ -12,7 +12,10 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 5, // 5 min fresh
-      gcTime: 1000 * 60 * 30, // mantener en cache 30 min sin observadores
+      // Mantener el cache mucho tiempo sin observadores: al ver una película
+      // larga (o volver de segundo plano) las pantallas no deben volver a
+      // cargar desde cero. El staleTime sigue controlando cuándo revalidar.
+      gcTime: 1000 * 60 * 60 * 24, // 24 h
       retry: 1,
       // En RN no hay "window focus"; no re-fetchamos por foco para evitar
       // recargas innecesarias al volver del reproductor, etc.

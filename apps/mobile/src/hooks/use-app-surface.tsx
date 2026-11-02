@@ -27,7 +27,7 @@ export interface AppSurface {
    * que vive dentro de /home: un router.replace('/home') ahí es un no-op de
    * navegación y no dispara useFocusEffect).
    */
-  refresh: () => void;
+  refresh: () => Promise<void>;
 }
 
 type SurfaceData = Omit<AppSurface, 'refresh'>;
@@ -59,10 +59,9 @@ export function AppSurfaceProvider({
     initial ? computeSurface(initial.authed, initial.mode) : null,
   );
 
-  const refresh = useCallback(() => {
-    Promise.all([getAccessToken(), loadAppMode()]).then(([token, mode]) => {
-      setState(computeSurface(Boolean(token), mode));
-    });
+  const refresh = useCallback(async () => {
+    const [token, mode] = await Promise.all([getAccessToken(), loadAppMode()]);
+    setState(computeSurface(Boolean(token), mode));
   }, []);
 
   const value = useMemo<AppSurface | null>(

@@ -19,7 +19,8 @@ export interface DeviceLogin {
   codeData: DeviceCodeData | null;
   errorMessage: string | null;
   secondsLeft: number;
-  requestCode: () => Promise<void>;
+  /** Pide un código nuevo y devuelve sus datos (null si falló la red). */
+  requestCode: () => Promise<DeviceCodeData | null>;
   handleCopyCode: () => Promise<void>;
 }
 
@@ -52,7 +53,7 @@ export function useDeviceLogin(
     }
   }, []);
 
-  const requestCode = useCallback(async () => {
+  const requestCode = useCallback(async (): Promise<DeviceCodeData | null> => {
     clearTimer();
     setPhase('loading');
     setErrorMessage(null);
@@ -62,6 +63,7 @@ export function useDeviceLogin(
       const data = await requestDeviceCode();
       setCodeData(data);
       setPhase('waiting');
+      return data;
     } catch (e) {
       setErrorMessage(
         e instanceof Error
@@ -69,6 +71,7 @@ export function useDeviceLogin(
           : 'No pudimos contactar al servidor. Intenta de nuevo.',
       );
       setPhase('error');
+      return null;
     }
   }, [clearTimer]);
 

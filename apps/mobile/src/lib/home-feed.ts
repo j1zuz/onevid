@@ -3,6 +3,7 @@ import { Image } from 'expo-image';
 import type { ContinueWatchingItem } from '@/components/home/continue-watching-row';
 import {
   apiFetch,
+  type FeedSection,
   type FeedSectionsResponse,
   type MediaMeta,
   tmdbImage,
@@ -12,9 +13,32 @@ import {
 // la selección de perfil las prefetchea con la MISMA queryKey, así React Query
 // deduplica (no hay doble fetch) y el catálogo ya está en cache al montar Inicio.
 
+/**
+ * Hero del Inicio, en su propia query: es lo primero que se pinta y llega mucho
+ * antes que las filas (que resuelven N catálogos de TMDB), así la pantalla carga
+ * de forma progresiva en vez de esperar a todo el feed.
+ */
+export const feedHeroQuery = (lang: string) => ({
+  queryKey: ['feed-sections', lang, 'hero'] as const,
+  queryFn: () =>
+    apiFetch<FeedSectionsResponse>('/api/onevid-feed/sections?only=hero'),
+});
+
+/** Filas del Inicio (sin hero). */
 export const feedSectionsQuery = (lang: string) => ({
-  queryKey: ['feed-sections', lang] as const,
-  queryFn: () => apiFetch<FeedSectionsResponse>('/api/onevid-feed/sections'),
+  queryKey: ['feed-sections', lang, 'sections'] as const,
+  queryFn: () =>
+    apiFetch<FeedSectionsResponse>('/api/onevid-feed/sections?only=sections'),
+});
+
+/** Feed de la pestaña Descubrir (misma superficie configurada en la web). */
+export const discoverSectionsQuery = (lang: string) => ({
+  queryKey: ['feed-sections', 'discover', lang] as const,
+  // Descubrir no muestra hero: pedir solo las filas evita resolver el carrusel.
+  queryFn: () =>
+    apiFetch<FeedSectionsResponse>(
+      '/api/onevid-feed/sections?surface=discover&only=sections',
+    ),
 });
 
 export const continueWatchingQuery = (lang: string) => ({
@@ -35,44 +59,68 @@ export function prefetchMediaImages(items: MediaMeta[], limit = 16): void {
   }
 }
 
-function prefetchFeedImages(feed: FeedSectionsResponse): void {
-  const items = [
-    ...(feed.hero ?? []),
-    ...(feed.sections ?? []).flatMap((s) => s.items.slice(0, 6)),
-  ];
-  prefetchMediaImages(items);
+/** Precarga las carátulas del hero (lo primero que se ve al entrar). */
+export async function prefetchHeroImages(items: MediaMeta[]): Promise<void> {
+  const urls = items
+    .map((it) => tmdbImage(it.background ?? it.poster, 'w780'))
+    .filter((u): u is string => Boolean(u));
+  if (urls.length === 0) return;
+  await Image.prefetch(urls, { cachePolicy: 'memory-disk' }).catch(
+    () => undefined,
+  );
+}
+
+/** Precarga las primeras carátulas de cada fila (después del hero). */
+export function prefetchRowImages(sections: FeedSection[]): void {
+  prefetchMediaImages(sections.flatMap((s) => s.items.slice(0, 6)));
 }
 
 /**
- * Precalienta SOLO el catálogo del Inicio (JSON del feed + primeros backdrops).
+ * Precalienta SOLO el catálogo del Inicio (hero + filas + primeras carátulas).
  * No toca datos por-perfil ("Continuar viendo"), así que es seguro llamarlo de
  * forma especulativa mientras se muestra el selector de perfiles, antes de que el
  * usuario elija. Best-effort: cualquier fallo (p. ej. setup incompleto → 4xx) se
  * ignora en silencio.
  */
 export async function prefetchFeed(qc: QueryClient, lang: string): Promise<void> {
-  const feed = await qc.fetchQuery(feedSectionsQuery(lang)).catch(() => null);
-  if (!feed) return;
-  prefetchFeedImages(feed);
+  const [hero, sections] = await Promise.all([
+    qc.fetchQuery(feedHeroQuery(lang)).catch(() => null),
+    qc.fetchQuery(feedSectionsQuery(lang)).catch(() => null),
+  ]);
+  if (hero) void prefetchHeroImages(hero.hero ?? []);
+  if (sections) prefetchRowImages(sections.sections ?? []);
+}
+
+/**
+ * Precalienta la pestaña Descubrir para que su primer render no muestre
+ * skeleton. No depende del perfil, así que se puede lanzar en paralelo al
+ * precargar el catálogo del Inicio.
+ */
+export async function prefetchDiscover(
+  qc: QueryClient,
+  lang: string,
+): Promise<void> {
+  const feed = await qc.fetchQuery(discoverSectionsQuery(lang)).catch(() => null);
+  if (feed) prefetchRowImages(feed.sections ?? []);
 }
 
 /**
  * Precalienta el catálogo de un perfil que aún está bloqueado por PIN sin
- * convertirlo en el perfil activo. Sólo carga el feed y sus imágenes públicas;
- * nunca pide datos privados por perfil como "Continuar viendo".
+ * convertirlo en el perfil activo. Sólo carga las filas (públicas) y sus
+ * imágenes; nunca pide datos privados por perfil como "Continuar viendo".
  *
  * La respuesta se devuelve para sembrar la cache normal después de validar el
- * PIN. Esto evita que `setActiveProfile` limpie el trabajo especulativo junto con
- * la cache del perfil anterior.
+ * PIN, sin esperar a que termine la precarga.
  */
 export async function warmProfileFeed(
   profileId: string,
 ): Promise<FeedSectionsResponse | null> {
-  const feed = await apiFetch<FeedSectionsResponse>('/api/onevid-feed/sections', {
-    headers: { 'X-Profile-Id': profileId },
-  }).catch(() => null);
+  const feed = await apiFetch<FeedSectionsResponse>(
+    '/api/onevid-feed/sections?only=sections',
+    { headers: { 'X-Profile-Id': profileId } },
+  ).catch(() => null);
   if (!feed) return null;
-  prefetchFeedImages(feed);
+  prefetchRowImages(feed.sections ?? []);
   return feed;
 }
 
@@ -85,10 +133,17 @@ export async function warmProfileFeed(
 export async function prefetchHome(qc: QueryClient, lang: string): Promise<void> {
   // Disparamos el historial al mismo tiempo, pero el feed es el requisito para
   // navegar: si falla dejamos que el error llegue al selector de perfiles en vez
-  // de entrar a Inicio sin datos y mostrar el skeleton mientras React Query
-  // vuelve a intentarlo. "Continuar viendo" puede terminar en segundo plano sin
-  // bloquear el hero ni las filas ya precargadas.
+  // de entrar a Inicio sin datos y mostrar el skeleton. "Continuar viendo" puede
+  // terminar en segundo plano sin bloquear el hero ni las filas ya precargadas.
   qc.prefetchQuery(continueWatchingQuery(lang)).catch(() => undefined);
-  const feed = await qc.fetchQuery(feedSectionsQuery(lang));
-  prefetchFeedImages(feed);
+  // El hero es best-effort (si falla, el Inicio lo pedirá al montar); las filas
+  // sí son requisito para navegar sin skeleton.
+  const heroPromise = qc
+    .fetchQuery(feedHeroQuery(lang))
+    .catch(() => null);
+  const sections = await qc.fetchQuery(feedSectionsQuery(lang));
+  void heroPromise.then((hero) => {
+    if (hero) void prefetchHeroImages(hero.hero ?? []);
+  });
+  prefetchRowImages(sections.sections ?? []);
 }

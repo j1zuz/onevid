@@ -1,14 +1,19 @@
 "use client";
 
+import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
-import { SearchIcon, XIcon } from "lucide-react";
+import { ScanSearchIcon, XIcon } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OneVidAddonSummary } from "@/components/stepper-onevid";
 import { OneVidProfileSwitcher } from "@/components/stream/onevid-profile-switcher";
 import { useDebouncedSearch } from "@/hooks/use-debounced-search";
+import {
+  SEARCH_INPUT_ID,
+  SEARCH_STORAGE_KEY,
+} from "@/lib/search-storage";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { FeedSurface, OneVidFeedRow } from "@/lib/onevid-feed";
 import type { MediaMeta } from "@/lib/tmdb";
@@ -77,7 +82,9 @@ export function OneVidHeader({
     submit,
   } = useDebouncedSearch<SearchMeta>({
     buildUrl: buildSearchUrl,
+    inputId: SEARCH_INPUT_ID,
     parse: parseSearchResults,
+    storageKey: SEARCH_STORAGE_KEY,
   });
   // `open` es independiente de la respuesta del fetch a propósito: antes el
   // dropdown se abría al *recibir* los resultados, así que en la primera
@@ -86,6 +93,10 @@ export function OneVidHeader({
   // abierto).
   const [open, setOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  // En móvil la búsqueda vive detrás de un icono: al tocarlo, el campo se
+  // expande a todo el ancho del header (por delante del logo y las pestañas).
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   const hasQuery = searchQuery.trim().length > 0;
   const showResults = open && hasQuery;
@@ -94,6 +105,17 @@ export function OneVidHeader({
     (value: string) => {
       search(value);
       setOpen(value.trim().length > 0);
+      // Persistimos la búsqueda para recuperarla al recargar. El <script> de
+      // abajo la vuelve a poner en el input antes del primer pintado.
+      try {
+        if (value.trim()) {
+          localStorage.setItem(SEARCH_STORAGE_KEY, value);
+        } else {
+          localStorage.removeItem(SEARCH_STORAGE_KEY);
+        }
+      } catch {
+        /* almacenamiento bloqueado o lleno */
+      }
     },
     [search]
   );
@@ -110,17 +132,50 @@ export function OneVidHeader({
   const clearSearch = useCallback(() => {
     resetSearch();
     setOpen(false);
+    // En móvil el campo vive en un overlay: al borrar, se vuelve al header.
+    setMobileSearchOpen(false);
+    try {
+      localStorage.removeItem(SEARCH_STORAGE_KEY);
+    } catch {
+      /* almacenamiento bloqueado */
+    }
   }, [resetSearch]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
         setOpen(false);
+        setMobileSearchOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Autofocus al abrir la búsqueda móvil (el input ya está montado, así que
+  // `autoFocus` no basta).
+  useEffect(() => {
+    if (mobileSearchOpen) {
+      searchInputRef.current?.focus();
+    }
+  }, [mobileSearchOpen]);
+
+  const closeSearch = useCallback(() => {
+    setMobileSearchOpen(false);
+    setOpen(false);
+  }, []);
+
+  // Query que sobrevivió a la hidratación (el usuario escribió antes de que
+  // React tomara el control): la buscamos y abrimos el dropdown una vez.
+  const restoredQueryRef = useRef(searchQuery);
+  useEffect(() => {
+    const restored = restoredQueryRef.current.trim();
+    if (!restored) {
+      return;
+    }
+    search(restoredQueryRef.current);
+    setOpen(true);
+  }, [search]);
 
   function renderSearchResults() {
     // Solo caemos al skeleton cuando no hay nada que mostrar. Si ya había
@@ -209,16 +264,16 @@ export function OneVidHeader({
     >
       {/* Logo: lleva de vuelta a /home. */}
       <Link
-        className="flex shrink-0 items-center rounded border border-transparent"
+        className="flex shrink-0 items-center rounded-md border border-border/70 transition-colors hover:border-border"
         data-dpad-focusable
         href="/home"
       >
         {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
         <img
           alt="onevid"
-          className="size-8 rounded-md border border-border/70 bg-card p-1"
+          className="size-8 rounded-md bg-card p-1"
           height={32}
-          src="/onevid.svg"
+          src="/onevid-pwa-512.png"
           width={32}
         />
       </Link>
@@ -249,47 +304,78 @@ export function OneVidHeader({
           cadena que vivían aquí ahora son el paso 2 del stepper ("Configurar
           feed"): el usuario arma su inicio una vez y /home lo respeta. */}
       <div className="flex flex-1 items-center justify-end gap-2">
-        {/* max-w para que la búsqueda no ocupe todo el espacio entre el logo y
-            los controles de la derecha. */}
-        <div className="relative w-full max-w-xs" ref={searchRef}>
-          <form onSubmit={handleSearchSubmit}>
-            <div className="relative">
-              <SearchIcon className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="w-full pr-8 pl-9"
-                data-dpad-focusable
-                onChange={(e) => handleSearchChange(e.target.value)}
-                onFocus={() => {
-                  if (hasQuery) {
-                    setOpen(true);
-                  }
-                }}
-                placeholder={`${t("Buscar")}...`}
-                type="text"
-                value={searchQuery}
-              />
-              {searchQuery && (
-                <button
-                  className="-translate-y-1/2 absolute top-1/2 right-3 rounded border border-transparent text-muted-foreground hover:text-foreground"
-                  data-dpad-focusable
-                  onClick={clearSearch}
-                  type="button"
-                >
-                  <XIcon className="size-4" />
-                </button>
-              )}
-            </div>
-          </form>
+        {/* Móvil: la búsqueda se abre desde un icono y ocupa todo el header. */}
+        {!mobileSearchOpen && (
+          <Button
+            aria-label={t("Buscar")}
+            className="text-muted-foreground hover:text-foreground md:hidden"
+            data-dpad-focusable
+            onClick={() => setMobileSearchOpen(true)}
+            size="icon-sm"
+            variant="ghost"
+          >
+            <ScanSearchIcon className="size-4" />
+          </Button>
+        )}
 
-          {showResults && (
-            /* El fade+slide es del contenedor, no de cada resultado: el
-               scanner del mando (dpad-navigation) descarta los elementos con
-               opacity 0, así que animar los ítems uno a uno los volvería
-               inalcanzables mientras dura su animación. */
-            <div className="absolute top-full right-0 z-50 mt-1 w-full animate-in overflow-hidden rounded-lg border border-border bg-card shadow-lg duration-150 fade-in-0 slide-in-from-top-1">
-              {renderSearchResults()}
-            </div>
+        {/* max-w para que la búsqueda no ocupe todo el espacio entre el logo y
+            los controles de la derecha. En móvil permanece oculta hasta que se
+            pulsa el icono; entonces se posiciona encima del header. */}
+        <div
+          className={cn(
+            "relative w-full max-w-xs max-md:hidden",
+            mobileSearchOpen &&
+              "max-md:absolute max-md:inset-0 max-md:z-40 max-md:flex max-md:max-w-none max-md:items-center max-md:gap-2 max-md:bg-background/95 max-md:px-4 max-md:backdrop-blur"
           )}
+          ref={searchRef}
+        >
+          <div className="relative w-full flex-1">
+            <form onSubmit={handleSearchSubmit}>
+              <div className="relative">
+                <ScanSearchIcon className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="w-full pr-8 pl-9"
+                  data-dpad-focusable
+                  id={SEARCH_INPUT_ID}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  onFocus={() => {
+                    if (hasQuery) {
+                      setOpen(true);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      closeSearch();
+                    }
+                  }}
+                  placeholder={`${t("Buscar")}...`}
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                />
+                {searchQuery && (
+                  <button
+                    className="-translate-y-1/2 absolute top-1/2 right-3 rounded border border-transparent text-muted-foreground hover:text-foreground"
+                    data-dpad-focusable
+                    onClick={clearSearch}
+                    type="button"
+                  >
+                    <XIcon className="size-4" />
+                  </button>
+                )}
+              </div>
+            </form>
+
+            {showResults && (
+              /* El fade+slide es del contenedor, no de cada resultado: el
+                 scanner del mando (dpad-navigation) descarta los elementos con
+                 opacity 0, así que animar los ítems uno a uno los volvería
+                 inalcanzables mientras dura su animación. */
+              <div className="absolute top-full right-0 z-50 mt-1 w-full animate-in overflow-hidden rounded-lg border border-border bg-card shadow-lg duration-150 fade-in-0 slide-in-from-top-1">
+                {renderSearchResults()}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Único trigger: el dropdown del avatar trae perfiles + Configuración

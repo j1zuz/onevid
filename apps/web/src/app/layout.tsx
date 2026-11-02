@@ -5,6 +5,7 @@ import { NuqsAdapter } from "nuqs/adapters/next/app";
 import "@workspace/ui/globals.css";
 import { Toaster } from "@workspace/ui/components/sonner";
 import { CookieConsent } from "@/components/cookie-consent";
+import { SearchRestoreScript } from "@/components/stream/search-restore-script";
 import { DpadNavigation } from "@/components/dpad-navigation";
 import { ReactScan } from "@/components/react-scan";
 import { OnevidI18nProvider } from "@/lib/onevid-i18n-context";
@@ -24,19 +25,17 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const SITE_DESCRIPTION = "Tu reproductor de video.";
-
 export const metadata: Metadata = {
   title: {
     default: "onevid",
     template: "%s • onevid",
   },
-  description: SITE_DESCRIPTION,
+  description: "Reproductor de video",
   metadataBase: new URL("https://onevid.hackw.tech"),
   openGraph: {
     type: "website",
     title: "onevid",
-    description: SITE_DESCRIPTION,
+    description: "Reproductor de video",
     url: "https://onevid.hackw.tech",
     siteName: "onevid",
     images: [
@@ -52,7 +51,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "onevid",
-    description: SITE_DESCRIPTION,
+    description: "Reproductor de video",
     images: ["/opengraph.jpg"],
   },
 };
@@ -85,6 +84,7 @@ export default async function RootLayout({
             <CookieConsent />
           </NuqsAdapter>
         </OnevidI18nProvider>
+        <SearchRestoreScript />
         <Toaster />
       </body>
     </html>
