@@ -8,6 +8,11 @@ import {
 } from "@workspace/ui/components/drawer";
 import { Badge } from "@workspace/ui/components/badge";
 import { cn } from "@workspace/ui/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip";
 import { CheckIcon, LayersIcon, Loader } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { QUALITY_LABELS } from "@/lib/stream-quality";
@@ -158,14 +163,21 @@ export function StreamSourcePicker({
 
   return (
     <>
-      <button
-        aria-label="Cambiar medio"
-        className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-        onClick={() => setOpen(true)}
-        type="button"
-      >
-        <LayersIcon className="size-5" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              aria-label="Cambiar medio"
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+              onClick={() => setOpen(true)}
+              type="button"
+            />
+          }
+        >
+          <LayersIcon className="size-5" />
+        </TooltipTrigger>
+        <TooltipContent>Cambiar medio</TooltipContent>
+      </Tooltip>
 
       <Drawer onOpenChange={setOpen} open={open} swipeDirection="right">
         <DrawerContent>

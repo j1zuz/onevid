@@ -210,7 +210,13 @@ export function LoginDialog() {
             <DialogHeader className="items-center gap-3 text-center sm:items-center sm:text-center">
               <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-card">
                 {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
-                <img alt="onevid" className="size-8" height={32} src="/onevid-pwa-512.png" width={32} />
+                <img
+                  alt="onevid"
+                  className="size-8 rounded-md border border-border/70"
+                  height={32}
+                  src="/onevid-pwa-512.png"
+                  width={32}
+                />
               </div>
               <div className="flex flex-col gap-1">
                 <DialogTitle className="font-semibold text-base">Iniciar sesión</DialogTitle>
@@ -279,7 +285,13 @@ export function LoginDialog() {
             <DialogHeader className="items-center gap-3 text-center sm:items-center sm:text-center">
               <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-card">
                 {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
-                <img alt="onevid" className="size-8" height={32} src="/onevid-pwa-512.png" width={32} />
+                <img
+                  alt="onevid"
+                  className="size-8 rounded-md border border-border/70"
+                  height={32}
+                  src="/onevid-pwa-512.png"
+                  width={32}
+                />
               </div>
               <div className="flex flex-col gap-1">
                 <DialogTitle className="font-semibold text-base">Activar por código</DialogTitle>

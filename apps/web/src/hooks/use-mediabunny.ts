@@ -34,7 +34,7 @@ export type MediaBunnyState =
   // completo) — NO se muestra porcentaje, porque la mayoría de las veces el
   // video reproduce bien y el % sería engañoso. "transcoding" = el camino lento
   // real (transcodifica todo antes de reproducir) — ahí sí se muestra el %.
-  | { status: "processing"; progress: number; mode: "preparing" | "transcoding" }
+  | { status: "processing"; progress: number; mode: "preparing" }
   // Reproducción progresiva: el <video> ya tiene una fuente reproducible
   // (MediaSource) y va recibiendo el video mientras se transcodifica, en vez
   // de esperar a que termine todo. `src` es estable durante toda la sesión.
@@ -1433,13 +1433,13 @@ export async function downloadMediaFile(opts: {
 export function useMediaBunny(
   source: File | string | null,
   filename: string,
-  codecHint = ""
+  codecHint = "",
+  retryKey = 0
 ): UseMediaBunny {
   const [state, setState] = useState<MediaBunnyState>({ status: "idle" });
   const [audioTracks, setAudioTracks] = useState<MediaBunnyAudioTrack[]>([]);
   const [activeAudioTrack, setActiveAudioTrack] = useState(0);
   const blobUrlRef = useRef<string | null>(null);
-  const opfsNameRef = useRef<string | null>(null);
   const conversionRef = useRef<CancellableConversion | null>(null);
   // URL del MediaSource durante el streaming progresivo, para reconstruir el
   // estado en cada tick de progreso sin cambiar la `src` (cambiarla recargaría
@@ -1493,18 +1493,7 @@ export function useMediaBunny(
         mseCleanupRef.current = null;
       }
       streamUrlRef.current = null;
-      if (opfsNameRef.current) {
-        try {
-          const root = await navigator.storage.getDirectory();
-          await root.removeEntry(opfsNameRef.current);
-        } catch {
-          /* already removed */
-        }
-        opfsNameRef.current = null;
-      }
     };
-
-    const opfsName = `mb-${Date.now()}.mp4`;
 
     (async () => {
       // Algunas fuentes de TorBox llegan como URLs de "resolve" (un addon debrid
@@ -1613,9 +1602,9 @@ export function useMediaBunny(
           filename,
           codec_hint: codecHint,
         });
-        // Progressive no fue posible / falló → limpiar MSE y caer al camino
-        // OPFS completo. Cancelamos la conversión progresiva para liberar sus
-        // sesiones de WebCodecs antes de arrancar la de fallback.
+        // Progressive no fue posible / falló: limpiar MSE y dejar que el caller
+        // muestre el error. La reproducción no debe convertir el archivo entero
+        // automáticamente ni presentarlo como una descarga.
         try {
           await conversionRef.current?.cancel();
         } catch {
@@ -1634,35 +1623,13 @@ export function useMediaBunny(
         audioSwitcherRef.current = null;
         seekRef.current = null;
         setAudioTracks([]);
-        // A partir de acá sí es transcodificación completa real → mostrar %.
-        setState({ status: "processing", progress: 0, mode: "transcoding" });
-      }
-
-      // 2) Fallback: transcodifica todo a OPFS y luego reproduce el blob.
-      opfsNameRef.current = opfsName;
-      try {
-        const file = await transcodeToMp4(
-          resolvedSource,
-          opfsName,
-          (progress) => {
-            if (!abortedRef.current) {
-              setState({ status: "processing", progress, mode: "transcoding" });
-            }
-          },
-          conversionRef,
-          abortedRef
-        );
-        if (abortedRef.current) {
-          return;
-        }
-        const blobUrl = URL.createObjectURL(file);
-        blobUrlRef.current = blobUrl;
-        setState({ status: "done", src: blobUrl });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
         await cleanup();
         if (!abortedRef.current) {
-          setState({ status: "error", message: msg });
+          setState({
+            status: "error",
+            message:
+              message || "No se pudo reproducir este medio en el navegador.",
+          });
         }
       }
     })();
@@ -1679,7 +1646,7 @@ export function useMediaBunny(
         cleanup();
       }
     };
-  }, [source, filename, codecHint]);
+  }, [source, filename, codecHint, retryKey]);
 
   return { ...state, audioTracks, activeAudioTrack, selectAudioTrack, seekTo };
 }

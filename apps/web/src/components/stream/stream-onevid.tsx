@@ -2,9 +2,16 @@
 
 import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip";
 import { ArrowLeftIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import posthog from "posthog-js";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   type NextEpisodeRef,
@@ -72,21 +79,31 @@ const PlayerTopBar = memo(function PlayerTopBar({
   trackPicker?: React.ReactNode;
 }) {
   return (
-    <div className="absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 opacity-0 transition-opacity duration-300 group-hover/player:opacity-100">
-      <Link
-        className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-        href={backHref}
-        onClick={handleBack}
-      >
-        <ArrowLeftIcon className="size-5" />
-      </Link>
+    <TooltipProvider>
+      <div className="absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 opacity-0 transition-opacity duration-300 group-hover/player:opacity-100">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Link
+                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+                href={backHref}
+                onClick={handleBack}
+                aria-label="Volver"
+              >
+                <ArrowLeftIcon className="size-5" />
+              </Link>
+            }
+          />
+          <TooltipContent>Volver</TooltipContent>
+        </Tooltip>
       <h1 className="min-w-0 flex-1 truncate font-medium text-base text-white">
         {contentTitle}
       </h1>
       {trackPicker}
       {downloadButton}
       {sourcePicker}
-    </div>
+      </div>
+    </TooltipProvider>
   );
 });
 
@@ -94,6 +111,7 @@ const PlayerTopBar = memo(function PlayerTopBar({
 // episodio corto 75 s serían casi el final entero, así que se recorta a una
 // fracción de su duración real.
 const NEXT_EPISODE_LEAD_SEC = 75;
+const MAX_PLAYBACK_RETRIES = 2;
 
 function nextEpisodeLead(durationSec: number): number {
   return Math.min(NEXT_EPISODE_LEAD_SEC, durationSec * 0.15);
@@ -152,6 +170,10 @@ export function StreamOnevid({
   // aunque el medio fuera nativo y arrancara al instante.
   const [isBuffering, setIsBuffering] = useState(false);
   const [hasPlayed, setHasPlayed] = useState(false);
+  const [playbackRetry, setPlaybackRetry] = useState(0);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [mediaBunnyRetry, setMediaBunnyRetry] = useState(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // En móvil vertical el player se pinta girado 90°: así se ve en horizontal y
   // el usuario tiene que girar el teléfono para verlo bien (no forzamos la
   // rotación del sistema).
@@ -182,17 +204,91 @@ export function StreamOnevid({
   const mediaBunny = useMediaBunny(
     shouldUseMediaBunny ? sourceUrl : null,
     sourceFilename,
-    sourceCodecHint
+    sourceCodecHint,
+    mediaBunnyRetry
   );
   let activeSrc = sourceUrl ?? "";
   if (shouldUseMediaBunny) {
-    // `streaming` = reproducción progresiva ya en curso (MediaSource); `done`
-    // = transcode completo listo (blob). Ambos traen una `src` reproducible.
     activeSrc =
       mediaBunny.status === "streaming" || mediaBunny.status === "done"
         ? mediaBunny.src
         : "";
   }
+  const mediaBunnyError =
+    mediaBunny.status === "error" ? mediaBunny.message : null;
+  useEffect(() => {
+    setPlaybackRetry(0);
+    setPlaybackError(null);
+    setMediaBunnyRetry(0);
+    if (retryTimerRef.current !== null) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, [activeSrc, sourceCodecHint, sourceUrl]);
+  useEffect(
+    () => () => {
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+      }
+    },
+    []
+  );
+  useEffect(() => {
+    if (!mediaBunnyError) {
+      return;
+    }
+    posthog.capture("mediabunny_playback_error", {
+      content_id: contentId,
+      content_type: contentType,
+      error: mediaBunnyError,
+      filename: sourceFilename,
+      codec_hint: sourceCodecHint,
+      retry: mediaBunnyRetry,
+    });
+    if (mediaBunnyRetry < MAX_PLAYBACK_RETRIES) {
+      retryTimerRef.current = setTimeout(() => {
+        setMediaBunnyRetry((current) => current + 1);
+        retryTimerRef.current = null;
+      }, 300);
+    }
+  }, [
+    contentId,
+    contentType,
+    mediaBunnyError,
+    mediaBunnyRetry,
+    sourceCodecHint,
+    sourceFilename,
+  ]);
+  const handlePlaybackError = useCallback(
+    (error: Error) => {
+      posthog.capture("playback_error", {
+        content_id: contentId,
+        content_type: contentType,
+        error: error.message,
+        filename: sourceFilename,
+        codec_hint: sourceCodecHint,
+        retry: playbackRetry,
+      });
+      if (playbackRetry < MAX_PLAYBACK_RETRIES) {
+        setIsBuffering(true);
+        setPlaybackError(null);
+        retryTimerRef.current = setTimeout(() => {
+          setPlaybackRetry((current) => current + 1);
+          retryTimerRef.current = null;
+        }, 300);
+        return;
+      }
+      setIsBuffering(false);
+      setPlaybackError(error.message);
+    },
+    [
+      contentId,
+      contentType,
+      playbackRetry,
+      sourceCodecHint,
+      sourceFilename,
+    ]
+  );
   // El <video> real y el objeto media del skin, que publica el player: los
   // selectores viven en la barra superior, fuera del contexto de `<Player>`.
   const [playerRefs, setPlayerRefs] = useState<{
@@ -394,17 +490,6 @@ export function StreamOnevid({
     video.addEventListener("seeking", onSeeking);
     return () => video.removeEventListener("seeking", onSeeking);
   }, [playerRefs.video, shouldUseMediaBunny, mediaBunny.seekTo]);
-  const R = 16;
-  const C = 2 * Math.PI * R;
-  // El anillo de % solo tiene sentido en transcodificación COMPLETA real. En la
-  // fase "preparing" (arranque, intentando reproducir en vivo) no se muestra:
-  // casi siempre reproduce bien enseguida y el "0%" sería engañoso.
-  const isFullTranscode =
-    mediaBunny.status === "processing" && mediaBunny.mode === "transcoding";
-  const mbProgress =
-    mediaBunny.status === "processing" ? mediaBunny.progress : 0;
-  const mbOffset = C - mbProgress * C;
-
   // Fetch logo client-side if not provided by server
   useEffect(() => {
     if (logo) {
@@ -548,51 +633,14 @@ export function StreamOnevid({
             )}
             <div className="relative z-10 flex items-center gap-4">
               {renderLogoCenter({ logo, contentTitle })}
-              {isFullTranscode && (
-                <svg className="shrink-0 drop-shadow-lg" height="44" width="44">
-                  <title>Progreso de transcodificación</title>
-                  <circle
-                    cx="22"
-                    cy="22"
-                    fill="rgba(0,0,0,0.5)"
-                    r={R}
-                    stroke="rgba(255,255,255,0.2)"
-                    strokeWidth="3"
-                  />
-                  <circle
-                    className="transition-all duration-300"
-                    cx="22"
-                    cy="22"
-                    fill="none"
-                    r={R}
-                    stroke="white"
-                    strokeDasharray={C}
-                    strokeDashoffset={mbOffset}
-                    strokeLinecap="round"
-                    strokeWidth="3"
-                    transform="rotate(-90 22 22)"
-                  />
-                  <text
-                    fill="white"
-                    fontFamily="sans-serif"
-                    fontSize="9"
-                    fontWeight="600"
-                    textAnchor="middle"
-                    x="22"
-                    y="26"
-                  >
-                    {Math.round(mbProgress * 100)}%
-                  </text>
-                </svg>
-              )}
             </div>
           </div>
         )}
 
-        {mediaBunny.status === "error" && (
+        {(mediaBunny.status === "error" || playbackError) && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80">
             <p className="px-6 text-center text-destructive text-sm">
-              {mediaBunny.message}
+              {playbackError ?? (mediaBunny.status === "error" ? mediaBunny.message : "")}
             </p>
           </div>
         )}
@@ -601,7 +649,7 @@ export function StreamOnevid({
             // Al cambiar de medio el <video> debe desmontarse y volver a
             // montarse: sin `key` React reutiliza el elemento y el arranque
             // del nuevo src queda a merced de cómo lo propague videojs.
-            key={activeSrc}
+            key={`${activeSrc}:${playbackRetry}`}
             autoPlay={true}
             controls={false}
             isPlayMode={true}
@@ -611,6 +659,7 @@ export function StreamOnevid({
             onEnded={onEnded}
             onLoadStart={() => setIsBuffering(true)}
             onMediaRef={handleMediaRef}
+            onError={handlePlaybackError}
             onPlaying={() => {
               setIsBuffering(false);
               setHasPlayed(true);

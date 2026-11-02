@@ -264,14 +264,14 @@ export function OneVidHeader({
     >
       {/* Logo: lleva de vuelta a /home. */}
       <Link
-        className="flex shrink-0 items-center rounded border border-transparent"
+        className="flex shrink-0 items-center rounded-md border border-border/70 transition-colors hover:border-border"
         data-dpad-focusable
         href="/home"
       >
         {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
         <img
           alt="onevid"
-          className="size-8 rounded-md border border-border/70 bg-card p-1"
+          className="size-8 rounded-md bg-card p-1"
           height={32}
           src="/onevid-pwa-512.png"
           width={32}
