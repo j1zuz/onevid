@@ -82,6 +82,41 @@ const BUFFER_AHEAD_HIGH_SEC = 20;
 const BUFFER_BEHIND_KEEP_SEC = 10;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const DOWNLOAD_RETENTION_MS = 24 * 60 * 60 * 1000;
+const DOWNLOAD_FILE_PATTERN = /^dl-(\d+)\.mp4$/;
+
+type FileSystemDirectoryHandleWithEntries = FileSystemDirectoryHandle & {
+  entries: () => AsyncIterableIterator<[string, FileSystemHandle]>;
+};
+
+async function cleanupExpiredDownloadFiles(): Promise<void> {
+  const root = (await navigator.storage.getDirectory()) as
+    | FileSystemDirectoryHandleWithEntries
+    | undefined;
+  if (!root) {
+    return;
+  }
+  const now = Date.now();
+  for await (const [name, handle] of root.entries()) {
+    const match = DOWNLOAD_FILE_PATTERN.exec(name);
+    if (
+      match &&
+      handle.kind === "file" &&
+      now - Number(match[1]) >= DOWNLOAD_RETENTION_MS
+    ) {
+      await root.removeEntry(name);
+    }
+  }
+}
+
+function scheduleDownloadCleanup(name: string): void {
+  window.setTimeout(() => {
+    void navigator.storage
+      .getDirectory()
+      .then((root) => root.removeEntry(name))
+      .catch(() => undefined);
+  }, DOWNLOAD_RETENTION_MS);
+}
 
 /**
  * Builds the options for mediabunny's `UrlSource`, which reads the remote stream
@@ -1380,9 +1415,12 @@ export async function downloadMediaFile(opts: {
   }
 
   // Fallback sin showSaveFilePicker (Firefox/Safari): transcodificar a OPFS y
-  // ofrecer el archivo como descarga blob. Pesa en memoria/disco temporal, pero
-  // es el único camino sin la File System Access API.
+  // ofrecer el archivo como descarga blob. El archivo convertido se conserva
+  // durante 24 horas para que el navegador no pierda el resultado al salir de
+  // la vista; los archivos expirados se limpian antes de nuevas descargas.
   const opfsName = `dl-${Date.now()}.mp4`;
+  await cleanupExpiredDownloadFiles().catch(() => undefined);
+  let keepDownloadFile = false;
   try {
     const file = await transcodeToMp4(
       resolved,
@@ -1403,13 +1441,17 @@ export async function downloadMediaFile(opts: {
     anchor.remove();
     // Dar tiempo a que el browser arranque la descarga antes de revocar.
     setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    keepDownloadFile = true;
+    scheduleDownloadCleanup(opfsName);
     return "done";
   } finally {
-    try {
-      const root = await navigator.storage.getDirectory();
-      await root.removeEntry(opfsName);
-    } catch {
-      /* ya removido */
+    if (!keepDownloadFile) {
+      try {
+        const root = await navigator.storage.getDirectory();
+        await root.removeEntry(opfsName);
+      } catch {
+        /* ya removido */
+      }
     }
   }
 }
