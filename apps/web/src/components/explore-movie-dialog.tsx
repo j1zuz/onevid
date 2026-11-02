@@ -977,7 +977,22 @@ function MovieDialogContent({
 
   function DetailBody() {
     return (
-      <div className="space-y-4">
+      <div className="relative isolate space-y-4 [&>*]:relative [&>*]:z-10">
+        {pageMode && movie.background && (
+          <>
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-[-12%] top-[-8rem] bottom-[-8rem] z-0 bg-cover bg-center opacity-35 blur-3xl"
+              style={{
+                backgroundImage: `url("${tmdbImage(movie.background, "w780")}")`,
+              }}
+            />
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-[-12%] top-[-8rem] bottom-[-8rem] z-0 bg-gradient-to-b from-transparent via-background/35 to-background"
+            />
+          </>
+        )}
             {/* Genres */}
             {!pageMode && genres.length > 0 && (
               <div className="flex flex-wrap gap-1">
@@ -1125,16 +1140,19 @@ function MovieDialogContent({
                       seriesLoaded &&
                       seasons.length > 0 && (
                         <>
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="font-medium text-foreground text-sm">
-                              Temporadas y episodios
+                          <div className="flex items-center gap-2">
+                            <p className="min-w-0 flex-1 font-medium text-foreground text-sm">
+                              <span className="sm:hidden">Temporadas</span>
+                              <span className="hidden sm:inline">
+                                Temporadas y episodios
+                              </span>
                             </p>
                             <div
-                              className="relative w-44 shrink-0"
+                              className="relative w-max max-w-[calc(100vw-2rem)] shrink-0"
                               ref={seasonDropdownRef}
                             >
                             <button
-                              className="flex w-full items-center justify-between gap-1.5 rounded-md border border-input bg-input/20 px-2 py-1.5 text-foreground text-xs/relaxed outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30"
+                              className="flex w-full whitespace-nowrap items-center justify-between gap-1.5 rounded-md border border-input bg-input/20 px-2 py-1.5 text-foreground text-xs/relaxed outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30"
                               onClick={() =>
                                 setSeasonDropdownOpen(!seasonDropdownOpen)
                               }
@@ -1152,7 +1170,7 @@ function MovieDialogContent({
                                     s === (selectedSeason ?? seasons[0]);
                                   return (
                                     <button
-                                      className={`flex w-full items-center gap-2 px-2 py-1.5 text-xs outline-none hover:bg-accent ${isActive ? "bg-accent text-accent-foreground" : "text-foreground"}`}
+                                      className={`flex w-full whitespace-nowrap items-center gap-2 px-2 py-1.5 text-xs outline-none hover:bg-accent ${isActive ? "bg-accent text-accent-foreground" : "text-foreground"}`}
                                       key={s}
                                       onClick={() => {
                                         setSelectedSeason(s);
@@ -1217,7 +1235,7 @@ function MovieDialogContent({
                                 className={cn(
                                   "group/episode relative rounded-(--radius) border border-border/70 bg-muted/40 p-1 text-left transition-[border-color,box-shadow,filter] duration-200 hover:border-primary hover:brightness-125 hover:shadow-md hover:shadow-zinc-950/30",
                                   pageMode
-                                    ? "block w-full"
+                                    ? "flex h-full w-full flex-col items-stretch"
                                     : "flex w-full items-center gap-3"
                                 )}
                                 data-dpad-focusable
@@ -1226,21 +1244,25 @@ function MovieDialogContent({
                                 onClick={() => handleEpisodeClick(ep)}
                                 type="button"
                               >
-                                {ep.thumbnail ? (
-                                  // biome-ignore lint/performance/noImgElement: external CDN thumbnail
-                                  <img
-                                    alt={ep.name}
+                                {ep.thumbnail || movie.poster ? (
+                                  <div
                                     className={cn(
-                                      "object-cover transition-[filter] duration-200 group-hover/episode:brightness-110",
+                                      "relative shrink-0 overflow-hidden rounded-[calc(var(--radius)-4px)]",
                                       pageMode
-                                        ? "aspect-video h-auto w-full rounded-[calc(var(--radius)-4px)]"
-                                        : "h-16 w-28 shrink-0 rounded-[calc(var(--radius)-4px)]"
+                                        ? "aspect-video w-full self-start"
+                                        : "h-16 w-28"
                                     )}
-                                    height={pageMode ? 180 : 64}
-                                    loading="lazy"
-                                    src={ep.thumbnail}
-                                    width={pageMode ? 320 : 112}
-                                  />
+                                  >
+                                    {/* biome-ignore lint/performance/noImgElement: external CDN thumbnail */}
+                                    <img
+                                      alt={ep.name}
+                                      className="absolute inset-0 size-full object-cover object-top transition-[filter] duration-200 group-hover/episode:brightness-110"
+                                      height={pageMode ? 180 : 64}
+                                      loading="lazy"
+                                      src={ep.thumbnail ?? movie.poster}
+                                      width={pageMode ? 320 : 112}
+                                    />
+                                  </div>
                                 ) : (
                                   <div
                                     className={cn(
@@ -1274,7 +1296,9 @@ function MovieDialogContent({
                                 <div
                                   className={cn(
                                     "min-w-0",
-                                    pageMode ? "space-y-1 p-3" : "flex-1 py-0.5"
+                                    pageMode
+                                      ? "min-h-20 space-y-1 p-3"
+                                      : "flex-1 py-0.5"
                                   )}
                                 >
                                   <p className="truncate font-medium text-foreground text-xs md:text-sm">

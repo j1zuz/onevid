@@ -1,6 +1,6 @@
 "use client";
 
-import { DownloadIcon, XIcon } from "lucide-react";
+import { CheckCircle2Icon, DownloadIcon, XIcon } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -9,7 +9,10 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type CancellableConversion,
+  deleteOfflineMediaFile,
   downloadMediaFile,
+  getOfflineMediaExpiry,
+  getOfflineMediaFile,
 } from "@/hooks/use-mediabunny";
 
 interface PlayerDownloadButtonProps {
@@ -27,6 +30,7 @@ interface PlayerDownloadButtonProps {
 type DownloadState =
   | { status: "idle" }
   | { status: "downloading"; progress: number }
+  | { status: "saved"; expiresAt: number | null }
   | { status: "error" };
 
 // Radio del anillo de progreso, igual que el spinner de transcodificación del
@@ -52,7 +56,23 @@ export function PlayerDownloadButton({
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
+    let active = true;
+    void getOfflineMediaFile(storageKey)
+      .then((file) => {
+        if (active && file) {
+          setState({
+            status: "saved",
+            expiresAt: getOfflineMediaExpiry(storageKey),
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          console.error("Could not inspect offline media:", error);
+        }
+      });
     return () => {
+      active = false;
       mountedRef.current = false;
       // Al salir del player, cortar cualquier descarga en curso.
       if (abortedRef.current) {
@@ -60,7 +80,29 @@ export function PlayerDownloadButton({
       }
       void conversionRef.current?.cancel().catch(() => undefined);
     };
-  }, []);
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (state.status !== "saved" || state.expiresAt === null) {
+      return;
+    }
+    const remaining = state.expiresAt - Date.now();
+    if (remaining <= 0) {
+      void deleteOfflineMediaFile(storageKey).catch((error: unknown) => {
+        console.error("Could not expire offline media:", error);
+      });
+      setState({ status: "idle" });
+      return;
+    }
+    const timer = setTimeout(() => {
+      void deleteOfflineMediaFile(storageKey)
+        .catch((error: unknown) => {
+          console.error("Could not expire offline media:", error);
+        })
+        .finally(() => setState({ status: "idle" }));
+    }, remaining);
+    return () => clearTimeout(timer);
+  }, [state, storageKey]);
 
   const cancel = useCallback(() => {
     if (abortedRef.current) {
@@ -94,7 +136,10 @@ export function PlayerDownloadButton({
         },
       });
       if (mountedRef.current && !aborted.current) {
-        setState({ status: "idle" });
+        setState({
+          status: "saved",
+          expiresAt: getOfflineMediaExpiry(storageKey),
+        });
         onSaved?.();
       }
     } catch {
@@ -124,7 +169,6 @@ export function PlayerDownloadButton({
           }
         >
           <svg className="-rotate-90 absolute" height="30" viewBox="0 0 30 30" width="30">
-          <title>Progreso de descarga</title>
           <circle
             cx="15"
             cy="15"
@@ -149,6 +193,34 @@ export function PlayerDownloadButton({
           <XIcon className="size-4" />
         </TooltipTrigger>
         <TooltipContent>Cancelar guardado sin conexión</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  if (state.status === "saved") {
+    const expiresLabel = state.expiresAt
+      ? new Intl.DateTimeFormat("es", {
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          month: "short",
+        }).format(state.expiresAt)
+      : "en 24 horas";
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              aria-label="Guardado para ver sin conexión"
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 shadow-[0_0_0_2px_rgba(16,185,129,0.2)] backdrop-blur-sm dark:bg-emerald-950 dark:text-emerald-300"
+              disabled
+              type="button"
+            />
+          }
+        >
+          <CheckCircle2Icon className="size-5" />
+        </TooltipTrigger>
+        <TooltipContent>Disponible sin conexión hasta {expiresLabel}</TooltipContent>
       </Tooltip>
     );
   }

@@ -10,6 +10,7 @@ export interface NextEpisodeRef {
   episode: number;
   name: string;
   season: number;
+  thumbnail?: string;
 }
 
 interface StreamNextEpisodeProps {

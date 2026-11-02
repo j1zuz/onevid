@@ -17,6 +17,7 @@ import {
   type NextEpisodeRef,
   StreamNextEpisode,
 } from "@/components/stream/stream-next-episode";
+import { StreamEpisodePicker } from "@/components/stream/stream-episode-picker";
 import { PlayerDownloadButton } from "@/components/stream/player-download-button";
 import { StreamSourcePicker } from "@/components/stream/stream-source-picker";
 import { StreamTrackPicker } from "@/components/stream/stream-track-picker";
@@ -27,6 +28,7 @@ import {
 import { useIsTv } from "@/hooks/use-is-tv";
 import { trackLabel, useMediaTracks } from "@/hooks/use-media-tracks";
 import {
+  deleteOfflineMediaFile,
   getOfflineMediaFile,
   offlineStorageKey,
   useMediaBunny,
@@ -72,19 +74,30 @@ const PlayerTopBar = memo(function PlayerTopBar({
   contentTitle,
   handleBack,
   downloadButton,
+  episodePicker,
   sourcePicker,
   trackPicker,
+  visible,
 }: {
   backHref: string;
   contentTitle: string;
   handleBack: (e: React.MouseEvent<HTMLAnchorElement>) => void;
   downloadButton?: React.ReactNode;
+  episodePicker?: React.ReactNode;
   sourcePicker?: React.ReactNode;
   trackPicker?: React.ReactNode;
+  visible: boolean;
 }) {
   return (
     <TooltipProvider>
-      <div className="absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 opacity-0 transition-opacity duration-300 group-hover/player:opacity-100">
+      <div
+        className={cn(
+          "absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 transition-opacity duration-300 md:pointer-events-none md:opacity-0 md:group-hover/player:pointer-events-auto md:group-hover/player:opacity-100",
+          visible
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0"
+        )}
+      >
         <Tooltip>
           <TooltipTrigger
             render={
@@ -104,6 +117,7 @@ const PlayerTopBar = memo(function PlayerTopBar({
         {contentTitle}
       </h1>
       {trackPicker}
+      {episodePicker}
       {downloadButton}
       {sourcePicker}
       </div>
@@ -184,6 +198,11 @@ export function StreamOnevid({
   // el usuario tiene que girar el teléfono para verlo bien (no forzamos la
   // rotación del sistema).
   const [isPortraitMobile, setIsPortraitMobile] = useState(false);
+  const [arePlayerControlsVisible, setArePlayerControlsVisible] =
+    useState(false);
+  const handleControlsVisibility = useCallback((visible: boolean) => {
+    setArePlayerControlsVisible(visible);
+  }, []);
 
   // Extract filename from source URL for MediaBunny detection.
   const sourceUrl =
@@ -302,6 +321,19 @@ export function StreamOnevid({
   ]);
   const handlePlaybackError = useCallback(
     (error: Error) => {
+      // An interrupted download can leave an unreadable cached blob. Do not
+      // retry that same blob forever: discard it and resume from the source.
+      if (offlineMediaUrl) {
+        const invalidOfflineUrl = offlineMediaUrl;
+        setOfflineMediaUrl(null);
+        URL.revokeObjectURL(invalidOfflineUrl);
+        void deleteOfflineMediaFile(offlineKey).catch((cleanupError) => {
+          console.error("Could not remove invalid offline media:", cleanupError);
+        });
+        setPlaybackRetry(0);
+        setPlaybackError(null);
+        return;
+      }
       posthog.capture("playback_error", {
         content_id: contentId,
         content_type: contentType,
@@ -325,6 +357,8 @@ export function StreamOnevid({
     [
       contentId,
       contentType,
+      offlineKey,
+      offlineMediaUrl,
       playbackRetry,
       sourceCodecHint,
       sourceFilename,
@@ -452,6 +486,20 @@ export function StreamOnevid({
       // El player de destino lee su medio de `sessionStorage` (misma clave que
       // usa el botón Reproducir del detalle), así que hay que dejarlo puesto
       // antes de navegar.
+      try {
+        sessionStorage.setItem(
+          `stream-source-series-${next.playId}`,
+          JSON.stringify(source)
+        );
+      } catch {
+        /* sessionStorage lleno o bloqueado: la página lo dirá al montar */
+      }
+      router.push(`/home/player/series/${next.playId}`);
+    },
+    [router]
+  );
+  const handleEpisodeSelect = useCallback(
+    (next: NextEpisodeRef, source: StreamWithAddon) => {
       try {
         sessionStorage.setItem(
           `stream-source-series-${next.playId}`,
@@ -637,6 +685,7 @@ export function StreamOnevid({
           ) : null
         }
         handleBack={handleBack}
+        visible={arePlayerControlsVisible}
         trackPicker={
           <StreamTrackPicker
             activeAudioId={activeAudioId}
@@ -646,6 +695,17 @@ export function StreamOnevid({
             onSelectSubtitle={browserTracks.selectSubtitle}
             subtitleTracks={browserTracks.subtitleTracks}
           />
+        }
+        episodePicker={
+          isSeries ? (
+            <StreamEpisodePicker
+              episode={episode}
+              onSelect={handleEpisodeSelect}
+              poster={_contentPoster}
+              season={season}
+              seriesId={contentId}
+            />
+          ) : null
         }
         sourcePicker={
           <StreamSourcePicker
@@ -682,7 +742,8 @@ export function StreamOnevid({
         {(mediaBunny.status === "error" || playbackError) && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80">
             <p className="px-6 text-center text-destructive text-sm">
-              {playbackError ?? (mediaBunny.status === "error" ? mediaBunny.message : "")}
+              {playbackError ??
+                (mediaBunny.status === "error" ? mediaBunny.message : "")}
             </p>
           </div>
         )}
@@ -716,6 +777,7 @@ export function StreamOnevid({
               }
             }}
             onTimeUpdate={handleTimeUpdate}
+            onControlsVisibility={handleControlsVisibility}
             onWaiting={() => setIsBuffering(true)}
             src={activeSrc}
             subtitles={subtitles}

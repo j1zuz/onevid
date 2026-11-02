@@ -84,9 +84,44 @@ const BUFFER_BEHIND_KEEP_SEC = 10;
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const OFFLINE_FILE_PREFIX = "onevid-offline-";
 const OFFLINE_EXTENSIONS = [".mp4", ".mkv", ".webm", ".mov", ".m4v", ".ts"];
+const OFFLINE_METADATA_PREFIX = "onevid-offline-meta:v1:";
+export const OFFLINE_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 function offlineFileName(storageKey: string, extension: string): string {
   return `${OFFLINE_FILE_PREFIX}${encodeURIComponent(storageKey)}${extension}`;
+}
+
+function offlineMetadataKey(storageKey: string): string {
+  return `${OFFLINE_METADATA_PREFIX}${storageKey}`;
+}
+
+function readOfflineExpiry(storageKey: string): number | null {
+  try {
+    const value = Number(localStorage.getItem(offlineMetadataKey(storageKey)));
+    return Number.isFinite(value) && value > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeOfflineExpiry(storageKey: string, expiresAt: number): void {
+  try {
+    localStorage.setItem(offlineMetadataKey(storageKey), String(expiresAt));
+  } catch {
+    // OPFS remains the source of truth if browser storage is unavailable.
+  }
+}
+
+function removeOfflineExpiry(storageKey: string): void {
+  try {
+    localStorage.removeItem(offlineMetadataKey(storageKey));
+  } catch {
+    // Best-effort metadata cleanup.
+  }
+}
+
+export function getOfflineMediaExpiry(storageKey: string): number | null {
+  return readOfflineExpiry(storageKey);
 }
 
 /**
@@ -99,13 +134,28 @@ export async function getOfflineMediaFile(
   if (!("storage" in navigator) || !navigator.storage.getDirectory) {
     return null;
   }
+  const expiresAt = readOfflineExpiry(storageKey);
+  if (expiresAt !== null && expiresAt <= Date.now()) {
+    await deleteOfflineMediaFile(storageKey);
+    return null;
+  }
   const root = await navigator.storage.getDirectory();
   for (const extension of OFFLINE_EXTENSIONS) {
     try {
       const handle = await root.getFileHandle(
         offlineFileName(storageKey, extension)
       );
-      return await handle.getFile();
+      const file = await handle.getFile();
+      // A canceled/failed write must never become the source of a blob URL.
+      // Chromium reports an opaque demuxer error for an empty OPFS file.
+      if (file.size === 0) {
+        await root.removeEntry(offlineFileName(storageKey, extension));
+        continue;
+      }
+      if (expiresAt === null) {
+        writeOfflineExpiry(storageKey, Date.now() + OFFLINE_RETENTION_MS);
+      }
+      return file;
     } catch (error) {
       if (error instanceof DOMException && error.name === "NotFoundError") {
         continue;
@@ -114,6 +164,25 @@ export async function getOfflineMediaFile(
     }
   }
   return null;
+}
+
+/** Removes every cached variant for a title after an invalid offline file. */
+export async function deleteOfflineMediaFile(storageKey: string): Promise<void> {
+  removeOfflineExpiry(storageKey);
+  if (!("storage" in navigator) || !navigator.storage.getDirectory) {
+    return;
+  }
+  const root = await navigator.storage.getDirectory();
+  for (const extension of OFFLINE_EXTENSIONS) {
+    try {
+      await root.removeEntry(offlineFileName(storageKey, extension));
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "NotFoundError") {
+        continue;
+      }
+      throw error;
+    }
+  }
 }
 
 export function offlineStorageKey(
@@ -1381,6 +1450,7 @@ export async function downloadMediaFile(opts: {
         }
         if (abortedRef.current) {
           await writable.abort();
+          await root.removeEntry(storedName).catch(() => undefined);
           return "canceled";
         }
         await writable.write(chunk.value);
@@ -1392,9 +1462,11 @@ export async function downloadMediaFile(opts: {
       await writable.close();
     } catch (error) {
       await writable.abort().catch(() => undefined);
+      await root.removeEntry(storedName).catch(() => undefined);
       throw error;
     }
     onProgress?.(1);
+    writeOfflineExpiry(storageKey, Date.now() + OFFLINE_RETENTION_MS);
     return "done";
   }
 
@@ -1409,6 +1481,12 @@ export async function downloadMediaFile(opts: {
       conversionRef,
       abortedRef
     );
+    if (outcome === "canceled") {
+      await root.removeEntry(storedName).catch(() => undefined);
+    }
+    if (outcome === "done") {
+      writeOfflineExpiry(storageKey, Date.now() + OFFLINE_RETENTION_MS);
+    }
     return outcome;
   } catch (error) {
     await writable.abort().catch(() => undefined);

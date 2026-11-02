@@ -1,6 +1,12 @@
 "use client";
 
-import { createPlayer, useMedia, videoFeatures } from "@videojs/react";
+import {
+  createPlayer,
+  selectControls,
+  useMedia,
+  useTapGesture,
+  videoFeatures,
+} from "@videojs/react";
 import { PlayIcon } from "@videojs/react/icons";
 import { HlsJsVideo } from "@videojs/react/media/hlsjs-video";
 import { Video, VideoSkin } from "@videojs/react/video";
@@ -84,6 +90,7 @@ interface VideoJsStreamPlayerProps {
   onError?: (error: Error) => void;
   onLoadStart?: () => void;
   onPlaying?: () => void;
+  onControlsVisibility?: (visible: boolean) => void;
   /** Publica el <video> y el objeto media para los selectores de la barra. */
   onMediaRef?: (refs: { media: unknown; video: HTMLVideoElement | null }) => void;
   /**
@@ -108,7 +115,7 @@ export interface SubtitleTrackSource {
   url: string;
 }
 
-const { Player } = createPlayer({ features: videoFeatures });
+const { Player, usePlayer } = createPlayer({ features: videoFeatures });
 
 /**
  * `useMedia()` solo existe dentro de `<Player>`, pero los selectores de pista
@@ -121,6 +128,39 @@ function MediaBridge({ onMedia }: { onMedia: (media: unknown) => void }) {
   useEffect(() => {
     onMedia(media);
   }, [media, onMedia]);
+  return null;
+}
+
+function PlayerControlsBridge({
+  onVisibilityChange,
+}: {
+  onVisibilityChange?: (visible: boolean) => void;
+}) {
+  const controls = usePlayer(selectControls);
+  useEffect(() => {
+    onVisibilityChange?.(controls?.controlsVisible ?? false);
+  }, [controls?.controlsVisible, onVisibilityChange]);
+  return null;
+}
+
+function TouchCenterPlaybackGesture() {
+  const player = usePlayer();
+  useTapGesture((event) => {
+    const target =
+      event.currentTarget instanceof HTMLElement
+        ? event.currentTarget
+        : event.target instanceof HTMLElement
+          ? event.target
+          : null;
+    if (!target) {
+      return;
+    }
+    const { left, width } = target.getBoundingClientRect();
+    const relativeX = event.clientX - left;
+    if (relativeX >= width / 3 && relativeX <= (width * 2) / 3) {
+      player.togglePaused();
+    }
+  }, { pointer: "touch" });
   return null;
 }
 
@@ -154,6 +194,7 @@ export function VideoJsStreamPlayer({
   onEnded,
   onError,
   onSourceInfo,
+  onControlsVisibility,
   onLoadStart,
   onWaiting,
   onPlaying,
@@ -296,6 +337,8 @@ export function VideoJsStreamPlayer({
           {/* Los selectores de audio y subtítulos se pintan en la barra
               superior, junto al de medios; acá solo se saca lo que necesitan. */}
           <MediaBridge onMedia={handleMedia} />
+          <PlayerControlsBridge onVisibilityChange={onControlsVisibility} />
+          <TouchCenterPlaybackGesture />
         </VideoSkin>
       </Player>
       {/* Indicador de pausa. El toggle en sí lo hace el gesto `tap` del propio
