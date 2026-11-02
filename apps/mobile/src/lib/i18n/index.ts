@@ -16,6 +16,8 @@ import ptBR from "./locales/pt-BR.json";
 import ruRU from "./locales/ru-RU.json";
 import trTR from "./locales/tr-TR.json";
 
+// The default export is the shared singleton used by the app.
+// eslint-disable-next-line import/no-named-as-default-member
 i18next.use(initReactI18next).init({
   resources: {
     "es-419": { translation: esLatam },

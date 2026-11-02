@@ -1,0 +1,139 @@
+diff --git a/node_modules/expo-libvlc-player/.bun-tag-69aaffeffd05f560 b/.bun-tag-69aaffeffd05f560
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerModule.kt b/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerModule.kt
+index a21be13bc118d93d726758974c7ae98a9b32dbcb..4b3444638012942ca52640514e1e4e0933b0ae57 100644
+--- a/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerModule.kt
++++ b/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerModule.kt
+@@ -79,6 +79,10 @@ class LibVlcPlayerModule : Module() {
+           view.options = options
+         }
+ 
++        Prop("audioOutput") { view: LibVlcPlayerView, audioOutput: String? ->
++          view.audioOutput = audioOutput
++        }
++
+         Prop(
+           "slaves",
+           mutableListOf(),
+diff --git a/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerView.kt b/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerView.kt
+index 7d0db3d465132408a9fb0db603f53c888b132ac8..9c44cdb4a3e8745b5e7e900351f54ce2832f90a3 100644
+--- a/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerView.kt
++++ b/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerView.kt
+@@ -121,6 +121,12 @@ class LibVlcPlayerView(
+       player.shouldInit = true
+     }
+ 
++  var audioOutput: String? = null
++    set(value) {
++      field = value
++      player.shouldInit = true
++    }
++
+   var slaves: MutableList<Slave> = mutableListOf()
+     set(value) {
+       val newSlaves =
+diff --git a/android/src/main/java/expo/modules/libvlcplayer/managers/PictureInPictureManager.kt b/android/src/main/java/expo/modules/libvlcplayer/managers/PictureInPictureManager.kt
+index f3d404c4d4e0d8313508b76f1fd37a22c0e0fe7d..77704edbc6b8121e403f7bdb394f78234e614f1c 100644
+--- a/android/src/main/java/expo/modules/libvlcplayer/managers/PictureInPictureManager.kt
++++ b/android/src/main/java/expo/modules/libvlcplayer/managers/PictureInPictureManager.kt
+@@ -183,7 +183,11 @@ class PictureInPictureManager(
+         .Builder()
+         .apply { safeRatio?.let { ratio -> setAspectRatio(ratio) } }
+         .setSourceRectHint(hint)
+-        .setAutoEnterEnabled(pictureInPicture)
++        .apply {
++          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
++            setAutoEnterEnabled(pictureInPicture)
++          }
++        }
+         .build()
+ 
+     activity?.setPictureInPictureParams(params)
+@@ -262,7 +266,11 @@ class PictureInPictureManager(
+       PictureInPictureParams
+         .Builder()
+         .setActions(actions)
+-        .setAutoEnterEnabled(pictureInPicture && isPlaying)
++        .apply {
++          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
++            setAutoEnterEnabled(pictureInPicture && isPlaying)
++          }
++        }
+         .build()
+ 
+     activity?.setPictureInPictureParams(params)
+diff --git a/android/src/main/java/expo/modules/libvlcplayer/player/MediaPlayer.kt b/android/src/main/java/expo/modules/libvlcplayer/player/MediaPlayer.kt
+index 4ce93b9736926471c35337a82932e5d55bd2ab57..334f239f1f33495628a65ea8cb5dbd991e5d036e 100644
+--- a/android/src/main/java/expo/modules/libvlcplayer/player/MediaPlayer.kt
++++ b/android/src/main/java/expo/modules/libvlcplayer/player/MediaPlayer.kt
+@@ -205,6 +205,7 @@ class MediaPlayer(
+     setDialogCallbacks()
+ 
+     mediaPlayer = VLCMediaPlayer(libVlc!!)
++    view.audioOutput?.let { output -> mediaPlayer!!.setAudioOutput(output) }
+     setPlayerListener()
+ 
+     libVlcDispatcher = Dispatchers.IO.limitedParallelism(1)
+diff --git a/build/LibVlcPlayerView.types.d.ts b/build/LibVlcPlayerView.types.d.ts
+index 671d4f2addf47c93587ff9c3b89d568700c785f0..f60116106833a38ceaaed27db18299d6d9e29e0f 100644
+--- a/build/LibVlcPlayerView.types.d.ts
++++ b/build/LibVlcPlayerView.types.d.ts
+@@ -136,6 +136,7 @@ type AspectRatioProps = {
+     fallbackRatio?: never;
+ };
+ export type VideoContentFit = "contain" | "cover" | "fill";
++export type AudioOutputModule = "aaudio" | "audiotrack" | "opensles";
+ export type AudioMixingMode = "mixWithOthers" | "duckOthers" | "auto" | "doNotMix";
+ export interface NativeEventProps {
+     target: number;
+@@ -276,6 +277,7 @@ export type LibVlcPlayerViewNativeProps = ViewProps & NativeAspectRatioProps & {
+     ref?: Ref<LibVlcPlayerViewRef>;
+     source?: LibVlcSource;
+     options?: string[];
++    audioOutput?: AudioOutputModule;
+     slaves?: Slave[];
+     tracks?: Tracks;
+     delays?: Delays;
+@@ -335,6 +337,10 @@ export type LibVlcPlayerViewProps = ViewProps & AspectRatioProps & {
+      * @default []
+      */
+     options?: string[];
++    /**
++     * Android only. Selects the LibVLC audio output module.
++     */
++    audioOutput?: AudioOutputModule;
+     /**
+      * Sets the player audio and subtitle slaves
+      *
+diff --git a/src/LibVlcPlayerView.types.ts b/src/LibVlcPlayerView.types.ts
+index 81e3139a1a2a0943a4b359a89de596ed5d6fabd7..aebbab738ee4c17f6762ce635482edec8d9174f3 100644
+--- a/src/LibVlcPlayerView.types.ts
++++ b/src/LibVlcPlayerView.types.ts
+@@ -150,6 +150,7 @@ type AspectRatioProps =
+     };
+ 
+ export type VideoContentFit = "contain" | "cover" | "fill";
++export type AudioOutputModule = "aaudio" | "audiotrack" | "opensles";
+ 
+ export type AudioMixingMode = "mixWithOthers" | "duckOthers" | "auto" | "doNotMix";
+ 
+@@ -325,6 +326,7 @@ export type LibVlcPlayerViewNativeProps = ViewProps &
+     ref?: Ref<LibVlcPlayerViewRef>;
+     source?: LibVlcSource;
+     options?: string[];
++    audioOutput?: AudioOutputModule;
+     slaves?: Slave[];
+     tracks?: Tracks;
+     delays?: Delays;
+@@ -386,6 +388,10 @@ export type LibVlcPlayerViewProps = ViewProps &
+      * @default []
+      */
+     options?: string[];
++    /**
++     * Android only. Selects the LibVLC audio output module.
++     */
++    audioOutput?: AudioOutputModule;
+     /**
+      * Sets the player audio and subtitle slaves
+      *

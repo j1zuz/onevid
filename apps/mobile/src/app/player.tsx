@@ -3,7 +3,7 @@ import LibVlcPlayerModule, {
   LibVlcPlayerView,
   type LibVlcPlayerViewRef,
   type MediaTracks,
-  type Track,
+  type MediaTrack as Track,
 } from 'expo-libvlc-player';
 import { Image } from 'expo-image';
 import { NavigationBar } from 'expo-navigation-bar';
@@ -461,6 +461,9 @@ export default function PlayerScreen() {
   const coverShown =
     state.kind !== 'ready' || (state.url !== revealedUrl && !playedBefore);
   useEffect(() => {
+    // Reanimated shared values are mutable by design; this assignment updates
+    // the native animation state rather than React state.
+    // eslint-disable-next-line react-hooks/immutability
     coverOpacity.value = coverShown ? 1 : withTiming(0, { duration: 260 });
   }, [coverShown, coverOpacity]);
 
@@ -703,30 +706,40 @@ export default function PlayerScreen() {
   useEffect(() => {
     if (rawUrl) return; // ya hay fuente: la resuelve el efecto de abajo.
     if (!autoPlay || !mediaId) {
-      setState({ kind: 'error', message: 'Falta la URL del stream.' });
+      setTimeout(
+        () => setState({ kind: 'error', message: 'Falta la URL del stream.' }),
+        0,
+      );
       return;
     }
     if (sourcesQuery.isError) {
-      setState({
-        kind: 'error',
-        message:
-          sourcesQuery.error instanceof Error
-            ? sourcesQuery.error.message
-            : 'No pudimos cargar las fuentes.',
-      });
+      setTimeout(
+        () =>
+          setState({
+            kind: 'error',
+            message:
+              sourcesQuery.error instanceof Error
+                ? sourcesQuery.error.message
+                : 'No pudimos cargar las fuentes.',
+          }),
+        0,
+      );
       return;
     }
     const first = sourcesQuery.data?.sources[0];
     if (first) {
-      setRawUrl(first.url); // dispara el efecto de resolución ya con URL.
+      setTimeout(() => setRawUrl(first.url), 0); // dispara el efecto de resolución ya con URL.
       return;
     }
     if (sourcesQuery.data) {
       // Respondió, pero ningún addon devolvió fuentes.
-      setState({ kind: 'error', message: 'Sin fuentes disponibles' });
+      setTimeout(
+        () => setState({ kind: 'error', message: 'Sin fuentes disponibles' }),
+        0,
+      );
       return;
     }
-    setState({ kind: 'resolving' }); // fuentes aún cargando.
+    setTimeout(() => setState({ kind: 'resolving' }), 0); // fuentes aún cargando.
   }, [rawUrl, autoPlay, mediaId, sourcesQuery.isError, sourcesQuery.error, sourcesQuery.data]);
 
   // Resuelve la URL cruda de la fuente ACTUAL (sigue la redirección al CDN). Solo
@@ -1210,6 +1223,9 @@ function Player({
   // por fuente y solo si aún no se había visto imagen: un corte tras el primer
   // fotograma lo recupera VLC con http-reconnect, no queremos tirar una fuente
   // buena. No-op si no hay manejador (sin fallback posible).
+  const reportUnplayableRef = useRef<
+    (reason?: UnplayableReason) => void
+  >(() => undefined);
   const reportUnplayable = useCallback((reason: UnplayableReason = 'timeout') => {
     if (firedUnplayable.current || firstFrameRef.current) return;
     // Prórroga: si la fuente dio CUALQUIER señal de vida (algún onBuffering o
@@ -1227,7 +1243,7 @@ function Player({
       startExtensionsRef.current += 1;
       clearTimeout(startTimer.current);
       startTimer.current = setTimeout(
-        () => reportUnplayable('timeout'),
+        () => reportUnplayableRef.current('timeout'),
         START_EXTENSION_MS,
       );
       return;
@@ -1270,6 +1286,10 @@ function Player({
     }
     onUnplayable?.();
   }, [onUnplayable, url, mediaType, mediaId, startTimeoutMs]);
+
+  useEffect(() => {
+    reportUnplayableRef.current = reportUnplayable;
+  }, [reportUnplayable]);
 
   // Watchdog de arranque: si la fuente no produce imagen a tiempo (host colgado),
   // la saltamos. Se reinicia por fuente gracias al remontaje (key={url}).
@@ -1437,7 +1457,7 @@ function Player({
   // primer fotograma) reiniciaba el stream justo cuando estaba llenando el buffer.
 
   const handleBuffering = useCallback(
-    ({ progress }: VlcEvent<'onBuffering'>) => {
+    ({ value: progress }: VlcEvent<'onBuffering'>) => {
       setBuffering(true);
       sawBufferingRef.current = true; // diagnóstico: VLC llegó a leer datos
       bufferEventCountRef.current += 1;
@@ -1512,9 +1532,9 @@ function Player({
   );
 
   const handleFirstPlay = useCallback(
-    ({ length }: VlcEvent<'onFirstPlay'>) => {
-      durationRef.current = length;
-      setDuration(length);
+    ({ media }: VlcEvent<'onFirstPlay'>) => {
+      durationRef.current = media.length;
+      setDuration(media.length);
     },
     [],
   );

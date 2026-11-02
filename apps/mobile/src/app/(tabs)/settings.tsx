@@ -104,7 +104,7 @@ export default function SettingsTab() {
       // tarjeta de email desaparezca de inmediato al cerrar sesión (antes se
       // quedaba pegada hasta reiniciar la app, porque este efecto salía sin
       // resetear `user`).
-      setUser(null);
+      setTimeout(() => setUser(null), 0);
       return;
     }
     let cancelled = false;

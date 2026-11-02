@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import { BlurTargetView, BlurView } from 'expo-blur';
 import { PressableFeedback, Typography } from 'heroui-native';
 import { CircleCheck } from 'lucide-react-native';
-import { useRef, useState } from 'react';
+import { useRef, useState, type ComponentRef } from 'react';
 import { Image as NativeImage, View } from 'react-native';
 import Svg, { ClipPath, Defs, Image as SvgImage, Path } from 'react-native-svg';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
@@ -45,7 +45,7 @@ export function PosterCard({
 }: PosterCardProps) {
   const containerStyle = width != null ? { width } : undefined;
   const { focused, focusProps } = useTvFocus();
-  const blurTargetRef = useRef<View>(null);
+  const blurTargetRef = useRef<ComponentRef<typeof View>>(null);
   // Tamaño real de la tarjeta, medido sólo cuando hay badge de Top 10: el blur
   // del badge es una copia de la carátula a ese tamaño, alineada con ella, para
   // que muestre la esquina (lo que hay detrás) y no la carátula entera encogida.

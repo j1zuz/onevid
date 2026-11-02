@@ -56,6 +56,8 @@ export function AnimatedSplash({ onFinish, onLayoutReady }: Props) {
   const beginFadeOut = useCallback(() => {
     if (finishedRef.current) return;
     finishedRef.current = true;
+    // Reanimated shared values are mutable by design.
+    // eslint-disable-next-line react-hooks/immutability
     opacity.value = withTiming(0, { duration: FADE_OUT_MS }, (done) => {
       if (done) runOnJS(onFinish)();
     });

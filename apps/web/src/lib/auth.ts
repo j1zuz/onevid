@@ -85,9 +85,6 @@ export const auth = betterAuth({
         }
       : {}),
   },
-  experimental: {
-    joins: true,
-  },
   socialProviders: {
     apple: {
       clientId: process.env.APPLE_CLIENT_ID ?? "",
