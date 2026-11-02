@@ -17,10 +17,11 @@ interface PlayerDownloadButtonProps {
   url: string;
   /** Nombre del archivo de origen, para decidir si hace falta transcodificar. */
   filename: string;
-  /** Título del contenido, usado como nombre sugerido del archivo descargado. */
-  title: string;
+  /** Clave estable para guardar el medio en el almacenamiento privado. */
+  storageKey: string;
   /** Pista/hint de codec (título de la fuente) para la detección de compatibilidad. */
   codecHint?: string;
+  onSaved?: () => void;
 }
 
 type DownloadState =
@@ -34,17 +35,15 @@ const R = 10;
 const C = 2 * Math.PI * R;
 
 /**
- * Botón de descarga en la barra superior del player. Para fuentes incompatibles
- * transcodifica a un MP4 compatible y lo guarda en el dispositivo; para fuentes
- * nativas baja el archivo original. Pensado para usuarios con mal internet: el
- * archivo queda completo y reproducible offline. Mientras baja, muestra el
- * progreso y actúa como botón de cancelar.
+ * Guarda una copia privada para reproducirla sin conexión. Nunca crea una
+ * descarga visible ni expone el archivo al sistema.
  */
 export function PlayerDownloadButton({
   url,
   filename,
-  title,
+  storageKey,
   codecHint = "",
+  onSaved,
 }: PlayerDownloadButtonProps) {
   const [state, setState] = useState<DownloadState>({ status: "idle" });
   const abortedRef = useRef<{ current: boolean } | null>(null);
@@ -84,7 +83,7 @@ export function PlayerDownloadButton({
       await downloadMediaFile({
         url,
         filename,
-        title,
+        storageKey,
         codecHint,
         abortedRef: aborted,
         conversionRef,
@@ -96,6 +95,7 @@ export function PlayerDownloadButton({
       });
       if (mountedRef.current && !aborted.current) {
         setState({ status: "idle" });
+        onSaved?.();
       }
     } catch {
       if (mountedRef.current && !aborted.current) {
@@ -107,7 +107,7 @@ export function PlayerDownloadButton({
         }, 4000);
       }
     }
-  }, [url, filename, title, codecHint]);
+  }, [url, filename, storageKey, codecHint, onSaved]);
 
   if (state.status === "downloading") {
     const offset = C - state.progress * C;
@@ -116,7 +116,7 @@ export function PlayerDownloadButton({
         <TooltipTrigger
           render={
             <button
-              aria-label="Cancelar descarga"
+              aria-label="Cancelar guardado sin conexión"
               className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
               onClick={cancel}
               type="button"
@@ -148,7 +148,7 @@ export function PlayerDownloadButton({
         </svg>
           <XIcon className="size-4" />
         </TooltipTrigger>
-        <TooltipContent>Cancelar descarga</TooltipContent>
+        <TooltipContent>Cancelar guardado sin conexión</TooltipContent>
       </Tooltip>
     );
   }
@@ -158,7 +158,7 @@ export function PlayerDownloadButton({
       <TooltipTrigger
         render={
           <button
-            aria-label="Descargar"
+            aria-label="Guardar para ver sin conexión"
             className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
             onClick={start}
             type="button"
@@ -167,7 +167,7 @@ export function PlayerDownloadButton({
       >
         <DownloadIcon className="size-5" />
       </TooltipTrigger>
-      <TooltipContent>Descargar</TooltipContent>
+      <TooltipContent>Ver sin conexión</TooltipContent>
     </Tooltip>
   );
 }

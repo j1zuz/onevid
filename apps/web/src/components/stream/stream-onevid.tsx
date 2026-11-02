@@ -26,7 +26,11 @@ import {
 } from "@/components/stream/video-js-stream-player";
 import { useIsTv } from "@/hooks/use-is-tv";
 import { trackLabel, useMediaTracks } from "@/hooks/use-media-tracks";
-import { useMediaBunny } from "@/hooks/use-mediabunny";
+import {
+  getOfflineMediaFile,
+  offlineStorageKey,
+  useMediaBunny,
+} from "@/hooks/use-mediabunny";
 import { useNextEpisode } from "@/hooks/use-next-episode";
 import { useWatchProgress } from "@/hooks/use-video-progress";
 import { tmdbImage } from "@/lib/tmdb";
@@ -173,6 +177,8 @@ export function StreamOnevid({
   const [playbackRetry, setPlaybackRetry] = useState(0);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [mediaBunnyRetry, setMediaBunnyRetry] = useState(0);
+  const [offlineMediaUrl, setOfflineMediaUrl] = useState<string | null>(null);
+  const offlineKey = offlineStorageKey(contentType, rawId);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // En móvil vertical el player se pinta girado 90°: así se ve en horizontal y
   // el usuario tiene que girar el teléfono para verlo bien (no forzamos la
@@ -193,13 +199,48 @@ export function StreamOnevid({
     : "";
   const sourceCodecHint =
     typeof selectedSource?.title === "string" ? selectedSource.title : "";
+  const loadOfflineMedia = useCallback(async () => {
+    const file = await getOfflineMediaFile(offlineKey);
+    setOfflineMediaUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current);
+      }
+      return file ? URL.createObjectURL(file) : null;
+    });
+  }, [offlineKey]);
+  useEffect(() => {
+    let active = true;
+    getOfflineMediaFile(offlineKey)
+      .then((file) => {
+        if (active) {
+          setOfflineMediaUrl(file ? URL.createObjectURL(file) : null);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setOfflineMediaUrl(null);
+        }
+      });
+    return () => {
+      active = false;
+      setOfflineMediaUrl((current) => {
+        if (current) {
+          URL.revokeObjectURL(current);
+        }
+        return null;
+      });
+    };
+  }, [offlineKey]);
   // En TV NO se transcodifica en el navegador (mediabunny usa WebCodecs, inviable
   // en el procesador del TV): el <video> nativo de la TV decoda MKV/HEVC/AC-3
   // directo, así que le pasamos la URL cruda. mediabunny queda solo para el
   // navegador de escritorio, que no sabe abrir esos formatos.
   const isTv = useIsTv();
   const shouldUseMediaBunny = Boolean(
-    !isTv && sourceUrl && needsMediaBunny(sourceFilename, sourceCodecHint)
+    !offlineMediaUrl &&
+      !isTv &&
+      sourceUrl &&
+      needsMediaBunny(sourceFilename, sourceCodecHint)
   );
   const mediaBunny = useMediaBunny(
     shouldUseMediaBunny ? sourceUrl : null,
@@ -207,7 +248,7 @@ export function StreamOnevid({
     sourceCodecHint,
     mediaBunnyRetry
   );
-  let activeSrc = sourceUrl ?? "";
+  let activeSrc = offlineMediaUrl ?? sourceUrl ?? "";
   if (shouldUseMediaBunny) {
     activeSrc =
       mediaBunny.status === "streaming" || mediaBunny.status === "done"
@@ -589,7 +630,8 @@ export function StreamOnevid({
             <PlayerDownloadButton
               codecHint={sourceCodecHint}
               filename={sourceFilename}
-              title={contentTitle}
+              onSaved={loadOfflineMedia}
+              storageKey={offlineKey}
               url={sourceUrl}
             />
           ) : null
