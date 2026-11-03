@@ -3,6 +3,7 @@
 import { cn } from "@workspace/ui/lib/utils";
 import { PlayIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useTranslation } from "@/lib/onevid-i18n-context";
 import { getTmdbLogo } from "@/lib/tmdb-logo-client";
 import { tmdbImage, type MediaMeta } from "@/lib/tmdb";
 import Link from "next/link";
@@ -20,6 +21,8 @@ const HERO_IMAGE_SIZE = "w1280" as const;
  * aplicarse para que la imagen sea visible.
  */
 export function HeroCarousel({ items }: { items: MediaMeta[] }) {
+  const { t: rawT } = useTranslation();
+  const t = (key: string) => rawT(key as never);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [logoByKey, setLogoByKey] = useState<Record<string, string | null>>(
@@ -149,7 +152,7 @@ export function HeroCarousel({ items }: { items: MediaMeta[] }) {
             </div>
             <span className="btn-primary inline-flex items-center gap-1.5 rounded-4xl px-4 py-2 font-medium text-sm">
               <PlayIcon className="size-4 fill-current" />
-              Reproducir
+              {t("Reproducir")}
             </span>
           </div>
         </div>

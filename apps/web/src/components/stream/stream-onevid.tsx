@@ -92,7 +92,11 @@ const PlayerTopBar = memo(function PlayerTopBar({
     <TooltipProvider>
       <div
         className={cn(
-          "absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 transition-opacity duration-300 md:pointer-events-none md:opacity-0 md:group-hover/player:pointer-events-auto md:group-hover/player:opacity-100",
+          // La visibilidad la marca el propio player (controles de video.js).
+          // Antes los `md:` la ocultaban en pantallas anchas y solo aparecía
+          // con hover: en un móvil girado a landscape (ancho > 768px) no hay
+          // hover, así que la barra superior nunca se veía.
+          "absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 transition-opacity duration-300",
           visible
             ? "pointer-events-auto opacity-100"
             : "pointer-events-none opacity-0"
@@ -194,10 +198,6 @@ export function StreamOnevid({
   const [offlineMediaUrl, setOfflineMediaUrl] = useState<string | null>(null);
   const offlineKey = offlineStorageKey(contentType, rawId);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // En móvil vertical el player se pinta girado 90°: así se ve en horizontal y
-  // el usuario tiene que girar el teléfono para verlo bien (no forzamos la
-  // rotación del sistema).
-  const [isPortraitMobile, setIsPortraitMobile] = useState(false);
   const [arePlayerControlsVisible, setArePlayerControlsVisible] =
     useState(false);
   const handleControlsVisibility = useCallback((visible: boolean) => {
@@ -376,15 +376,6 @@ export function StreamOnevid({
     []
   );
   const browserTracks = useMediaTracks(playerRefs.video, playerRefs.media);
-  useEffect(() => {
-    const query = window.matchMedia(
-      "(max-width: 767px) and (orientation: portrait)"
-    );
-    const update = () => setIsPortraitMobile(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
   // Subtítulos de los addons. Se piden aparte de los medios porque mediabunny
   // no expone las pistas incrustadas del archivo (su API solo lee vídeo y
   // audio), así que en la ruta MSE no habría ninguna. Montados como `<track>`
@@ -662,14 +653,7 @@ export function StreamOnevid({
 
   // Player
   return (
-    <div
-      className={cn(
-        "group/player fixed z-50 flex flex-col bg-gray-950",
-        isPortraitMobile
-          ? "top-1/2 left-1/2 h-[100dvw] w-[100dvh] -translate-x-1/2 -translate-y-1/2 rotate-90"
-          : "inset-0"
-      )}
-    >
+    <div className="group/player fixed inset-0 z-50 flex flex-col bg-gray-950">
       <PlayerTopBar
         backHref={backHref}
         contentTitle={contentTitle}

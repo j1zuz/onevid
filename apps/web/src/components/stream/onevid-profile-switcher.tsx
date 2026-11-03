@@ -47,7 +47,8 @@ import {
 export function OneVidProfileSwitcher() {
   const router = useRouter();
   const { t: rawT } = useTranslation();
-  const t = (key: string) => rawT(key as never);
+  const t = (key: string, options?: Record<string, unknown>) =>
+    rawT(key as never, options as never) as unknown as string;
   const {
     profiles,
     activeProfile,
@@ -121,7 +122,7 @@ export function OneVidProfileSwitcher() {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger
-          aria-label="Perfil"
+          aria-label={t("Perfil")}
           className={cn(
             buttonVariants({ variant: "outline", size: "icon" }),
             "overflow-hidden rounded-full p-0"
@@ -140,7 +141,7 @@ export function OneVidProfileSwitcher() {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-48">
           <div className="px-2 py-1.5 text-muted-foreground text-xs">
-            Cambiar de perfil
+            {t("Cambiar de perfil")}
           </div>
           {/* Solo los OTROS perfiles: el activo ya es el que se está usando,
               no hace falta listarlo (ni su checkmark) acá. */}
@@ -169,11 +170,11 @@ export function OneVidProfileSwitcher() {
             render={<Link href="/home/account?view=profiles" />}
           >
             <SettingsIcon className="size-3.5" />
-            Administrar perfiles
+            {t("Administrar perfiles")}
           </DropdownMenuItem>
           <DropdownMenuItem data-dpad-focusable onClick={handleExitProfile}>
             <ArrowLeftRightIcon className="size-3.5" />
-            Salir del perfil
+            {t("Salir del perfil")}
           </DropdownMenuItem>
 
           <DropdownMenuSeparator />
@@ -185,7 +186,7 @@ export function OneVidProfileSwitcher() {
             render={<Link href="/home/account" />}
           >
             <BoltIcon className="size-3.5" />
-            Cuenta
+            {t("Cuenta")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {/* Navega a /: la MISMA pantalla de modo local que ve alguien sin
@@ -221,9 +222,11 @@ export function OneVidProfileSwitcher() {
       >
         <DialogContent className="sm:max-w-xs">
           <DialogHeader>
-            <DialogTitle>Perfil bloqueado</DialogTitle>
+            <DialogTitle>{t("Perfil bloqueado")}</DialogTitle>
             <DialogDescription>
-              Introduce el PIN de "{pendingProfile?.name}" para continuar.
+              {t('Introduce el PIN de "{{name}}" para continuar.', {
+                name: pendingProfile?.name,
+              })}
             </DialogDescription>
           </DialogHeader>
           <Input
@@ -246,7 +249,7 @@ export function OneVidProfileSwitcher() {
             value={pinInput}
           />
           {pinError && (
-            <p className="text-destructive text-xs">PIN incorrecto</p>
+            <p className="text-destructive text-xs">{t("PIN incorrecto")}</p>
           )}
           <DialogFooter>
             <Button
@@ -254,7 +257,7 @@ export function OneVidProfileSwitcher() {
               disabled={verifying || pinInput.length !== 4}
               onClick={confirmPin}
             >
-              Entrar
+              {t("Entrar")}
             </Button>
           </DialogFooter>
         </DialogContent>

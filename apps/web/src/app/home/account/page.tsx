@@ -16,10 +16,16 @@ import { auth } from "@/lib/auth";
 import { oneVid, oneVidAddon, oneVidProfile } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
 import {
+  DEFAULT_LANGUAGE,
+  SUPPORTED_CODES,
+  type SupportedLanguage,
+} from "@/lib/languages";
+import {
   DEFAULT_DISCOVER_ROWS,
   DEFAULT_FEED_ROWS,
   parseFeedRows,
 } from "@/lib/onevid-feed";
+import { ALL_TRANSLATIONS } from "@/lib/translations";
 
 export const metadata: Metadata = {
   title: "Configuración",
@@ -53,6 +59,16 @@ export default async function AccountPage({
   if (!session) {
     redirect("/");
   }
+
+  const cookieStore = await cookies();
+  const savedLocale = cookieStore.get("NEXT_LOCALE")?.value;
+  const locale: SupportedLanguage = SUPPORTED_CODES.includes(
+    savedLocale as never
+  )
+    ? (savedLocale as SupportedLanguage)
+    : DEFAULT_LANGUAGE;
+  const settingsTitle =
+    ALL_TRANSLATIONS[locale]?.["Configuración"] ?? "Configuración";
 
   const { view } = await searchParams;
   const initialView = isSettingsView(view) ? view : "home";
@@ -113,7 +129,7 @@ export default async function AccountPage({
   }));
 
   const activeProfileId =
-    (await cookies()).get(ACTIVE_PROFILE_COOKIE)?.value ?? null;
+    cookieStore.get(ACTIVE_PROFILE_COOKIE)?.value ?? null;
 
   return (
     <OneVidProfileProvider
@@ -149,7 +165,7 @@ export default async function AccountPage({
         </section>
 
         <div className="flex flex-1 flex-col py-6">
-          <h1 className="mb-6 font-bold text-2xl">Configuración</h1>
+          <h1 className="mb-6 font-bold text-2xl">{settingsTitle}</h1>
 
           <OneVidSettingsPanel
             discoverRows={discoverRows}

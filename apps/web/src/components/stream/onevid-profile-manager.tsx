@@ -15,6 +15,7 @@ import { cn } from "@workspace/ui/lib/utils";
 import { LockIcon, PencilIcon, PlusIcon, TrashIcon } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
+import { useTranslation } from "@/lib/onevid-i18n-context";
 import { avatarImageSrc, OneVidProfileAvatar } from "./onevid-profile-avatar";
 import {
   type MutationResult,
@@ -24,21 +25,24 @@ import {
 
 const AVATARS = ["black", "blue", "green", "orange", "purple", "red"];
 
-function errorMessage(error?: string): string {
+function errorMessage(
+  error: string | undefined,
+  t: (key: string) => string
+): string {
   switch (error) {
     case "pin_required":
     case "pin_invalid":
-      return "PIN incorrecto";
+      return t("PIN incorrecto");
     case "max_profiles":
-      return "Máximo 5 perfiles";
+      return t("Máximo 5 perfiles");
     case "code_invalid":
-      return "Código incorrecto o expirado";
+      return t("Código incorrecto o expirado");
     case "no_email":
-      return "Tu cuenta no tiene correo";
+      return t("Tu cuenta no tiene correo");
     case "email_failed":
-      return "No se pudo enviar el correo";
+      return t("No se pudo enviar el correo");
     default:
-      return "Ocurrió un error";
+      return t("Ocurrió un error");
   }
 }
 
@@ -92,6 +96,8 @@ function AuthPinField({
   value: string;
 }) {
   const { requestPinReset, confirmPinReset } = useOneVidProfiles();
+  const { t: rawT } = useTranslation();
+  const t = (key: string) => rawT(key as never);
   const pinId = useId();
   const codeId = useId();
   const [resetSent, setResetSent] = useState(false);
@@ -104,9 +110,9 @@ function AuthPinField({
     setBusy(false);
     if (result.ok) {
       setResetSent(true);
-      toast.success("Te enviamos un código a tu correo");
+      toast.success(t("Te enviamos un código a tu correo"));
     } else {
-      toast.error(errorMessage(result.error));
+      toast.error(errorMessage(result.error, t));
     }
   }
 
@@ -115,12 +121,12 @@ function AuthPinField({
     const result = await confirmPinReset(resetCode);
     setBusy(false);
     if (result.ok) {
-      toast.success("PIN restablecido");
+      toast.success(t("PIN restablecido"));
       setResetSent(false);
       setResetCode("");
       onChange("");
     } else {
-      toast.error(errorMessage(result.error));
+      toast.error(errorMessage(result.error, t));
     }
   }
 
@@ -144,7 +150,7 @@ function AuthPinField({
       {resetSent ? (
         <div className="mt-1 flex flex-col gap-2">
           <Label className="text-xs" htmlFor={codeId}>
-            Código enviado a tu correo (caduca en 10 min)
+            {t("Código enviado a tu correo (caduca en 10 min)")}
           </Label>
           <div className="flex items-center gap-2">
             <Input
@@ -163,7 +169,7 @@ function AuthPinField({
               onClick={handleConfirmReset}
               size="sm"
             >
-              Restablecer
+              {t("Restablecer")}
             </Button>
             <Button
               disabled={busy}
@@ -174,7 +180,7 @@ function AuthPinField({
               size="sm"
               variant="ghost"
             >
-              Cancelar
+              {t("Cancelar")}
             </Button>
           </div>
         </div>
@@ -185,7 +191,7 @@ function AuthPinField({
           onClick={handleRequestReset}
           type="button"
         >
-          ¿Olvidaste tu PIN?
+          {t("¿Olvidaste tu PIN?")}
         </button>
       )}
     </div>
@@ -203,6 +209,9 @@ export function OneVidProfileManager({
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }) {
+  const { t: rawT } = useTranslation();
+  const t = (key: string, options?: Record<string, unknown>) =>
+    rawT(key as never, options as never) as unknown as string;
   const {
     profiles,
     max,
@@ -246,15 +255,15 @@ export function OneVidProfileManager({
   const primaryId = profiles[0]?.id;
   const authPinLabel = (targetId?: string) =>
     targetId && targetId === primaryId
-      ? "Ingresa tu PIN para confirmar"
-      : "PIN del perfil principal (requerido)";
+      ? t("Ingresa tu PIN para confirmar")
+      : t("PIN del perfil principal (requerido)");
 
   function handleResult(result: MutationResult, success: string): boolean {
     if (result.ok) {
       toast.success(success);
       return true;
     }
-    toast.error(errorMessage(result.error));
+    toast.error(errorMessage(result.error, t));
     return false;
   }
 
@@ -302,7 +311,7 @@ export function OneVidProfileManager({
       authArg()
     );
     setBusy(false);
-    if (handleResult(result, "Perfil creado")) {
+    if (handleResult(result, t("Perfil creado"))) {
       cancelCreate();
     }
   }
@@ -344,7 +353,7 @@ export function OneVidProfileManager({
       authArg()
     );
     setBusy(false);
-    if (handleResult(result, "Perfil actualizado")) {
+    if (handleResult(result, t("Perfil actualizado"))) {
       setEditingId(null);
       setEditLockPin("");
     }
@@ -354,7 +363,7 @@ export function OneVidProfileManager({
     setBusy(true);
     const result = await updateProfile(id, { lockPin: null }, authArg());
     setBusy(false);
-    if (handleResult(result, "Bloqueo eliminado")) {
+    if (handleResult(result, t("Bloqueo eliminado"))) {
       setEditHadPin(false);
     }
   }
@@ -369,7 +378,7 @@ export function OneVidProfileManager({
     setBusy(true);
     const result = await deleteProfile(id, authArg());
     setBusy(false);
-    if (handleResult(result, "Perfil eliminado")) {
+    if (handleResult(result, t("Perfil eliminado"))) {
       setDeletingId(null);
     }
   }
@@ -390,11 +399,11 @@ export function OneVidProfileManager({
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {focused ? "Editar perfil" : "Administrar perfiles"}
+            {focused ? t("Editar perfil") : t("Administrar perfiles")}
           </DialogTitle>
           {!focused && (
             <DialogDescription>
-              Configura hasta {max} perfiles.
+              {t("Configura hasta {{n}} perfiles.", { n: max })}
             </DialogDescription>
           )}
         </DialogHeader>
@@ -421,13 +430,13 @@ export function OneVidProfileManager({
                         id="edit-kids"
                         onCheckedChange={setEditKids}
                       />
-                      Perfil infantil
+                      {t("Perfil infantil")}
                     </label>
                     <div className="flex flex-col gap-2">
                       <Label className="text-xs" htmlFor="edit-lock-pin">
                         {editHadPin
-                          ? "Cambiar PIN del perfil (4 dígitos)"
-                          : "PIN del perfil (4 dígitos, opcional)"}
+                          ? t("Cambiar PIN del perfil (4 dígitos)")
+                          : t("PIN del perfil (4 dígitos, opcional)")}
                       </Label>
                       <div className="flex items-center gap-3">
                         <Input
@@ -448,7 +457,7 @@ export function OneVidProfileManager({
                             size="sm"
                             variant="ghost"
                           >
-                            Quitar bloqueo
+                            {t("Quitar bloqueo")}
                           </Button>
                         )}
                       </div>
@@ -468,7 +477,7 @@ export function OneVidProfileManager({
                         onClick={() => handleSaveEdit(p.id)}
                         size="sm"
                       >
-                        Guardar
+                        {t("Guardar")}
                       </Button>
                       <Button
                         onClick={() =>
@@ -477,7 +486,7 @@ export function OneVidProfileManager({
                         size="sm"
                         variant="ghost"
                       >
-                        Cancelar
+                        {t("Cancelar")}
                       </Button>
                     </div>
                   </div>
@@ -490,8 +499,9 @@ export function OneVidProfileManager({
                 <li className="rounded-md border bg-muted/30 p-2.5" key={p.id}>
                   <div className="flex flex-col gap-2">
                     <p className="text-sm">
-                      ¿Eliminar <span className="font-medium">{p.name}</span>?
-                      Esta acción no se puede deshacer.
+                      {t("¿Eliminar {{name}}? Esta acción no se puede deshacer.", {
+                        name: p.name,
+                      })}
                     </p>
                     {managePinRequired && (
                       <AuthPinField
@@ -508,14 +518,14 @@ export function OneVidProfileManager({
                         size="sm"
                         variant="destructive"
                       >
-                        Eliminar
+                        {t("Eliminar")}
                       </Button>
                       <Button
                         onClick={() => setDeletingId(null)}
                         size="sm"
                         variant="ghost"
                       >
-                        Cancelar
+                        {t("Cancelar")}
                       </Button>
                     </div>
                   </div>
@@ -540,7 +550,7 @@ export function OneVidProfileManager({
                     </p>
                     {p.isKids && (
                       <span className="text-[0.65rem] text-muted-foreground">
-                        Infantil
+                        {t("Infantil")}
                       </span>
                     )}
                   </div>
@@ -571,11 +581,11 @@ export function OneVidProfileManager({
           profiles.length < max &&
           (creating ? (
             <div className="flex flex-col gap-2 rounded-md border border-dashed p-3">
-              <Label className="text-xs">Nuevo perfil</Label>
+              <Label className="text-xs">{t("Nuevo perfil")}</Label>
               <Input
                 className="h-8 text-xs"
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="Nombre"
+                placeholder={t("Nombre")}
                 value={newName}
               />
               <AvatarPicker onChange={setNewAvatar} value={newAvatar} />
@@ -588,11 +598,11 @@ export function OneVidProfileManager({
                   id="new-kids"
                   onCheckedChange={setNewKids}
                 />
-                Perfil infantil
+                {t("Perfil infantil")}
               </label>
               <div className="flex flex-col gap-1.5">
                 <Label className="text-xs" htmlFor="new-lock-pin">
-                  PIN del perfil (4 dígitos, opcional)
+                  {t("PIN del perfil (4 dígitos, opcional)")}
                 </Label>
                 <Input
                   autoComplete="off"
@@ -622,10 +632,10 @@ export function OneVidProfileManager({
                   size="sm"
                 >
                   <PlusIcon className="size-3.5" />
-                  Crear perfil
+                  {t("Crear perfil")}
                 </Button>
                 <Button onClick={cancelCreate} size="sm" variant="ghost">
-                  Cancelar
+                  {t("Cancelar")}
                 </Button>
               </div>
             </div>
@@ -637,7 +647,7 @@ export function OneVidProfileManager({
               variant="outline"
             >
               <PlusIcon className="size-3.5" />
-              Crear perfil
+              {t("Crear perfil")}
             </Button>
           ))}
       </DialogContent>

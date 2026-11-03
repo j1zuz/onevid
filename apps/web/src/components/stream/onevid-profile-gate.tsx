@@ -14,6 +14,7 @@ import { LockIcon, PencilIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { MysticEye } from "@/components/mystic-eye";
+import { useTranslation } from "@/lib/onevid-i18n-context";
 import { OneVidProfileAvatar } from "./onevid-profile-avatar";
 import {
   type OneVidProfile,
@@ -31,6 +32,9 @@ import {
  */
 export function OneVidProfileGate() {
   const router = useRouter();
+  const { t: rawT } = useTranslation();
+  const t = (key: string, options?: Record<string, unknown>) =>
+    rawT(key as never, options as never) as unknown as string;
   const { profiles, setActiveProfileId, verifyProfilePin } =
     useOneVidProfiles();
   const [pendingProfile, setPendingProfile] = useState<OneVidProfile | null>(
@@ -74,8 +78,8 @@ export function OneVidProfileGate() {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-10 bg-background px-6">
       <div className="flex flex-col items-center gap-4">
-        <MysticEye className="aspect-[3/2] w-52" label="Mirando" />
-        <h1 className="font-semibold text-2xl">¿Quién está viendo?</h1>
+        <MysticEye className="aspect-[3/2] w-52" label={t("Mirando")} />
+        <h1 className="font-semibold text-2xl">{t("¿Quién está viendo?")}</h1>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-8">
         {profiles.map((p) => (
@@ -114,7 +118,7 @@ export function OneVidProfileGate() {
         onClick={() => setEditMode((v) => !v)}
         type="button"
       >
-        {editMode ? "Listo" : "Administrar perfiles"}
+        {editMode ? t("Listo") : t("Administrar perfiles")}
       </button>
 
       <Dialog
@@ -129,9 +133,11 @@ export function OneVidProfileGate() {
       >
         <DialogContent className="sm:max-w-xs">
           <DialogHeader>
-            <DialogTitle>Perfil bloqueado</DialogTitle>
+            <DialogTitle>{t("Perfil bloqueado")}</DialogTitle>
             <DialogDescription>
-              Introduce el PIN de "{pendingProfile?.name}" para continuar.
+              {t('Introduce el PIN de "{{name}}" para continuar.', {
+                name: pendingProfile?.name,
+              })}
             </DialogDescription>
           </DialogHeader>
           <Input
@@ -154,7 +160,7 @@ export function OneVidProfileGate() {
             value={pinInput}
           />
           {pinError && (
-            <p className="text-destructive text-xs">PIN incorrecto</p>
+            <p className="text-destructive text-xs">{t("PIN incorrecto")}</p>
           )}
           <DialogFooter>
             <Button
@@ -162,7 +168,7 @@ export function OneVidProfileGate() {
               disabled={verifying || pinInput.length !== 4}
               onClick={confirmPin}
             >
-              Entrar
+              {t("Entrar")}
             </Button>
           </DialogFooter>
         </DialogContent>

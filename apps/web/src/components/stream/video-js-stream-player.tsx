@@ -7,7 +7,6 @@ import {
   useMedia,
   videoFeatures,
 } from "@videojs/react";
-import { PlayIcon } from "@videojs/react/icons";
 import { HlsJsVideo } from "@videojs/react/media/hlsjs-video";
 import { Video, VideoSkin } from "@videojs/react/video";
 import { useCallback, useEffect, useState, type ComponentProps } from "react";
@@ -143,21 +142,6 @@ function PlayerControlsBridge({
   return null;
 }
 
-// Juego de eventos con el que @videojs/core sincroniza su propio estado. Con
-// solo `play`/`pause` el icono se queda viejo tras un `ended`, un cambio de
-// fuente (`emptied`), un seek o mientras el medio aún no tiene datos.
-const SYNC_EVENTS = [
-  "emptied",
-  "ended",
-  "loadeddata",
-  "canplay",
-  "pause",
-  "play",
-  "playing",
-  "seeked",
-  "waiting",
-];
-
 export function VideoJsStreamPlayer({
   onMediaRef,
   subtitles,
@@ -180,13 +164,8 @@ export function VideoJsStreamPlayer({
   onTimeUpdate,
 }: VideoJsStreamPlayerProps) {
   // Estado y no ref: al montar el <video> hay que re-renderizar para publicarlo
-  // vía `onMediaRef` y para que el indicador de pausa se enganche a sus eventos.
+  // vía `onMediaRef`.
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
-  // Indicador central: un play fijo mientras el medio está pausado Y tiene ya
-  // datos que reproducir. Sin animación — un destello al pausar/reanudar solo
-  // estorba. Arranca oculto porque hasta el primer evento no se sabe si el
-  // navegador dejó arrancar el autoplay.
-  const [showPlayIcon, setShowPlayIcon] = useState(false);
   // Objeto media del skin, que `MediaBridge` saca del contexto de `<Player>`.
   const [media, setMedia] = useState<unknown>(null);
   const handleMedia = useCallback((next: unknown) => setMedia(next), []);
@@ -196,8 +175,6 @@ export function VideoJsStreamPlayer({
   const isHls = mimeType === "application/x-mpegURL";
 
   const rootClassName = cn(
-    // `relative` es carga útil: el overlay central es `absolute inset-0` y sin
-    // esto se posicionaría contra un ancestro cualquiera.
     "stream-video-player-root relative w-full overflow-hidden rounded-lg",
     isPlayMode && "play-mode",
     className
@@ -224,31 +201,6 @@ export function VideoJsStreamPlayer({
       onSourceInfo({ url: src, mimeType });
     }
   }, [src, mimeType, onSourceInfo]);
-
-  // Sigue el estado real del <video> para el icono central.
-  useEffect(() => {
-    if (!videoEl) {
-      return;
-    }
-    // `readyState` entra en la condición para no plantar un play encima de la
-    // pantalla de carga: mientras no hay datos no está "pausado", está cargando.
-    const sync = () =>
-      setShowPlayIcon(
-        (videoEl.paused || videoEl.ended) && videoEl.readyState >= 2
-      );
-    // Lectura inmediata: el elemento puede llevar rato montado (remonte por
-    // cambio de fuente) o el navegador puede haber bloqueado el autoplay, y en
-    // ninguno de los dos casos llega ya un evento que delate el estado.
-    sync();
-    for (const type of SYNC_EVENTS) {
-      videoEl.addEventListener(type, sync);
-    }
-    return () => {
-      for (const type of SYNC_EVENTS) {
-        videoEl.removeEventListener(type, sync);
-      }
-    };
-  }, [videoEl]);
 
   const handleError = (error: unknown) => {
     const message = serializePlaybackError(error);
@@ -315,15 +267,6 @@ export function VideoJsStreamPlayer({
           <Gesture type="tap" action="togglePaused" pointer="touch" region="center" />
         </VideoSkin>
       </Player>
-      {/* Indicador de pausa. El toggle en sí lo hace el gesto `tap` del propio
-          skin, no este overlay (de ahí `pointer-events-none`). */}
-      {showPlayIcon && (
-        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
-          <div className="flex size-16 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
-            <PlayIcon className="size-8 fill-current" />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
