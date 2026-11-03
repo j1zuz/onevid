@@ -125,16 +125,25 @@ export default function SettingsTab() {
     };
   }, [authed, t]);
 
-  const handleLogout = async () => {
-    await clearActiveProfile();
-    await clearAccessToken();
-    await setAppMode('stream');
-    // Reseteo síncrono del estado local + revalidación de la sesión para que la
-    // UI refleje el logout al instante (email/perfil desaparecen sin reiniciar).
+  const handleLogout = () => {
+    // Navegamos antes de esperar a SecureStore: esas operaciones pueden tardar
+    // varios segundos y no deben dejar visible la pantalla de Ajustes.
     setUser(null);
     setProfile(null);
-    surface?.refresh();
     router.replace('/welcome');
+
+    // La limpieza persiste en segundo plano mientras la bienvenida ya está
+    // visible. Se refresca la superficie al terminar para que el estado global
+    // también quede actualizado sin retrasar la navegación.
+    void Promise.all([
+      clearActiveProfile(),
+      clearAccessToken(),
+      setAppMode('stream'),
+    ])
+      .then(() => surface?.refresh())
+      .catch((error: unknown) => {
+        console.error('No se pudo completar el cierre de sesión.', error);
+      });
   };
 
   const handleLogin = useCallback(() => {

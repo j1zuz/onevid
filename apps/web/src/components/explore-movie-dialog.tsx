@@ -29,6 +29,7 @@ import { useOptionalOneVidProfiles } from "@/components/stream/onevid-profile-co
 import { PosterCard } from "@/components/stream/poster-card";
 import { WatchProvidersNotice } from "@/components/watch-providers-notice";
 import { useWatchState } from "@/hooks/use-watch-state";
+import { useTranslation } from "@/lib/onevid-i18n-context";
 import { getTmdbLogo } from "@/lib/tmdb-logo-client";
 import { tmdbImage, type MediaMeta } from "@/lib/tmdb";
 import type { StreamWithAddon } from "@/types/stream";
@@ -95,6 +96,8 @@ function formatDate(dateStr?: string): string {
 }
 
 function MetaLine({ movie }: { movie: MediaMeta }) {
+  const { t: rawT } = useTranslation();
+  const t = (key: string) => rawT(key as never);
   return (
     <span className="flex flex-wrap items-center justify-center gap-2 text-muted-foreground text-xs">
       {movie.year && <span>{movie.year}</span>}
@@ -108,7 +111,7 @@ function MetaLine({ movie }: { movie: MediaMeta }) {
       )}
       <span>•</span>
       <span className="capitalize">
-        {movie.type === "series" ? "Series" : "Movie"}
+        {movie.type === "series" ? t("Serie") : t("Película")}
       </span>
     </span>
   );
@@ -253,6 +256,9 @@ function MovieDialogContent({
   pageMode?: boolean;
 }) {
   const { push } = useRouter();
+  const { t: rawT } = useTranslation();
+  const t = (key: string, options?: Record<string, unknown>) =>
+    rawT(key as never, options as never) as unknown as string;
   // The dialog can mount on the player route, which has no profile provider, so
   // read the context tolerantly and fall back to no active profile there.
   const activeProfileId = useOptionalOneVidProfiles()?.activeProfileId ?? null;
@@ -410,7 +416,7 @@ function MovieDialogContent({
 
   const toggleFavorite = useCallback(async () => {
     if (!activeProfileId) {
-      toast.error("Selecciona o crea un perfil");
+      toast.error(t("Selecciona o crea un perfil"));
       return;
     }
     const next = !favorite;
@@ -441,11 +447,11 @@ function MovieDialogContent({
     } finally {
       setSavingFavorite(false);
     }
-  }, [activeProfileId, favorite, movie]);
+  }, [activeProfileId, favorite, movie, t]);
 
   const toggleWatchlist = useCallback(async () => {
     if (!activeProfileId) {
-      toast.error("Selecciona o crea un perfil");
+      toast.error(t("Selecciona o crea un perfil"));
       return;
     }
     const next = !watchlist;
@@ -476,7 +482,7 @@ function MovieDialogContent({
     } finally {
       setSavingWatchlist(false);
     }
-  }, [activeProfileId, watchlist, movie]);
+  }, [activeProfileId, watchlist, movie, t]);
 
   // Load series metadata
   const loadSeriesMeta = useCallback(async (): Promise<EpisodeItem | null> => {
@@ -652,7 +658,7 @@ function MovieDialogContent({
       if (source) {
         handlePlay(source, episode);
       } else {
-        toast.error("No hay medios disponibles para reproducir");
+        toast.error(t("No hay medios disponibles para reproducir"));
       }
     } finally {
       setStartingPlayback(false);
@@ -665,6 +671,7 @@ function MovieDialogContent({
     movie.id,
     sources,
     sourcesLoaded,
+    t,
   ]);
 
   const handleEpisodeClick = async (episode: EpisodeItem) => {
@@ -677,7 +684,7 @@ function MovieDialogContent({
       if (source) {
         handlePlay(source, episode);
       } else {
-        toast.error("No hay medios disponibles para este episodio");
+        toast.error(t("No hay medios disponibles para este episodio"));
       }
     } finally {
       setStartingEpisodeId(null);
@@ -764,7 +771,9 @@ function MovieDialogContent({
                     ) : (
                       <Play className="size-3.5 fill-current" />
                     )}
-                    {startingPlayback ? "Cargando..." : "Reproducir"}
+                    {startingPlayback
+                      ? t("Cargando...")
+                      : t("Reproducir")}
                   </Button>
                   <Button
                     data-dpad-focusable
@@ -779,7 +788,7 @@ function MovieDialogContent({
                         favorite && "fill-red-500 text-red-500"
                       )}
                     />
-                    Favorito
+                    {t("Favorito")}
                   </Button>
                   <Button
                     className={cn(watchlist && "btn-primary")}
@@ -792,7 +801,7 @@ function MovieDialogContent({
                     <Bookmark
                       className={cn("size-3.5", watchlist && "fill-current")}
                     />
-                    Ver después
+                    {t("Ver después")}
                   </Button>
                   {trailerLoaded && trailerKey && (
                     <Button
@@ -802,7 +811,7 @@ function MovieDialogContent({
                       variant={showTrailer ? "default" : "outline"}
                     >
                       <Film className="size-3.5" />
-                      Tráiler
+                      {t("Tráiler")}
                     </Button>
                   )}
                 </div>
@@ -841,7 +850,7 @@ function MovieDialogContent({
               onClick={() => setShowTrailer(false)}
             >
               <button
-                aria-label="Cerrar tráiler"
+                aria-label={t("Cerrar tráiler")}
                 className="absolute top-4 right-4 flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
                 onClick={() => setShowTrailer(false)}
                 type="button"
@@ -857,7 +866,7 @@ function MovieDialogContent({
                   allowFullScreen
                   className="h-full w-full"
                   src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0`}
-                  title="Tráiler"
+                  title={t("Tráiler")}
                 />
               </div>
             </div>,
@@ -942,7 +951,7 @@ function MovieDialogContent({
                     favorite && "fill-red-500 text-red-500"
                   )}
                 />
-                Favorito
+                {t("Favorito")}
               </Button>
               <Button
                 className={cn(watchlist && "btn-primary")}
@@ -955,7 +964,7 @@ function MovieDialogContent({
                 <Bookmark
                   className={cn("size-3.5", watchlist && "fill-current")}
                 />
-                Ver después
+                {t("Ver después")}
               </Button>
               {!trailerLoaded && <Skeleton className="h-6 w-20 rounded-md" />}
               {trailerLoaded && trailerKey && (
@@ -966,7 +975,7 @@ function MovieDialogContent({
                   variant={showTrailer ? "default" : "outline"}
                 >
                   <Film className="size-3.5" />
-                  Tráiler
+                  {t("Tráiler")}
                 </Button>
               )}
             </div>
@@ -1070,7 +1079,7 @@ function MovieDialogContent({
                           fallback={
                             <div className="rounded-lg border border-border/50 bg-muted/50 p-3">
                               <p className="text-muted-foreground text-xs">
-                                No hay fuentes disponibles para este episodio.
+                                {t("No hay fuentes disponibles para este episodio.")}
                               </p>
                             </div>
                           }
@@ -1131,7 +1140,7 @@ function MovieDialogContent({
                       seasons.length === 0 && (
                         <div className="rounded-lg border border-border/50 bg-muted/50 p-3">
                           <p className="text-muted-foreground text-xs">
-                            No se encontraron episodios.
+                            {t("No se encontraron episodios.")}
                           </p>
                         </div>
                       )}
@@ -1142,9 +1151,9 @@ function MovieDialogContent({
                         <>
                           <div className="flex items-center gap-2">
                             <p className="min-w-0 flex-1 font-medium text-foreground text-sm">
-                              <span className="sm:hidden">Temporadas</span>
+                              <span className="sm:hidden">{t("Temporadas")}</span>
                               <span className="hidden sm:inline">
-                                Temporadas y episodios
+                                {t("Temporadas y episodios")}
                               </span>
                             </p>
                             <div
@@ -1159,7 +1168,7 @@ function MovieDialogContent({
                               type="button"
                             >
                               <span>
-                                Temporada {selectedSeason ?? seasons[0]}
+                                {t("Temporada {{n}}", { n: selectedSeason ?? seasons[0] })}
                               </span>
                               <ChevronDownIcon className="pointer-events-none size-3.5 text-muted-foreground" />
                             </button>
@@ -1203,7 +1212,7 @@ function MovieDialogContent({
                                       type="button"
                                     >
                                       <span className="flex-1 text-left">
-                                        Temporada {s}
+                                        {t("Temporada {{n}}", { n: s })}
                                       </span>
                                       {isActive && (
                                         <CheckIcon className="size-3.5" />
@@ -1365,7 +1374,7 @@ function MovieDialogContent({
                     fallback={
                       <div className="rounded-lg border border-border/50 bg-muted/50 p-3">
                         <p className="text-muted-foreground text-xs">
-                          No hay fuentes de streaming disponibles.
+                          {t("No hay fuentes de streaming disponibles.")}
                         </p>
                       </div>
                     }
@@ -1396,7 +1405,7 @@ function MovieDialogContent({
               movie.related &&
               movie.related.length > 0 && (
               <section className="space-y-3 pt-4">
-                <h2 className="font-semibold text-lg">Relacionadas</h2>
+                <h2 className="font-semibold text-lg">{t("Relacionadas")}</h2>
                 <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-4">
                   {movie.related.map((related) => (
                     <PosterCard

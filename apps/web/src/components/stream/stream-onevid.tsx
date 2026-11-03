@@ -88,15 +88,27 @@ const PlayerTopBar = memo(function PlayerTopBar({
   trackPicker?: React.ReactNode;
   visible: boolean;
 }) {
+  // Los controles de video.js se auto-ocultan por inactividad. Si el cursor
+  // está sobre esta barra, la mantenemos visible para que no parpadee al
+  // pasar por los iconos.
+  const [hovered, setHovered] = useState(false);
+  const isVisible = visible || hovered;
+
   return (
     <TooltipProvider>
       <div
         className={cn(
-          "absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 transition-opacity duration-300 md:pointer-events-none md:opacity-0 md:group-hover/player:pointer-events-auto md:group-hover/player:opacity-100",
-          visible
+          // La visibilidad la marca el propio player (controles de video.js).
+          // Antes los `md:` la ocultaban en pantallas anchas y solo aparecía
+          // con hover: en un móvil girado a landscape (ancho > 768px) no hay
+          // hover, así que la barra superior nunca se veía.
+          "absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 transition-opacity duration-300",
+          isVisible
             ? "pointer-events-auto opacity-100"
             : "pointer-events-none opacity-0"
         )}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
       >
         <Tooltip>
           <TooltipTrigger
@@ -142,6 +154,13 @@ interface StreamOnevidProps {
   contentPoster?: string;
   contentTitle: string;
   contentType: "movie" | "series";
+  /**
+   * Fuente ya resuelta que no viene de sessionStorage ni de los addons (p. ej.
+   * un magnet). Cuando se pasa, el player omite el picker de medios,
+   * los subtítulos del addon y el progreso del catálogo. `null` significa
+   * "modo directo pero sin fuente" (se pinta el error nativo del player).
+   */
+  directSource?: StreamWithAddon | null;
   rawId: string;
 }
 
@@ -152,8 +171,10 @@ export function StreamOnevid({
   contentPoster: _contentPoster,
   contentBackground,
   contentLogo,
+  directSource,
   rawId,
 }: StreamOnevidProps) {
+  const isDirect = directSource !== undefined;
   // For series rawId is "seriesId:season:episode"; movies have no suffix.
   const rawParts = rawId.split(":");
   const season = rawParts.length >= 3 ? Number(rawParts[1]) || 0 : 0;
@@ -162,8 +183,9 @@ export function StreamOnevid({
   // Volver al título reproducido, no al Inicio. En series usamos el id base sin
   // temporada/episodio, pero pasamos la temporada actual para que el detalle
   // abra la misma que se estaba viendo (antes volvía siempre a la 1).
-  const backHref =
-    contentType === "series" && season > 0
+  const backHref = isDirect
+    ? "/home"
+    : contentType === "series" && season > 0
       ? `/home/detail/series/${encodeURIComponent(contentId)}?season=${season}`
       : `/home/detail/${contentType}/${encodeURIComponent(contentId)}`;
   const handleBack = useCallback(
@@ -174,7 +196,7 @@ export function StreamOnevid({
     [router, backHref]
   );
   const [selectedSource, setSelectedSource] = useState<StreamWithAddon | null>(
-    null
+    directSource ?? null
   );
   const [selectedMimeType, setSelectedMimeType] =
     useState<MimeType>("video/mp4");
@@ -194,10 +216,6 @@ export function StreamOnevid({
   const [offlineMediaUrl, setOfflineMediaUrl] = useState<string | null>(null);
   const offlineKey = offlineStorageKey(contentType, rawId);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // En móvil vertical el player se pinta girado 90°: así se ve en horizontal y
-  // el usuario tiene que girar el teléfono para verlo bien (no forzamos la
-  // rotación del sistema).
-  const [isPortraitMobile, setIsPortraitMobile] = useState(false);
   const [arePlayerControlsVisible, setArePlayerControlsVisible] =
     useState(false);
   const handleControlsVisibility = useCallback((visible: boolean) => {
@@ -276,6 +294,11 @@ export function StreamOnevid({
   }
   const mediaBunnyError =
     mediaBunny.status === "error" ? mediaBunny.message : null;
+  // El logo/fondo de carga solo hace de placeholder hasta que el video
+  // arranca por primera vez. Después de eso el player ya tiene su propio
+  // loader para buffering y seeks, así que no tapamos el video.
+  const showLoadingOverlay =
+    !hasPlayed && (isBuffering || mediaBunny.status === "processing");
   useEffect(() => {
     setPlaybackRetry(0);
     setPlaybackError(null);
@@ -376,15 +399,6 @@ export function StreamOnevid({
     []
   );
   const browserTracks = useMediaTracks(playerRefs.video, playerRefs.media);
-  useEffect(() => {
-    const query = window.matchMedia(
-      "(max-width: 767px) and (orientation: portrait)"
-    );
-    const update = () => setIsPortraitMobile(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
   // Subtítulos de los addons. Se piden aparte de los medios porque mediabunny
   // no expone las pistas incrustadas del archivo (su API solo lee vídeo y
   // audio), así que en la ruta MSE no habría ninguna. Montados como `<track>`
@@ -392,6 +406,9 @@ export function StreamOnevid({
   // nativos, sin distinguir de dónde vienen.
   const [subtitles, setSubtitles] = useState<SubtitleTrackSource[]>([]);
   useEffect(() => {
+    if (isDirect) {
+      return;
+    }
     const controller = new AbortController();
     fetch("/api/stream/subtitles", {
       method: "POST",
@@ -422,7 +439,7 @@ export function StreamOnevid({
         /* sin subtítulos externos: quedan los que traiga el medio */
       });
     return () => controller.abort();
-  }, [rawId, contentType]);
+  }, [isDirect, rawId, contentType]);
   // Las pistas de audio de mediabunny se nombran con el mismo formateador que
   // las nativas y las de HLS, para que el menú se lea igual venga de donde venga.
   const mediaBunnyAudioTracks = mediaBunny.audioTracks.map((track) => ({
@@ -455,7 +472,9 @@ export function StreamOnevid({
     tmdbImage(contentBackground, "original") ?? contentBackground;
 
   const { onTimeUpdate, onEnded, initialResume } = useWatchProgress({
-    mediaId: contentId,
+    // Un magnet no pertenece al catálogo: no guardamos progreso ni lo metemos
+    // en "Continuar viendo". Con `mediaId` vacío el hook no lee ni escribe.
+    mediaId: isDirect ? "" : contentId,
     mediaType: contentType,
     season,
     episode,
@@ -581,7 +600,7 @@ export function StreamOnevid({
   }, [playerRefs.video, shouldUseMediaBunny, mediaBunny.seekTo]);
   // Fetch logo client-side if not provided by server
   useEffect(() => {
-    if (logo) {
+    if (isDirect || logo) {
       return;
     }
 
@@ -594,7 +613,7 @@ export function StreamOnevid({
       .catch(() => {
         /* logo fetch failed, fall back to title */
       });
-  }, [logo, contentId, contentType]);
+  }, [isDirect, logo, contentId, contentType]);
 
   // On mount, try to read from sessionStorage
   useEffect(() => {
@@ -603,7 +622,7 @@ export function StreamOnevid({
     }
     triedSessionStorage.current = true;
 
-    if (selectedSource) {
+    if (isDirect || selectedSource) {
       return;
     }
 
@@ -621,7 +640,7 @@ export function StreamOnevid({
     } catch {
       // ignore
     }
-  }, [contentType, rawId, selectedSource]);
+  }, [contentType, isDirect, rawId, selectedSource]);
 
   // Sync mimeType when selectedSource changes
   useEffect(() => {
@@ -662,14 +681,7 @@ export function StreamOnevid({
 
   // Player
   return (
-    <div
-      className={cn(
-        "group/player fixed z-50 flex flex-col bg-gray-950",
-        isPortraitMobile
-          ? "top-1/2 left-1/2 h-[100dvw] w-[100dvh] -translate-x-1/2 -translate-y-1/2 rotate-90"
-          : "inset-0"
-      )}
-    >
+    <div className="group/player fixed inset-0 z-50 flex flex-col bg-black">
       <PlayerTopBar
         backHref={backHref}
         contentTitle={contentTitle}
@@ -708,12 +720,14 @@ export function StreamOnevid({
           ) : null
         }
         sourcePicker={
-          <StreamSourcePicker
-            activeSource={selectedSource}
-            contentId={rawId}
-            contentType={contentType}
-            onSelect={handleSourceChange}
-          />
+          isDirect ? undefined : (
+            <StreamSourcePicker
+              activeSource={selectedSource}
+              contentId={rawId}
+              contentType={contentType}
+              onSelect={handleSourceChange}
+            />
+          )
         }
       />
 
@@ -721,7 +735,7 @@ export function StreamOnevid({
         {/* Fondo oscuro de carga: solo cuando hay trabajo real pendiente —
             transcodificación en curso o buffering activo — no al montar el
             player (si el medio es nativo y arranca al instante, no se muestra). */}
-        {(isBuffering || mediaBunny.status === "processing") && (
+        {showLoadingOverlay && (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/30">
             {backgroundArt && (
               // biome-ignore lint/performance/noImgElement: external CDN background

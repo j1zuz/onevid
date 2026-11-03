@@ -22,6 +22,12 @@ interface UseDebouncedSearchOptions<T> {
   /** Extrae la lista de resultados del JSON de la respuesta. */
   parse: (payload: unknown) => T[];
   /**
+   * Decide si una query debe ir al endpoint. Sirve para valores que el
+   * consumidor resuelve en local (p. ej. un enlace magnet) y que no tiene
+   * sentido buscar en el catálogo.
+   */
+  shouldSearch?: (query: string) => boolean;
+  /**
    * Clave de localStorage donde se guarda la última query. Sirve para
    * restaurarla también en remontajes dentro de la SPA (sin recarga completa).
    */
@@ -60,6 +66,7 @@ export function useDebouncedSearch<T>({
   inputId,
   minLength = DEFAULT_MIN_LENGTH,
   parse,
+  shouldSearch,
   storageKey,
 }: UseDebouncedSearchOptions<T>): UseDebouncedSearchResult<T> {
   // Inicializador perezoso: primero el DOM (lo tecleado antes de hidratar o lo
@@ -94,11 +101,11 @@ export function useDebouncedSearch<T>({
   // buildUrl/parse normalmente se declaran inline en el componente. Los
   // leemos desde un ref para que los callbacks del hook tengan identidad
   // estable y un re-render no reprograme el debounce en curso.
-  const optionsRef = useRef({ buildUrl, parse });
+  const optionsRef = useRef({ buildUrl, parse, shouldSearch });
 
   useEffect(() => {
-    optionsRef.current = { buildUrl, parse };
-  }, [buildUrl, parse]);
+    optionsRef.current = { buildUrl, parse, shouldSearch };
+  }, [buildUrl, parse, shouldSearch]);
 
   const cancelPending = useCallback(() => {
     if (debounceRef.current) {
@@ -164,6 +171,14 @@ export function useDebouncedSearch<T>({
         return;
       }
 
+      if (!(optionsRef.current.shouldSearch?.(trimmed) ?? true)) {
+        cancelPending();
+        setResults([]);
+        setLoading(false);
+        setError(false);
+        return;
+      }
+
       const cached = cacheRef.current.get(trimmed.toLowerCase());
       if (cached) {
         cancelPending();
@@ -188,6 +203,10 @@ export function useDebouncedSearch<T>({
 
     const trimmed = query.trim();
     if (trimmed.length < minLength) {
+      return;
+    }
+
+    if (!(optionsRef.current.shouldSearch?.(trimmed) ?? true)) {
       return;
     }
 

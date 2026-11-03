@@ -97,15 +97,17 @@ function InfoRow({
 }
 
 function StatusBadge({ ok }: { ok: boolean }) {
+  const { t: rawT } = useTranslation();
+  const t = (key: string) => rawT(key as never);
   return ok ? (
     <span className="inline-flex items-center gap-1 text-primary text-xs">
       <CircleCheckIcon className="size-3.5" />
-      Conectado
+      {t("Conectado")}
     </span>
   ) : (
     <span className="inline-flex items-center gap-1 text-muted-foreground text-xs">
       <CircleXIcon className="size-3.5" />
-      Sin conectar
+      {t("Sin conectar")}
     </span>
   );
 }
@@ -127,12 +129,14 @@ function AccountInfoView({
   userEmail: string;
   userName: string;
 }) {
+  const { t: rawT } = useTranslation();
+  const t = (key: string) => rawT(key as never);
   return (
     <div className="flex flex-col gap-1.5">
-      <InfoRow label="Nombre" value={userName} />
-      <InfoRow label="Correo" value={userEmail} />
+      <InfoRow label={t("Nombre")} value={userName} />
+      <InfoRow label={t("Correo")} value={userEmail} />
       <InfoRow label="TorBox" value={<StatusBadge ok={hasTorboxKey} />} />
-      <InfoRow label="Complementos" value={addonsCount} />
+      <InfoRow label={t("Complementos")} value={addonsCount} />
     </div>
   );
 }
@@ -144,6 +148,8 @@ function AccountInfoView({
  * y en el gate "¿Quién está viendo?" (onevid-profile-gate.tsx), no acá.
  */
 function ProfilesView() {
+  const { t: rawT } = useTranslation();
+  const t = (key: string) => rawT(key as never);
   const { max, profiles } = useOneVidProfiles();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -189,7 +195,7 @@ function ProfilesView() {
       {profiles.length < max && (
         <SettingsRow
           icon={<PlusIcon className="size-4" />}
-          label="Agregar perfil"
+          label={t("Agregar perfil")}
           onClick={() => setAdding(true)}
         />
       )}
@@ -230,22 +236,22 @@ export function OneVidSettingsPanel({
       <div className="flex flex-col gap-1">
         <SettingsRow
           icon={<UserIcon className="size-4" />}
-          label="Cuenta"
+          label={t("Cuenta")}
           onClick={() => setView("account")}
         />
         <SettingsRow
           icon={<SettingsIcon className="size-4" />}
-          label="Configuración"
+          label={t("Configuración")}
           onClick={() => setView("catalog")}
         />
         <SettingsRow
           icon={<UsersIcon className="size-4" />}
-          label="Administrar perfiles"
+          label={t("Administrar perfiles")}
           onClick={() => setView("profiles")}
         />
         <SettingsRow
           icon={<GaugeIcon className="size-4" />}
-          label="Calidad de video"
+          label={t("Calidad de video")}
           onClick={() => setView("quality")}
         />
         <SettingsRow
