@@ -6,6 +6,7 @@
   "dependencies": {
     "@expo/metro-runtime": "~58.0.16",
     "@gorhom/bottom-sheet": "^5.2.14",
+    "@posthog/react-native-plugin": "^2.13.0",
     "@tanstack/react-query": "5.105.2",
     "expo": "~58.0.22",
     "expo-application": "~58.1.2",
@@ -37,7 +38,6 @@
     "i18next": "^26.3.5",
     "lucide-react-native": "^1.66.0",
     "posthog-react-native": "^4.85.1",
-    "posthog-react-native-session-replay": "^1.6.0",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-i18next": "^17.0.8",
@@ -59,6 +59,7 @@
   "devDependencies": {
     "@react-native-tvos/config-tv": "^0.1.6",
     "@types/react": "~19.3.0",
+    "eas-build-cache-provider": "^27.2.0",
     "eslint": "^9.39.4",
     "eslint-config-expo": "~58.0.4",
     "typescript": "~6.0.3"
@@ -81,7 +82,7 @@
   "expo": {
     "doctor": {
       "reactNativeDirectoryCheck": {
-        "exclude": ["posthog-react-native-session-replay"]
+        "exclude": []
       }
     }
   }

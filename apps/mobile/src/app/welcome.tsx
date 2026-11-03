@@ -1,9 +1,14 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { Button } from 'heroui-native';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useWindowDimensions, View } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GodRaysBand } from '@/components/god-rays-band';
 import { LoginOptionsSheet } from '@/components/login-options-sheet';
@@ -23,12 +28,13 @@ const LOGO_ASPECT = 1568 / 622;
  */
 export default function WelcomeScreen() {
   const { t } = useTranslation();
-  const { height } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const surface = useAppSurface();
   const loginFocus = useTvFocus();
   const guestFocus = useTvFocus();
   const [leaving, setLeaving] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  const buttonWidth = Platform.isTV ? Math.min(width * 0.52, 520) : '100%';
 
   // "Continuar sin cuenta" = modo local, sin salir de la app.
   const handleGuest = useCallback(async () => {
@@ -66,27 +72,63 @@ export default function WelcomeScreen() {
         />
       </View>
 
-      <View style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 10 }}>
-        <Button
-          variant="primary"
-          size="md"
+      <View
+        style={{
+          alignItems: 'center',
+          paddingHorizontal: 20,
+          paddingBottom: 16,
+          gap: 10,
+        }}
+      >
+        <Pressable
+          accessibilityRole="button"
+          focusable={Platform.isTV}
+          hasTVPreferredFocus={Platform.isTV}
           onPress={() => setLoginOpen(true)}
-          {...loginFocus.focusProps}
-          style={[{ width: '100%' }, tvFocusRing(loginFocus.focused)]}
+          onFocus={loginFocus.focusProps.onFocus}
+          onBlur={loginFocus.focusProps.onBlur}
+          style={[
+            {
+              alignItems: 'center',
+              backgroundColor: '#0879d1',
+              borderRadius: 24,
+              justifyContent: 'center',
+              minHeight: 46,
+              paddingHorizontal: 20,
+              width: buttonWidth,
+            },
+            tvFocusRing(loginFocus.focused),
+          ]}
         >
-          {t('Iniciar sesión')}
-        </Button>
+          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>
+            {t('Iniciar sesión')}
+          </Text>
+        </Pressable>
 
-        <Button
-          variant="secondary"
-          size="md"
+        <Pressable
+          accessibilityRole="button"
+          focusable={Platform.isTV}
+          onFocus={guestFocus.focusProps.onFocus}
+          onBlur={guestFocus.focusProps.onBlur}
           onPress={handleGuest}
-          isDisabled={leaving}
-          {...guestFocus.focusProps}
-          style={[{ width: '100%' }, tvFocusRing(guestFocus.focused)]}
+          disabled={leaving}
+          style={[
+            {
+              alignItems: 'center',
+              backgroundColor: 'rgba(255,255,255,0.08)',
+              borderRadius: 24,
+              justifyContent: 'center',
+              minHeight: 46,
+              paddingHorizontal: 20,
+              width: buttonWidth,
+            },
+            tvFocusRing(guestFocus.focused),
+          ]}
         >
-          {leaving ? t('Entrando…') : t('Continuar sin cuenta')}
-        </Button>
+          <Text style={{ color: '#0879d1', fontSize: 16, fontWeight: '600' }}>
+            {leaving ? t('Entrando…') : t('Continuar sin cuenta')}
+          </Text>
+        </Pressable>
       </View>
 
       <LoginOptionsSheet

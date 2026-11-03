@@ -128,12 +128,13 @@ export default function SettingsTab() {
   const handleLogout = async () => {
     await clearActiveProfile();
     await clearAccessToken();
+    await setAppMode('stream');
     // Reseteo síncrono del estado local + revalidación de la sesión para que la
     // UI refleje el logout al instante (email/perfil desaparecen sin reiniciar).
     setUser(null);
     setProfile(null);
     surface?.refresh();
-    router.replace('/home');
+    router.replace('/welcome');
   };
 
   const handleLogin = useCallback(() => {

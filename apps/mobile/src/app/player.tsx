@@ -14,6 +14,7 @@ import {
   ArrowLeft,
   Captions,
   Check,
+  Download,
   Languages,
   LayoutList,
   ListVideo,
@@ -26,6 +27,7 @@ import {
   RotateCw,
   X,
 } from 'lucide-react-native';
+import Svg, { Circle } from 'react-native-svg';
 import {
   type ComponentProps,
   type ReactNode,
@@ -80,6 +82,12 @@ import {
   STREAM_UA,
 } from '@/lib/stream-url';
 import { bumpImageGeneration } from '@/lib/image-refresh';
+import {
+  downloadOfflineVideo,
+  getOfflineVideo,
+  type OfflineVideo,
+  type OfflineDownloadControl,
+} from '@/lib/offline-videos';
 
 // Aplica el anillo de foco de TV a un Pressable sin estado de foco propio: usa
 // el render-prop de Pressable (`state.focused`, disponible en TV). Fuera de TV
@@ -423,8 +431,31 @@ export default function PlayerScreen() {
   // Clave estable del contenido para recordar entre montajes si ya se reprodujo
   // (al salir y volver no mostramos el poster otra vez, solo el logo). En
   // auto-play (sin params.url) la formamos con tipo+id+temporada+episodio.
-  const contentKey =
-    params.url || `${mediaType}:${mediaId ?? ''}:${season ?? ''}:${episode ?? ''}`;
+  const contentKey = mediaId
+    ? `${mediaType}:${mediaId}:${season ?? ''}:${episode ?? ''}`
+    : `url:${params.url ?? ''}`;
+  const [offlineVideo, setOfflineVideo] = useState<OfflineVideo | null>(null);
+  const [offlineDownloading, setOfflineDownloading] = useState(false);
+  const [offlineDownloadProgress, setOfflineDownloadProgress] = useState(0);
+  const offlineDownloadControlRef = useRef<OfflineDownloadControl>({
+    cancelled: false,
+    cancel: async () => {},
+  });
+  const [offlineChecked, setOfflineChecked] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getOfflineVideo(contentKey)
+      .then((video) => {
+        if (!cancelled) setOfflineVideo(video);
+      })
+      .finally(() => {
+        if (!cancelled) setOfflineChecked(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [contentKey]);
 
   // Carátula ÚNICA y persistente (fondo + logo): cubre desde "resolviendo" hasta
   // el primer fotograma de la fuente actual y luego se funde al vídeo. Antes
@@ -483,6 +514,15 @@ export default function PlayerScreen() {
   // URL directa y la fuente fallaba ANTES de que cargara la lista, el watchdog no
   // estaba armado y la app marcaba "sin medios" saltándose fuentes válidas.)
   const canFallback = Boolean(mediaId);
+
+  useEffect(() => {
+    if (!offlineVideo) return;
+    const timer = setTimeout(
+      () => setState({ kind: 'ready', url: offlineVideo.uri, rawUrl: offlineVideo.uri }),
+      0,
+    );
+    return () => clearTimeout(timer);
+  }, [offlineVideo]);
 
   // Control del fallback. Refs porque los leen callbacks async (señal de fallo de
   // VLC, watchdog) y no deben capturar valores obsoletos ni provocar renders.
@@ -704,6 +744,7 @@ export default function PlayerScreen() {
   // Depende de `sourcesQuery` porque su trabajo ES esperar y escoger esa fuente;
   // en cuanto fija `rawUrl`, el efecto de resolución de abajo toma el relevo.
   useEffect(() => {
+    if (!offlineChecked || offlineVideo) return;
     if (rawUrl) return; // ya hay fuente: la resuelve el efecto de abajo.
     if (!autoPlay || !mediaId) {
       setTimeout(
@@ -740,7 +781,7 @@ export default function PlayerScreen() {
       return;
     }
     setTimeout(() => setState({ kind: 'resolving' }), 0); // fuentes aún cargando.
-  }, [rawUrl, autoPlay, mediaId, sourcesQuery.isError, sourcesQuery.error, sourcesQuery.data]);
+  }, [offlineChecked, offlineVideo, rawUrl, autoPlay, mediaId, sourcesQuery.isError, sourcesQuery.error, sourcesQuery.data]);
 
   // Resuelve la URL cruda de la fuente ACTUAL (sigue la redirección al CDN). Solo
   // depende de `rawUrl`: se re-resuelve ÚNICAMENTE cuando la fuente cambia de
@@ -752,7 +793,7 @@ export default function PlayerScreen() {
   // a mitad de reproducción (negro + rebuffer desde cero, sin fallback real).
   // `advanceToNextSource` es estable (useCallback con deps [mediaType, mediaId]).
   useEffect(() => {
-    if (!rawUrl) return;
+    if (!offlineChecked || offlineVideo || !rawUrl) return;
     // No reseteamos a 'resolving' aquí: durante un salto el estado ya es
     // 'switching' (con su contador) y queremos conservarlo.
     let cancelled = false;
@@ -786,7 +827,7 @@ export default function PlayerScreen() {
     return () => {
       cancelled = true;
     };
-  }, [rawUrl, mediaType, mediaId, advanceToNextSource]);
+  }, [offlineChecked, offlineVideo, rawUrl, mediaType, mediaId, advanceToNextSource]);
 
   // useCallback (y no una arrow inline) porque `Player` lo mete en las
   // dependencias de sus handlers de <LibVlcPlayerView>: si cambiara de identidad,
@@ -830,6 +871,43 @@ export default function PlayerScreen() {
           onChangeEpisode={
             canChangeEpisode ? () => setEpisodePickerOpen(true) : undefined
           }
+          offlineVideo={offlineVideo}
+          offlineChecked={offlineChecked}
+          offlineDownloading={offlineDownloading}
+          offlineDownloadProgress={offlineDownloadProgress}
+          onDownloadOffline={
+            state.url.startsWith('file://')
+              ? undefined
+              : async () => {
+                  offlineDownloadControlRef.current.cancelled = false;
+                  setOfflineDownloadProgress(0);
+                  setOfflineDownloading(true);
+                  try {
+                    const saved = await downloadOfflineVideo({
+                      key: contentKey,
+                      url: state.url,
+                      title: title ?? 'Video',
+                      control: offlineDownloadControlRef.current,
+                      onProgress: setOfflineDownloadProgress,
+                    });
+                    if (!offlineDownloadControlRef.current.cancelled) {
+                      setOfflineDownloadProgress(1);
+                      setOfflineVideo(saved);
+                    }
+                  } catch (error) {
+                    if (!offlineDownloadControlRef.current.cancelled) {
+                      throw error;
+                    }
+                  } finally {
+                    setOfflineDownloading(false);
+                  }
+                }
+          }
+          onCancelDownload={async () => {
+            offlineDownloadControlRef.current.cancelled = true;
+            await offlineDownloadControlRef.current.cancel();
+            setOfflineDownloading(false);
+          }}
           nextEpisode={nextEpisode}
           onPlayNextEpisode={playNextEpisode}
         />
@@ -1013,6 +1091,12 @@ function Player({
   onUnplayable,
   onChangeSource,
   onChangeEpisode,
+  offlineVideo,
+  offlineChecked,
+  offlineDownloading,
+  offlineDownloadProgress,
+  onDownloadOffline,
+  onCancelDownload,
   nextEpisode,
   onPlayNextEpisode,
 }: {
@@ -1039,6 +1123,12 @@ function Player({
   onUnplayable?: () => void;
   onChangeSource?: () => void;
   onChangeEpisode?: () => void;
+  offlineVideo?: OfflineVideo | null;
+  offlineChecked?: boolean;
+  offlineDownloading?: boolean;
+  offlineDownloadProgress?: number;
+  onDownloadOffline?: () => Promise<void>;
+  onCancelDownload?: () => Promise<void>;
   /** Episodio que sigue al actual, o null si es el último de la serie. */
   nextEpisode?: NextEpisodeRef | null;
   onPlayNextEpisode?: (next: NextEpisodeRef) => Promise<void> | void;
@@ -1119,6 +1209,7 @@ function Player({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [rawError, setRawError] = useState<string | null>(null);
   const [probe, setProbe] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const [time, setTime] = useState(0); // ms
   const [duration, setDuration] = useState(0); // ms
@@ -1786,6 +1877,82 @@ function Player({
                   <ListVideo size={20} color="#fff" />
                 </Pressable>
               ) : null}
+              {offlineVideo ? (
+                <View style={styles.actionBtn}>
+                  <Check size={20} color="#86efac" />
+                </View>
+              ) : !offlineChecked ? null : onDownloadOffline ? (
+                <Pressable
+                  style={withRing(styles.actionBtn)}
+                  onPress={() => {
+                    if (offlineDownloading) {
+                      void onCancelDownload?.().catch((error: unknown) => {
+                        setDownloadError(
+                          error instanceof Error
+                            ? error.message
+                            : 'No se pudo cancelar la descarga.',
+                        );
+                      });
+                    } else {
+                      setDownloadError(null);
+                      void onDownloadOffline().catch((error: unknown) => {
+                        setDownloadError(
+                          error instanceof Error
+                            ? error.message
+                            : 'No se pudo descargar el video.',
+                        );
+                      });
+                    }
+                    showControls();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    offlineDownloading
+                      ? 'Cancelar descarga sin conexión'
+                      : 'Descargar para ver sin conexión'
+                  }
+                  hitSlop={6}
+                >
+                  {offlineDownloading ? (
+                    <View style={styles.downloadProgress}>
+                      <Svg
+                        height={32}
+                        style={styles.downloadProgressRing}
+                        width={32}
+                        viewBox="0 0 32 32"
+                      >
+                        <Circle
+                          cx="16"
+                          cy="16"
+                          fill="none"
+                          r="13"
+                          stroke="rgba(255,255,255,0.25)"
+                          strokeWidth="2.5"
+                        />
+                        <Circle
+                          cx="16"
+                          cy="16"
+                          fill="none"
+                          r="13"
+                          stroke="#fff"
+                          strokeDasharray={2 * Math.PI * 13}
+                          strokeDashoffset={
+                            2 *
+                            Math.PI *
+                            13 *
+                            (1 - (offlineDownloadProgress ?? 0))
+                          }
+                          strokeLinecap="round"
+                          strokeWidth="2.5"
+                        />
+                      </Svg>
+                      <X size={14} color="#fff" />
+                    </View>
+                  ) : (
+                    <Download size={20} color="#fff" />
+                  )}
+                </Pressable>
+              ) : null}
               <Pressable
                 style={withRing(styles.actionBtn)}
                 onPress={() => {
@@ -1884,6 +2051,11 @@ function Player({
                 ) : (
                   <Play size={32} color="#fff" fill="#fff" />
                 )}
+                {downloadError ? (
+                  <View style={styles.downloadError} pointerEvents="none">
+                    <Text style={styles.downloadErrorText}>{downloadError}</Text>
+                  </View>
+                ) : null}
               </Pressable>
               <Pressable
                 style={withRing(styles.ctrlBtn)}
@@ -2271,6 +2443,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  downloadProgress: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  downloadProgressRing: {
+    position: 'absolute',
+    transform: [{ rotate: '-90deg' }],
+  },
+  downloadError: {
+    position: 'absolute',
+    top: 62,
+    right: 16,
+    maxWidth: 280,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(127,29,29,0.9)',
+  },
+  downloadErrorText: {
+    color: '#fff',
+    fontSize: 12,
   },
   centerRow: {
     flex: 1,

@@ -173,7 +173,7 @@ function RootLayout() {
             mide un frame después y causa que el contenido "baje" a su padding. */}
         <SafeAreaProvider initialMetrics={initialWindowMetrics}>
           <QueryClientProvider client={queryClient}>
-            <HeroUINativeProvider>
+            <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
               <AppSurfaceProvider initial={{ authed: hasToken, mode: appMode }}>
                 <AppStack
                   initialRouteName={initialRoute}
