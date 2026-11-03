@@ -10,7 +10,7 @@ import {
 import { OnevidI18nProvider } from "@/lib/onevid-i18n-context";
 import { Toaster } from "@workspace/ui/components/sonner";
 import "@workspace/ui/globals.css";
-import type { Metadata, Viewport } from "next";
+import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
@@ -54,11 +54,6 @@ export const metadata: Metadata = {
     description: "Reproductor de video",
     images: ["/opengraph.jpg"],
   },
-};
-
-export const viewport: Viewport = {
-  colorScheme: "dark",
-  themeColor: "#000000",
 };
 
 export default async function RootLayout({
