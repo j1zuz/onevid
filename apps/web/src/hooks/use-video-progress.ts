@@ -98,11 +98,15 @@ export function useWatchProgress(params: WatchProgressParams) {
   }, [mediaId, mediaType, season, episode]);
 
   const post = useCallback((positionSec: number, durationSec: number) => {
+    const p = paramsRef.current;
+    // Sin id no hay título del catálogo que guardar (p. ej. un magnet directo).
+    if (!p.mediaId) {
+      return;
+    }
     const profileId = readProfileId();
     if (!profileId) {
       return;
     }
-    const p = paramsRef.current;
     try {
       fetch("/api/onevid-progress", {
         method: "POST",
@@ -155,6 +159,9 @@ export function useWatchProgress(params: WatchProgressParams) {
   );
 
   const onEnded = useCallback(() => {
+    if (!paramsRef.current.mediaId) {
+      return;
+    }
     const { duration } = latest.current;
     if (duration > 0) {
       // position === duration → server sees it as finished and drops the row.

@@ -4,12 +4,18 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
-import { ScanSearchIcon, XIcon } from "lucide-react";
+import { MagnetIcon, ScanSearchIcon, XIcon } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OneVidAddonSummary } from "@/components/stepper-onevid";
 import { OneVidProfileSwitcher } from "@/components/stream/onevid-profile-switcher";
 import { useDebouncedSearch } from "@/hooks/use-debounced-search";
+import {
+  buildMagnetPlayerHref,
+  isMagnetLink,
+  magnetDisplayName,
+} from "@/lib/magnet";
 import {
   SEARCH_INPUT_ID,
   SEARCH_STORAGE_KEY,
@@ -47,6 +53,11 @@ function buildSearchUrl(query: string): string {
   return `/api/search?q=${encodeURIComponent(query)}`;
 }
 
+// Los magnets se resuelven en el reproductor, no en el catálogo de TMDB.
+function shouldSearchCatalog(query: string): boolean {
+  return !isMagnetLink(query);
+}
+
 function parseSearchResults(payload: unknown): SearchMeta[] {
   const results = (payload as { results?: SearchMeta[] } | null)?.results;
   return Array.isArray(results) ? results.slice(0, SEARCH_RESULT_LIMIT) : [];
@@ -71,6 +82,7 @@ interface OneVidHeaderProps {
 export function OneVidHeader({
   surface = "home",
 }: OneVidHeaderProps) {
+  const router = useRouter();
   const { t: rawT } = useTranslation();
   const t = (key: string) => rawT(key as never);
   const {
@@ -84,6 +96,7 @@ export function OneVidHeader({
     buildUrl: buildSearchUrl,
     inputId: SEARCH_INPUT_ID,
     parse: parseSearchResults,
+    shouldSearch: shouldSearchCatalog,
     storageKey: SEARCH_STORAGE_KEY,
   });
   // `open` es independiente de la respuesta del fetch a propósito: antes el
@@ -99,6 +112,7 @@ export function OneVidHeader({
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   const hasQuery = searchQuery.trim().length > 0;
+  const magnetQuery = isMagnetLink(searchQuery) ? searchQuery.trim() : null;
   const showResults = open && hasQuery;
 
   const handleSearchChange = useCallback(
@@ -108,7 +122,11 @@ export function OneVidHeader({
       // Persistimos la búsqueda para recuperarla al recargar. El <script> de
       // abajo la vuelve a poner en el input antes del primer pintado.
       try {
-        if (value.trim()) {
+        if (isMagnetLink(value)) {
+          // Un magnet puede medir cientos de caracteres y solo sirve para la
+          // reproducción inmediata; no tiene sentido restaurarlo al recargar.
+          localStorage.removeItem(SEARCH_STORAGE_KEY);
+        } else if (value.trim()) {
           localStorage.setItem(SEARCH_STORAGE_KEY, value);
         } else {
           localStorage.removeItem(SEARCH_STORAGE_KEY);
@@ -123,10 +141,18 @@ export function OneVidHeader({
   const handleSearchSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
+      const trimmed = searchQuery.trim();
+      // Enter sobre un magnet va directo al reproductor, sin pasar por TMDB.
+      if (isMagnetLink(trimmed)) {
+        setOpen(false);
+        setMobileSearchOpen(false);
+        router.push(buildMagnetPlayerHref(trimmed));
+        return;
+      }
       submit();
-      setOpen(searchQuery.trim().length > 0);
+      setOpen(trimmed.length > 0);
     },
-    [searchQuery, submit]
+    [router, searchQuery, submit]
   );
 
   const clearSearch = useCallback(() => {
@@ -178,6 +204,34 @@ export function OneVidHeader({
   }, [search]);
 
   function renderSearchResults() {
+    // Un magnet no es un título del catálogo: el único resultado posible es
+    // resolverlo y abrir el reproductor.
+    if (magnetQuery) {
+      return (
+        <ul className="p-1">
+          <li>
+            <Link
+              className="flex w-full items-center gap-3 rounded-md border border-transparent px-3 py-2 text-left transition-colors"
+              data-dpad-focusable
+              href={buildMagnetPlayerHref(magnetQuery)}
+              onClick={clearSearch}
+            >
+              <span className="flex h-12 w-20 shrink-0 items-center justify-center rounded-md bg-muted">
+                <MagnetIcon className="size-5 text-muted-foreground" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-foreground text-sm">
+                  {t("Reproducir magnet")}
+                </p>
+                <p className="truncate text-muted-foreground text-xs">
+                  {magnetDisplayName(magnetQuery)}
+                </p>
+              </div>
+            </Link>
+          </li>
+        </ul>
+      );
+    }
     // Solo caemos al skeleton cuando no hay nada que mostrar. Si ya había
     // resultados, se quedan atenuados mientras llega la query refinada: así
     // el dropdown no cambia de alto en cada tecla.
