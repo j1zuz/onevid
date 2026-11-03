@@ -1,4 +1,5 @@
 import { CookieConsent } from "@/components/cookie-consent";
+import { SearchRestoreScript } from "@/components/stream/search-restore-script";
 import { DpadNavigation } from "@/components/dpad-navigation";
 import { ReactScan } from "@/components/react-scan";
 import { SearchRestoreScript } from "@/components/stream/search-restore-script";
