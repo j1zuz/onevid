@@ -104,7 +104,7 @@ export default function SettingsTab() {
       // tarjeta de email desaparezca de inmediato al cerrar sesión (antes se
       // quedaba pegada hasta reiniciar la app, porque este efecto salía sin
       // resetear `user`).
-      setUser(null);
+      setTimeout(() => setUser(null), 0);
       return;
     }
     let cancelled = false;
@@ -128,12 +128,13 @@ export default function SettingsTab() {
   const handleLogout = async () => {
     await clearActiveProfile();
     await clearAccessToken();
+    await setAppMode('stream');
     // Reseteo síncrono del estado local + revalidación de la sesión para que la
     // UI refleje el logout al instante (email/perfil desaparecen sin reiniciar).
     setUser(null);
     setProfile(null);
     surface?.refresh();
-    router.replace('/home');
+    router.replace('/welcome');
   };
 
   const handleLogin = useCallback(() => {

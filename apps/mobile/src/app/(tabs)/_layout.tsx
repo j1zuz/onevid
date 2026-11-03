@@ -12,14 +12,28 @@ import { loadActiveProfile } from '@/lib/profiles';
 import { COLORS } from '@/lib/theme';
 
 function icon(name: TabIconName) {
-  return ({ focused, size }: { focused: boolean; size: number }) => (
+  const TabIconComponent = ({
+    focused,
+    size,
+  }: {
+    focused: boolean;
+    size: number;
+  }) => (
     <TabIcon name={name} focused={focused} size={size} />
   );
+  TabIconComponent.displayName = `TabIcon(${name})`;
+  return TabIconComponent;
 }
 
 // Ícono del tab "Perfil": el avatar del perfil activo (en vez de un ícono fijo).
 function profileIcon(avatar: string | undefined) {
-  return ({ focused, size }: { focused: boolean; size: number }) => {
+  const ProfileIcon = ({
+    focused,
+    size,
+  }: {
+    focused: boolean;
+    size: number;
+  }) => {
     const d = size + 4;
     return (
       <Image
@@ -35,6 +49,8 @@ function profileIcon(avatar: string | undefined) {
       />
     );
   };
+  ProfileIcon.displayName = 'ProfileIcon';
+  return ProfileIcon;
 }
 
 export default function TabsLayout() {

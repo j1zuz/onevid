@@ -1,19 +1,19 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import { cookies } from "next/headers";
-import { NuqsAdapter } from "nuqs/adapters/next/app";
-import "@workspace/ui/globals.css";
-import { Toaster } from "@workspace/ui/components/sonner";
 import { CookieConsent } from "@/components/cookie-consent";
 import { SearchRestoreScript } from "@/components/stream/search-restore-script";
 import { DpadNavigation } from "@/components/dpad-navigation";
 import { ReactScan } from "@/components/react-scan";
-import { OnevidI18nProvider } from "@/lib/onevid-i18n-context";
 import {
   DEFAULT_LANGUAGE,
   SUPPORTED_CODES,
   type SupportedLanguage,
 } from "@/lib/languages";
+import { OnevidI18nProvider } from "@/lib/onevid-i18n-context";
+import { Toaster } from "@workspace/ui/components/sonner";
+import "@workspace/ui/globals.css";
+import type { Metadata, Viewport } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import { cookies } from "next/headers";
+import { NuqsAdapter } from "nuqs/adapters/next/app";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -43,7 +43,7 @@ export const metadata: Metadata = {
         url: "/opengraph.jpg",
         width: 1200,
         height: 675,
-        alt: "onevid — tu reproductor de video",
+        alt: "onevid — Reproductor de video",
         type: "image/jpeg",
       },
     ],
@@ -54,6 +54,11 @@ export const metadata: Metadata = {
     description: "Reproductor de video",
     images: ["/opengraph.jpg"],
   },
+};
+
+export const viewport: Viewport = {
+  colorScheme: "dark",
+  themeColor: "#000000",
 };
 
 export default async function RootLayout({

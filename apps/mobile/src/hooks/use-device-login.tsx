@@ -81,8 +81,11 @@ export function useDeviceLogin(
       clearTimer();
       return;
     }
-    requestCode();
-    return clearTimer;
+    const timer = setTimeout(() => void requestCode(), 0);
+    return () => {
+      clearTimeout(timer);
+      clearTimer();
+    };
   }, [active, requestCode, clearTimer]);
 
   // Polling al backend mientras esperamos la aprobación.
@@ -132,7 +135,10 @@ export function useDeviceLogin(
   // Contador regresivo de 5 minutos: al llegar a 0 regenera código.
   useEffect(() => {
     if (!active || phase !== 'waiting' || !codeData) return;
-    setSecondsLeft(COUNTDOWN_SECONDS);
+    const resetTimer = setTimeout(
+      () => setSecondsLeft(COUNTDOWN_SECONDS),
+      0,
+    );
     const interval = setInterval(() => {
       setSecondsLeft((prev) => {
         if (prev <= 1) {
@@ -143,7 +149,10 @@ export function useDeviceLogin(
         return prev - 1;
       });
     }, 1000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(resetTimer);
+      clearInterval(interval);
+    };
   }, [active, phase, codeData, requestCode]);
 
   const handleCopyCode = useCallback(async () => {

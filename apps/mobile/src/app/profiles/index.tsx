@@ -10,7 +10,14 @@ import {
 import { Lock, Pencil, Plus, XCircle } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BackHandler, Pressable, ScrollView, TextInput, View } from 'react-native';
+import {
+  BackHandler,
+  Pressable,
+  ScrollView,
+  TextInput,
+  View,
+  type TextInputInstance,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { avatarSource } from '@/lib/avatars';
@@ -384,7 +391,7 @@ function PinPrompt({
   const { toast } = useToast();
   const [pin, setPin] = useState('');
   const [checking, setChecking] = useState(false);
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<TextInputInstance>(null);
 
   // Tras un PIN incorrecto el input se vacía; lo re-enfocamos al terminar la
   // validación con el campo vacío para poder reintentar sin tocar de nuevo.

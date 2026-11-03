@@ -70,7 +70,7 @@ export async function requestDeviceCode(): Promise<DeviceCodeData> {
       },
       body: JSON.stringify({ client_id: CLIENT_ID, scope: SCOPE }),
     });
-  } catch (e) {
+  } catch {
     throw new Error(
       `No se pudo contactar a ${API_URL}. Revisa tu conexión o la URL del servidor.`,
     );

@@ -17,6 +17,7 @@ import {
   type NextEpisodeRef,
   StreamNextEpisode,
 } from "@/components/stream/stream-next-episode";
+import { StreamEpisodePicker } from "@/components/stream/stream-episode-picker";
 import { PlayerDownloadButton } from "@/components/stream/player-download-button";
 import { StreamSourcePicker } from "@/components/stream/stream-source-picker";
 import { StreamTrackPicker } from "@/components/stream/stream-track-picker";
@@ -26,7 +27,12 @@ import {
 } from "@/components/stream/video-js-stream-player";
 import { useIsTv } from "@/hooks/use-is-tv";
 import { trackLabel, useMediaTracks } from "@/hooks/use-media-tracks";
-import { useMediaBunny } from "@/hooks/use-mediabunny";
+import {
+  deleteOfflineMediaFile,
+  getOfflineMediaFile,
+  offlineStorageKey,
+  useMediaBunny,
+} from "@/hooks/use-mediabunny";
 import { useNextEpisode } from "@/hooks/use-next-episode";
 import { useWatchProgress } from "@/hooks/use-video-progress";
 import { tmdbImage } from "@/lib/tmdb";
@@ -68,19 +74,30 @@ const PlayerTopBar = memo(function PlayerTopBar({
   contentTitle,
   handleBack,
   downloadButton,
+  episodePicker,
   sourcePicker,
   trackPicker,
+  visible,
 }: {
   backHref: string;
   contentTitle: string;
   handleBack: (e: React.MouseEvent<HTMLAnchorElement>) => void;
   downloadButton?: React.ReactNode;
+  episodePicker?: React.ReactNode;
   sourcePicker?: React.ReactNode;
   trackPicker?: React.ReactNode;
+  visible: boolean;
 }) {
   return (
     <TooltipProvider>
-      <div className="absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 opacity-0 transition-opacity duration-300 group-hover/player:opacity-100">
+      <div
+        className={cn(
+          "absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 transition-opacity duration-300 md:pointer-events-none md:opacity-0 md:group-hover/player:pointer-events-auto md:group-hover/player:opacity-100",
+          visible
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0"
+        )}
+      >
         <Tooltip>
           <TooltipTrigger
             render={
@@ -100,6 +117,7 @@ const PlayerTopBar = memo(function PlayerTopBar({
         {contentTitle}
       </h1>
       {trackPicker}
+      {episodePicker}
       {downloadButton}
       {sourcePicker}
       </div>
@@ -173,11 +191,18 @@ export function StreamOnevid({
   const [playbackRetry, setPlaybackRetry] = useState(0);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [mediaBunnyRetry, setMediaBunnyRetry] = useState(0);
+  const [offlineMediaUrl, setOfflineMediaUrl] = useState<string | null>(null);
+  const offlineKey = offlineStorageKey(contentType, rawId);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // En móvil vertical el player se pinta girado 90°: así se ve en horizontal y
   // el usuario tiene que girar el teléfono para verlo bien (no forzamos la
   // rotación del sistema).
   const [isPortraitMobile, setIsPortraitMobile] = useState(false);
+  const [arePlayerControlsVisible, setArePlayerControlsVisible] =
+    useState(false);
+  const handleControlsVisibility = useCallback((visible: boolean) => {
+    setArePlayerControlsVisible(visible);
+  }, []);
 
   // Extract filename from source URL for MediaBunny detection.
   const sourceUrl =
@@ -193,13 +218,48 @@ export function StreamOnevid({
     : "";
   const sourceCodecHint =
     typeof selectedSource?.title === "string" ? selectedSource.title : "";
+  const loadOfflineMedia = useCallback(async () => {
+    const file = await getOfflineMediaFile(offlineKey);
+    setOfflineMediaUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current);
+      }
+      return file ? URL.createObjectURL(file) : null;
+    });
+  }, [offlineKey]);
+  useEffect(() => {
+    let active = true;
+    getOfflineMediaFile(offlineKey)
+      .then((file) => {
+        if (active) {
+          setOfflineMediaUrl(file ? URL.createObjectURL(file) : null);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setOfflineMediaUrl(null);
+        }
+      });
+    return () => {
+      active = false;
+      setOfflineMediaUrl((current) => {
+        if (current) {
+          URL.revokeObjectURL(current);
+        }
+        return null;
+      });
+    };
+  }, [offlineKey]);
   // En TV NO se transcodifica en el navegador (mediabunny usa WebCodecs, inviable
   // en el procesador del TV): el <video> nativo de la TV decoda MKV/HEVC/AC-3
   // directo, así que le pasamos la URL cruda. mediabunny queda solo para el
   // navegador de escritorio, que no sabe abrir esos formatos.
   const isTv = useIsTv();
   const shouldUseMediaBunny = Boolean(
-    !isTv && sourceUrl && needsMediaBunny(sourceFilename, sourceCodecHint)
+    !offlineMediaUrl &&
+      !isTv &&
+      sourceUrl &&
+      needsMediaBunny(sourceFilename, sourceCodecHint)
   );
   const mediaBunny = useMediaBunny(
     shouldUseMediaBunny ? sourceUrl : null,
@@ -207,7 +267,7 @@ export function StreamOnevid({
     sourceCodecHint,
     mediaBunnyRetry
   );
-  let activeSrc = sourceUrl ?? "";
+  let activeSrc = offlineMediaUrl ?? sourceUrl ?? "";
   if (shouldUseMediaBunny) {
     activeSrc =
       mediaBunny.status === "streaming" || mediaBunny.status === "done"
@@ -261,6 +321,19 @@ export function StreamOnevid({
   ]);
   const handlePlaybackError = useCallback(
     (error: Error) => {
+      // An interrupted download can leave an unreadable cached blob. Do not
+      // retry that same blob forever: discard it and resume from the source.
+      if (offlineMediaUrl) {
+        const invalidOfflineUrl = offlineMediaUrl;
+        setOfflineMediaUrl(null);
+        URL.revokeObjectURL(invalidOfflineUrl);
+        void deleteOfflineMediaFile(offlineKey).catch((cleanupError) => {
+          console.error("Could not remove invalid offline media:", cleanupError);
+        });
+        setPlaybackRetry(0);
+        setPlaybackError(null);
+        return;
+      }
       posthog.capture("playback_error", {
         content_id: contentId,
         content_type: contentType,
@@ -284,6 +357,8 @@ export function StreamOnevid({
     [
       contentId,
       contentType,
+      offlineKey,
+      offlineMediaUrl,
       playbackRetry,
       sourceCodecHint,
       sourceFilename,
@@ -411,6 +486,20 @@ export function StreamOnevid({
       // El player de destino lee su medio de `sessionStorage` (misma clave que
       // usa el botón Reproducir del detalle), así que hay que dejarlo puesto
       // antes de navegar.
+      try {
+        sessionStorage.setItem(
+          `stream-source-series-${next.playId}`,
+          JSON.stringify(source)
+        );
+      } catch {
+        /* sessionStorage lleno o bloqueado: la página lo dirá al montar */
+      }
+      router.push(`/home/player/series/${next.playId}`);
+    },
+    [router]
+  );
+  const handleEpisodeSelect = useCallback(
+    (next: NextEpisodeRef, source: StreamWithAddon) => {
       try {
         sessionStorage.setItem(
           `stream-source-series-${next.playId}`,
@@ -589,12 +678,14 @@ export function StreamOnevid({
             <PlayerDownloadButton
               codecHint={sourceCodecHint}
               filename={sourceFilename}
-              title={contentTitle}
+              onSaved={loadOfflineMedia}
+              storageKey={offlineKey}
               url={sourceUrl}
             />
           ) : null
         }
         handleBack={handleBack}
+        visible={arePlayerControlsVisible}
         trackPicker={
           <StreamTrackPicker
             activeAudioId={activeAudioId}
@@ -604,6 +695,17 @@ export function StreamOnevid({
             onSelectSubtitle={browserTracks.selectSubtitle}
             subtitleTracks={browserTracks.subtitleTracks}
           />
+        }
+        episodePicker={
+          isSeries ? (
+            <StreamEpisodePicker
+              episode={episode}
+              onSelect={handleEpisodeSelect}
+              poster={_contentPoster}
+              season={season}
+              seriesId={contentId}
+            />
+          ) : null
         }
         sourcePicker={
           <StreamSourcePicker
@@ -640,7 +742,8 @@ export function StreamOnevid({
         {(mediaBunny.status === "error" || playbackError) && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80">
             <p className="px-6 text-center text-destructive text-sm">
-              {playbackError ?? (mediaBunny.status === "error" ? mediaBunny.message : "")}
+              {playbackError ??
+                (mediaBunny.status === "error" ? mediaBunny.message : "")}
             </p>
           </div>
         )}
@@ -674,6 +777,7 @@ export function StreamOnevid({
               }
             }}
             onTimeUpdate={handleTimeUpdate}
+            onControlsVisibility={handleControlsVisibility}
             onWaiting={() => setIsBuffering(true)}
             src={activeSrc}
             subtitles={subtitles}

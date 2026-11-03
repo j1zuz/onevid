@@ -1276,7 +1276,7 @@ function NetworkChip({ network }: { network: NetworkInfo }) {
 
 function DetailsSection({ meta }: { meta: MediaMeta }) {
   const { t } = useTranslation();
-  const rows: Array<{ label: string; value: string }> = [];
+  const rows: { label: string; value: string }[] = [];
   if (meta.status) rows.push({ label: t('Estado'), value: meta.status });
   if (meta.releaseDate)
     rows.push({

@@ -11,7 +11,12 @@ import { ObserveRoot, useObserve } from 'expo-observe';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
-import { useEffect, useState } from 'react';
+import {
+  type ComponentProps,
+  type ComponentType,
+  useEffect,
+  useState,
+} from 'react';
 import { Platform, StatusBar as RNStatusBar } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
 import {
@@ -28,6 +33,12 @@ import { type AppMode, loadAppMode } from '@/lib/app-mode';
 import { validateSession } from '@/lib/auth';
 import { queryClient } from '@/lib/query';
 import { COLORS } from '@/lib/theme';
+
+type StackProps = ComponentProps<typeof Stack> & {
+  initialRouteName?: string;
+};
+
+const AppStack = Stack as typeof Stack & ComponentType<StackProps>;
 
 // App dark-only. uniwind resuelve las clases de tema (text-foreground, etc.)
 // según su `currentTheme`, que se fija al construirse leyendo el color scheme
@@ -47,8 +58,6 @@ if (Constants.expoGoConfig == null) {
 }
 
 if (Platform.OS === 'android') {
-  RNStatusBar.setTranslucent(true);
-  RNStatusBar.setBackgroundColor('transparent');
   RNStatusBar.setBarStyle('light-content');
   // Con edge-to-edge (Android 15) la barra de navegación es transparente y
   // muestra el fondo de la ventana: lo fijamos en negro para que se vea oscura,
@@ -164,9 +173,9 @@ function RootLayout() {
             mide un frame después y causa que el contenido "baje" a su padding. */}
         <SafeAreaProvider initialMetrics={initialWindowMetrics}>
           <QueryClientProvider client={queryClient}>
-            <HeroUINativeProvider>
+            <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
               <AppSurfaceProvider initial={{ authed: hasToken, mode: appMode }}>
-                <Stack
+                <AppStack
                   initialRouteName={initialRoute}
                   screenOptions={{
                     headerShown: false,
@@ -183,7 +192,7 @@ function RootLayout() {
                   {/* Expo 56 recomienda declarar la orientación por ruta. El lock
                       imperativo del player queda como respaldo al volver de PiP,
                       pero la navegación ya presenta esta pantalla en landscape. */}
-                  <Stack.Screen
+                  <AppStack.Screen
                     name="player"
                     options={{
                       orientation: 'landscape',
@@ -192,7 +201,7 @@ function RootLayout() {
                       animation: reduceMotion ? 'none' : 'fade',
                     }}
                   />
-                </Stack>
+                </AppStack>
               </AppSurfaceProvider>
               {!splashDone && !skipAnimatedSplash ? (
                 <AnimatedSplash

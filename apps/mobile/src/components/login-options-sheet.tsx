@@ -5,7 +5,11 @@ import * as WebBrowser from 'expo-web-browser';
 import { QrCode } from 'lucide-react-native';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { StyleSheet, View } from 'react-native';
+import {
+  Platform,
+  StyleSheet,
+  View,
+} from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { useDeviceLogin } from '@/hooks/use-device-login';
@@ -103,9 +107,15 @@ export function LoginOptionsSheet({
               variant="outline"
               onPress={handleGoogle}
               isDisabled={openingBrowser}
+              hasTVPreferredFocus={Platform.isTV}
               {...googleFocus.focusProps}
               style={[
-                { width: '100%', flexDirection: 'row', gap: 10 },
+                {
+                  alignSelf: 'center',
+                  flexDirection: 'row',
+                  gap: 10,
+                  paddingHorizontal: 18,
+                },
                 tvFocusRing(googleFocus.focused),
               ]}
             >
@@ -128,9 +138,15 @@ export function LoginOptionsSheet({
             <Button
               variant="outline"
               onPress={handleCode}
+              hasTVPreferredFocus={false}
               {...codeFocus.focusProps}
               style={[
-                { width: '100%', flexDirection: 'row', gap: 10 },
+                {
+                  alignSelf: 'center',
+                  flexDirection: 'row',
+                  gap: 10,
+                  paddingHorizontal: 18,
+                },
                 tvFocusRing(codeFocus.focused),
               ]}
             >

@@ -1,10 +1,16 @@
 "use client";
 
-import { createPlayer, useMedia, videoFeatures } from "@videojs/react";
+import {
+  createPlayer,
+  Gesture,
+  selectControls,
+  useMedia,
+  videoFeatures,
+} from "@videojs/react";
 import { PlayIcon } from "@videojs/react/icons";
 import { HlsJsVideo } from "@videojs/react/media/hlsjs-video";
 import { Video, VideoSkin } from "@videojs/react/video";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ComponentProps } from "react";
 import "@videojs/react/video/skin.css";
 import { cn } from "@workspace/ui/lib/utils";
 import "./video-js-player-overrides.css";
@@ -84,6 +90,7 @@ interface VideoJsStreamPlayerProps {
   onError?: (error: Error) => void;
   onLoadStart?: () => void;
   onPlaying?: () => void;
+  onControlsVisibility?: (visible: boolean) => void;
   /** Publica el <video> y el objeto media para los selectores de la barra. */
   onMediaRef?: (refs: { media: unknown; video: HTMLVideoElement | null }) => void;
   /**
@@ -108,7 +115,7 @@ export interface SubtitleTrackSource {
   url: string;
 }
 
-const { Player } = createPlayer({ features: videoFeatures });
+const { Player, usePlayer } = createPlayer({ features: videoFeatures });
 
 /**
  * `useMedia()` solo existe dentro de `<Player>`, pero los selectores de pista
@@ -121,6 +128,18 @@ function MediaBridge({ onMedia }: { onMedia: (media: unknown) => void }) {
   useEffect(() => {
     onMedia(media);
   }, [media, onMedia]);
+  return null;
+}
+
+function PlayerControlsBridge({
+  onVisibilityChange,
+}: {
+  onVisibilityChange?: (visible: boolean) => void;
+}) {
+  const controls = usePlayer(selectControls);
+  useEffect(() => {
+    onVisibilityChange?.(controls?.controlsVisible ?? false);
+  }, [controls?.controlsVisible, onVisibilityChange]);
   return null;
 }
 
@@ -154,6 +173,7 @@ export function VideoJsStreamPlayer({
   onEnded,
   onError,
   onSourceInfo,
+  onControlsVisibility,
   onLoadStart,
   onWaiting,
   onPlaying,
@@ -198,7 +218,6 @@ export function VideoJsStreamPlayer({
       srcLang={track.srcLang}
     />
   ));
-
   // Report source info on mount
   useEffect(() => {
     if (onSourceInfo) {
@@ -245,32 +264,28 @@ export function VideoJsStreamPlayer({
       Number.isFinite(el.duration) ? el.duration : 0
     );
   };
+  const hlsVideoProps = {
+    autoPlay,
+    controls,
+    onEnded,
+    onError: handleError,
+    onLoadStart,
+    onPlaying,
+    onTimeUpdate: handleTimeUpdate,
+    onWaiting,
+    playsInline,
+    poster,
+    preload,
+    ref: setVideoEl,
+    source: { src, type: "application/vnd.apple.mpegurl" },
+  } as ComponentProps<typeof HlsJsVideo>;
 
   return (
     <div className={rootClassName}>
       <Player>
         <VideoSkin>
           {isHls ? (
-            <HlsJsVideo
-              autoPlay={autoPlay}
-              controls={controls}
-              onEnded={onEnded}
-              onError={handleError}
-              onLoadStart={onLoadStart}
-              onPlaying={onPlaying}
-              onTimeUpdate={handleTimeUpdate}
-              onWaiting={onWaiting}
-              playsInline={playsInline}
-              poster={poster}
-              preload={preload}
-              ref={setVideoEl}
-              // @videojs/core detecta HLS comparando contra su propio string
-              // interno ("application/vnd.apple.mpegurl"), distinto del que
-              // usa este proyecto ("application/x-mpegURL"). Pasar el
-              // mimeType tal cual rompería la detección y haría caer siempre
-              // al delegate nativo (sin hls.js).
-              source={{ src, type: "application/vnd.apple.mpegurl" }}
-            >
+            <HlsJsVideo {...hlsVideoProps}>
               {subtitleTracks}
             </HlsJsVideo>
           ) : (
@@ -296,6 +311,8 @@ export function VideoJsStreamPlayer({
           {/* Los selectores de audio y subtítulos se pintan en la barra
               superior, junto al de medios; acá solo se saca lo que necesitan. */}
           <MediaBridge onMedia={handleMedia} />
+          <PlayerControlsBridge onVisibilityChange={onControlsVisibility} />
+          <Gesture type="tap" action="togglePaused" pointer="touch" region="center" />
         </VideoSkin>
       </Player>
       {/* Indicador de pausa. El toggle en sí lo hace el gesto `tap` del propio

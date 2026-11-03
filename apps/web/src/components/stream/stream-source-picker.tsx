@@ -72,7 +72,7 @@ function SourceItem({
       tabIndex={0}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1 space-y-1">
+        <div className="min-w-0 max-w-full flex-1 space-y-1 overflow-hidden">
           {/* La calidad la resuelve el servidor y es la que manda en el orden
               de esta lista; se muestra aparte para que se pueda leer de un
               vistazo sin buscarla dentro del texto del addon. */}
@@ -82,9 +82,9 @@ function SourceItem({
           {lines.map((line, index) => (
             <p
               className={cn(
-                "whitespace-pre-line text-xs leading-relaxed",
+                "min-w-0 max-w-full overflow-hidden break-words whitespace-pre-line text-xs leading-relaxed",
                 index === 0
-                  ? "font-medium text-foreground"
+                  ? "line-clamp-2 font-medium text-foreground"
                   : "text-muted-foreground"
               )}
               // biome-ignore lint/suspicious/noArrayIndexKey: stream metadata is static text from addon

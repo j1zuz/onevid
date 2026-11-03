@@ -82,40 +82,114 @@ const BUFFER_AHEAD_HIGH_SEC = 20;
 const BUFFER_BEHIND_KEEP_SEC = 10;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-const DOWNLOAD_RETENTION_MS = 24 * 60 * 60 * 1000;
-const DOWNLOAD_FILE_PATTERN = /^dl-(\d+)\.mp4$/;
+const OFFLINE_FILE_PREFIX = "onevid-offline-";
+const OFFLINE_EXTENSIONS = [".mp4", ".mkv", ".webm", ".mov", ".m4v", ".ts"];
+const OFFLINE_METADATA_PREFIX = "onevid-offline-meta:v1:";
+export const OFFLINE_RETENTION_MS = 24 * 60 * 60 * 1000;
 
-type FileSystemDirectoryHandleWithEntries = FileSystemDirectoryHandle & {
-  entries: () => AsyncIterableIterator<[string, FileSystemHandle]>;
-};
+function offlineFileName(storageKey: string, extension: string): string {
+  return `${OFFLINE_FILE_PREFIX}${encodeURIComponent(storageKey)}${extension}`;
+}
 
-async function cleanupExpiredDownloadFiles(): Promise<void> {
-  const root = (await navigator.storage.getDirectory()) as
-    | FileSystemDirectoryHandleWithEntries
-    | undefined;
-  if (!root) {
+function offlineMetadataKey(storageKey: string): string {
+  return `${OFFLINE_METADATA_PREFIX}${storageKey}`;
+}
+
+function readOfflineExpiry(storageKey: string): number | null {
+  try {
+    const value = Number(localStorage.getItem(offlineMetadataKey(storageKey)));
+    return Number.isFinite(value) && value > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeOfflineExpiry(storageKey: string, expiresAt: number): void {
+  try {
+    localStorage.setItem(offlineMetadataKey(storageKey), String(expiresAt));
+  } catch {
+    // OPFS remains the source of truth if browser storage is unavailable.
+  }
+}
+
+function removeOfflineExpiry(storageKey: string): void {
+  try {
+    localStorage.removeItem(offlineMetadataKey(storageKey));
+  } catch {
+    // Best-effort metadata cleanup.
+  }
+}
+
+export function getOfflineMediaExpiry(storageKey: string): number | null {
+  return readOfflineExpiry(storageKey);
+}
+
+/**
+ * Returns a previously saved media file from private browser storage.
+ * The video bytes never leave OPFS or become a user-visible browser download.
+ */
+export async function getOfflineMediaFile(
+  storageKey: string
+): Promise<File | null> {
+  if (!("storage" in navigator) || !navigator.storage.getDirectory) {
+    return null;
+  }
+  const expiresAt = readOfflineExpiry(storageKey);
+  if (expiresAt !== null && expiresAt <= Date.now()) {
+    await deleteOfflineMediaFile(storageKey);
+    return null;
+  }
+  const root = await navigator.storage.getDirectory();
+  for (const extension of OFFLINE_EXTENSIONS) {
+    try {
+      const handle = await root.getFileHandle(
+        offlineFileName(storageKey, extension)
+      );
+      const file = await handle.getFile();
+      // A canceled/failed write must never become the source of a blob URL.
+      // Chromium reports an opaque demuxer error for an empty OPFS file.
+      if (file.size === 0) {
+        await root.removeEntry(offlineFileName(storageKey, extension));
+        continue;
+      }
+      if (expiresAt === null) {
+        writeOfflineExpiry(storageKey, Date.now() + OFFLINE_RETENTION_MS);
+      }
+      return file;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "NotFoundError") {
+        continue;
+      }
+      throw error;
+    }
+  }
+  return null;
+}
+
+/** Removes every cached variant for a title after an invalid offline file. */
+export async function deleteOfflineMediaFile(storageKey: string): Promise<void> {
+  removeOfflineExpiry(storageKey);
+  if (!("storage" in navigator) || !navigator.storage.getDirectory) {
     return;
   }
-  const now = Date.now();
-  for await (const [name, handle] of root.entries()) {
-    const match = DOWNLOAD_FILE_PATTERN.exec(name);
-    if (
-      match &&
-      handle.kind === "file" &&
-      now - Number(match[1]) >= DOWNLOAD_RETENTION_MS
-    ) {
-      await root.removeEntry(name);
+  const root = await navigator.storage.getDirectory();
+  for (const extension of OFFLINE_EXTENSIONS) {
+    try {
+      await root.removeEntry(offlineFileName(storageKey, extension));
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "NotFoundError") {
+        continue;
+      }
+      throw error;
     }
   }
 }
 
-function scheduleDownloadCleanup(name: string): void {
-  window.setTimeout(() => {
-    void navigator.storage
-      .getDirectory()
-      .then((root) => root.removeEntry(name))
-      .catch(() => undefined);
-  }, DOWNLOAD_RETENTION_MS);
+export function offlineStorageKey(
+  contentType: string,
+  rawId: string
+): string {
+  return `${contentType}:${rawId}`;
 }
 
 /**
@@ -492,9 +566,9 @@ async function transcodeToMp4(
 }
 
 /**
- * Igual que `transcodeToMp4` pero escribe a un WritableStream arbitrario (el
- * archivo que el usuario eligió con showSaveFilePicker) en vez de a OPFS, y no
- * devuelve un File. Devuelve "canceled" si se abortó; lanza si falla de verdad.
+ * Igual que `transcodeToMp4` pero escribe a un WritableStream arbitrario en vez
+ * de crear un File, y no devuelve un File. Devuelve "canceled" si se abortó;
+ * lanza si falla de verdad.
  * StreamTarget cierra el writable al terminar y lo aborta al cancelar.
  */
 async function transcodeToWritable(
@@ -1296,28 +1370,14 @@ async function runProgressivePlayback(opts: {
 /** Resultado de una descarga, para que la UI distinga cancelar de fallar. */
 export type DownloadOutcome = "done" | "canceled";
 
-interface SaveFilePickerWindow {
-  showSaveFilePicker?: (options?: {
-    suggestedName?: string;
-    types?: { description?: string; accept: Record<string, string[]> }[];
-  }) => Promise<FileSystemFileHandle>;
-}
-
-/** Quita caracteres inválidos para un nombre de archivo y acota el largo. */
-function sanitizeFileName(name: string): string {
-  const cleaned = name.replace(/[/\\?%*:|"<>]/g, "").trim().slice(0, 150);
-  return cleaned || "video";
-}
-
 /**
- * Descarga una peli/serie para verla offline. Para fuentes incompatibles
- * (MKV/HEVC/AC-3…) transcodifica a un MP4 compatible y lo escribe DIRECTO al
- * archivo elegido por el usuario (sin inflar RAM/OPFS), reutilizando el mismo
- * pipeline de mediabunny que la reproducción. Para fuentes ya nativas descarga
- * el archivo original tal cual.
+ * Guarda una peli/serie para verla offline. Para fuentes incompatibles
+ * (MKV/HEVC/AC-3…) transcodifica a un MP4 compatible y lo escribe DIRECTO en
+ * OPFS, reutilizando el mismo pipeline de mediabunny que la reproducción. Para
+ * fuentes ya nativas copia el archivo original a OPFS.
  *
- * Pensado para usuarios con mal internet: bajan el archivo completo una vez y lo
- * ven bien, con el audio/video ya convertidos a algo que el reproductor abre.
+ * El archivo queda en el almacenamiento privado del navegador: no se abre un
+ * selector de archivos ni se crea una descarga visible para el usuario.
  *
  * Cancelación: el caller pone `abortedRef.current = true` y, si hay conversión en
  * curso, llama `conversionRef.current?.cancel()` — igual que el hook al desmontar.
@@ -1325,7 +1385,7 @@ function sanitizeFileName(name: string): string {
 export async function downloadMediaFile(opts: {
   url: string;
   filename: string;
-  title: string;
+  storageKey: string;
   codecHint?: string;
   onProgress?: (progress: number) => void;
   abortedRef: { current: boolean };
@@ -1334,7 +1394,7 @@ export async function downloadMediaFile(opts: {
   const {
     url,
     filename,
-    title,
+    storageKey,
     codecHint = "",
     onProgress,
     abortedRef,
@@ -1365,94 +1425,73 @@ export async function downloadMediaFile(opts: {
     return "canceled";
   }
 
-  const safeName = sanitizeFileName(title);
+  const extension = needsMediaBunny(filename, codecHint)
+    ? ".mp4"
+    : (filename.match(/\.[a-z0-9]+$/i)?.[0] ?? ".mp4").toLowerCase();
+  const storedName = offlineFileName(storageKey, extension);
+  const root = await navigator.storage.getDirectory();
 
-  // Fuente ya reproducible de forma nativa: no hace falta transcodificar, se baja
-  // el archivo original directo.
+  // Fuente ya reproducible de forma nativa: se copia al almacenamiento privado.
   if (!needsMediaBunny(filename, codecHint)) {
-    const ext = (filename.match(/\.[a-z0-9]+$/i)?.[0] ?? ".mp4").toLowerCase();
-    const anchor = document.createElement("a");
-    anchor.href = resolved;
-    anchor.download = `${safeName}${ext}`;
-    anchor.rel = "noopener";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
+    const response = await fetch(resolved);
+    if (!response.ok || !response.body) {
+      throw new Error(`Could not save media: HTTP ${response.status}`);
+    }
+    const handle = await root.getFileHandle(storedName, { create: true });
+    const writable = await handle.createWritable();
+    try {
+      const reader = response.body.getReader();
+      const total = Number(response.headers.get("content-length")) || 0;
+      let received = 0;
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          break;
+        }
+        if (abortedRef.current) {
+          await writable.abort();
+          await root.removeEntry(storedName).catch(() => undefined);
+          return "canceled";
+        }
+        await writable.write(chunk.value);
+        received += chunk.value.byteLength;
+        if (total > 0) {
+          onProgress?.(Math.min(1, received / total));
+        }
+      }
+      await writable.close();
+    } catch (error) {
+      await writable.abort().catch(() => undefined);
+      await root.removeEntry(storedName).catch(() => undefined);
+      throw error;
+    }
     onProgress?.(1);
+    writeOfflineExpiry(storageKey, Date.now() + OFFLINE_RETENTION_MS);
     return "done";
   }
 
-  // Incompatible → transcodificar a MP4 compatible con el mismo pipeline.
-  const picker = (window as unknown as SaveFilePickerWindow).showSaveFilePicker;
-
-  if (picker) {
-    let handle: FileSystemFileHandle;
-    try {
-      handle = await picker.call(window, {
-        suggestedName: `${safeName}.mp4`,
-        types: [{ description: "Video MP4", accept: { "video/mp4": [".mp4"] } }],
-      });
-    } catch {
-      // El usuario cerró el diálogo de "guardar como".
-      return "canceled";
-    }
-    const writable = await handle.createWritable();
-    try {
-      // `createOpfsWriteStream` sirve tal cual: el writable del picker tiene la
-      // misma forma (seek + write) que el de OPFS, y StreamTarget lo cierra solo
-      // al terminar (o lo aborta al cancelar).
-      return await transcodeToWritable(
-        resolved,
-        createOpfsWriteStream(writable),
-        onProgress,
-        conversionRef,
-        abortedRef
-      );
-    } catch (error) {
-      await writable.abort().catch(() => undefined);
-      throw error;
-    }
-  }
-
-  // Fallback sin showSaveFilePicker (Firefox/Safari): transcodificar a OPFS y
-  // ofrecer el archivo como descarga blob. El archivo convertido se conserva
-  // durante 24 horas para que el navegador no pierda el resultado al salir de
-  // la vista; los archivos expirados se limpian antes de nuevas descargas.
-  const opfsName = `dl-${Date.now()}.mp4`;
-  await cleanupExpiredDownloadFiles().catch(() => undefined);
-  let keepDownloadFile = false;
+  // Incompatible → transcodificar a MP4 compatible dentro de OPFS.
+  const handle = await root.getFileHandle(storedName, { create: true });
+  const writable = await handle.createWritable();
   try {
-    const file = await transcodeToMp4(
+    const outcome = await transcodeToWritable(
       resolved,
-      opfsName,
-      (progress) => onProgress?.(progress),
+      createOpfsWriteStream(writable),
+      onProgress,
       conversionRef,
       abortedRef
     );
-    if (abortedRef.current) {
-      return "canceled";
+    if (outcome === "canceled") {
+      await root.removeEntry(storedName).catch(() => undefined);
     }
-    const blobUrl = URL.createObjectURL(file);
-    const anchor = document.createElement("a");
-    anchor.href = blobUrl;
-    anchor.download = `${safeName}.mp4`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    // Dar tiempo a que el browser arranque la descarga antes de revocar.
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
-    keepDownloadFile = true;
-    scheduleDownloadCleanup(opfsName);
-    return "done";
-  } finally {
-    if (!keepDownloadFile) {
-      try {
-        const root = await navigator.storage.getDirectory();
-        await root.removeEntry(opfsName);
-      } catch {
-        /* ya removido */
-      }
+    if (outcome === "done") {
+      writeOfflineExpiry(storageKey, Date.now() + OFFLINE_RETENTION_MS);
     }
+    return outcome;
+  } catch (error) {
+    await writable.abort().catch(() => undefined);
+    await root.removeEntry(storedName).catch(() => undefined);
+    throw error;
   }
 }
 
