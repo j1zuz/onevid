@@ -25,7 +25,6 @@ export function OneVidProfileAvatar({
       )}
     >
       {/* biome-ignore lint/performance/noImgElement: small local static asset */}
-      {/* biome-ignore lint/correctness/useImageSize: avatar scaled by CSS (size-full) */}
       <img
         alt={name}
         className="size-full object-cover"

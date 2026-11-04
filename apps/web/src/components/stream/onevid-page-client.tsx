@@ -11,9 +11,7 @@ import {
   Suspense,
   use,
   useCallback,
-  useEffect,
   useRef,
-  useState,
 } from "react";
 import { ExploreMovieGrid } from "@/components/explore-movie-grid";
 import type { OneVidAddonSummary } from "@/components/stepper-onevid";

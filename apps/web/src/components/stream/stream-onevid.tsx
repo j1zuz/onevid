@@ -96,13 +96,14 @@ const PlayerTopBar = memo(function PlayerTopBar({
 
   return (
     <TooltipProvider>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: hover only reveals the controls; all actions stay keyboard accessible. */}
       <div
         className={cn(
           // La visibilidad la marca el propio player (controles de video.js).
           // Antes los `md:` la ocultaban en pantallas anchas y solo aparecía
           // con hover: en un móvil girado a landscape (ancho > 768px) no hay
           // hover, así que la barra superior nunca se veía.
-          "absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 transition-opacity duration-300",
+          "absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-linear-to-b from-black/70 to-transparent px-4 py-3 transition-opacity duration-300",
           isVisible
             ? "pointer-events-auto opacity-100"
             : "pointer-events-none opacity-0"
@@ -299,6 +300,7 @@ export function StreamOnevid({
   // loader para buffering y seeks, así que no tapamos el video.
   const showLoadingOverlay =
     !hasPlayed && (isBuffering || mediaBunny.status === "processing");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset retry state whenever the source changes; these values are triggers, not reads.
   useEffect(() => {
     setPlaybackRetry(0);
     setPlaybackError(null);

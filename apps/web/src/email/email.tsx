@@ -178,8 +178,8 @@ export const MagicLinkEmail = ({
     <Html lang={strings.langAttr}>
       <Preview>{strings.preview}</Preview>
       <Tailwind>
-        <Body className="m-0 w-full bg-[#fafafa] p-0 font-sans text-[#171717] [line-height:1.6]">
-          <Container className="mx-auto max-w-[480px] border border-neutral-200 border-solid bg-white text-center">
+        <Body className="m-0 w-full bg-[#fafafa] p-0 font-sans text-[#171717] leading-[1.6]">
+          <Container className="mx-auto max-w-120 border border-neutral-200 border-solid bg-white text-center">
             <Section
               className="m-0 w-full bg-white px-6 pt-10 pb-7"
               style={{ backgroundImage: heroBackgroundImage }}
@@ -208,7 +208,7 @@ export const MagicLinkEmail = ({
 
             <Section className="m-0 px-6 pt-0 pb-5 text-center">
               <Button
-                className="inline-block rounded-[8px] border-2 border-white border-solid bg-neutral-900 px-10 py-3 text-center font-semibold text-sm text-white"
+                className="inline-block rounded-lg border-2 border-white border-solid bg-neutral-900 px-10 py-3 text-center font-semibold text-sm text-white"
                 href={url}
               >
                 {strings.button}
@@ -245,8 +245,8 @@ export const PinResetEmail = ({ code, email = "" }: PinResetEmailProps) => {
     <Html lang="es">
       <Preview>Código para restablecer el PIN de tu perfil</Preview>
       <Tailwind>
-        <Body className="m-0 w-full bg-[#fafafa] p-0 font-sans text-[#171717] [line-height:1.6]">
-          <Container className="mx-auto max-w-[480px] border border-neutral-200 border-solid bg-white text-center">
+        <Body className="m-0 w-full bg-[#fafafa] p-0 font-sans text-[#171717] leading-[1.6]">
+          <Container className="mx-auto max-w-120 border border-neutral-200 border-solid bg-white text-center">
             <Section
               className="m-0 w-full bg-white px-6 pt-10 pb-7"
               style={{ backgroundImage: heroBackgroundImage }}
@@ -275,7 +275,7 @@ export const PinResetEmail = ({ code, email = "" }: PinResetEmailProps) => {
             </Section>
 
             <Section className="m-0 px-6 pt-0 pb-6 text-center">
-              <Text className="m-0 inline-block rounded-[8px] bg-neutral-100 px-8 py-3 text-center font-bold text-3xl text-neutral-900 tracking-[0.4em]">
+              <Text className="m-0 inline-block rounded-lg bg-neutral-100 px-8 py-3 text-center font-bold text-3xl text-neutral-900 tracking-[0.4em]">
                 {code}
               </Text>
             </Section>

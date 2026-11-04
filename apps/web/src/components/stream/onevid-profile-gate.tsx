@@ -78,7 +78,7 @@ export function OneVidProfileGate() {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-10 bg-background px-6">
       <div className="flex flex-col items-center gap-4">
-        <MysticEye className="aspect-[3/2] w-52" label={t("Mirando")} />
+        <MysticEye className="aspect-3/2 w-52" label={t("Mirando")} />
         <h1 className="font-semibold text-2xl">{t("¿Quién está viendo?")}</h1>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-8">

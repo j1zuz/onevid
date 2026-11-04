@@ -39,10 +39,11 @@ interface SearchMeta {
 const SURFACE_TABS: Array<{
   href: string;
   label: string;
-  surface: FeedSurface;
+  surface: FeedSurface | "live";
 }> = [
   { href: "/home", label: "Inicio", surface: "home" },
   { href: "/home?surface=discover", label: "Descubrir", surface: "discover" },
+  { href: "/home?surface=live", label: "Live TV", surface: "live" },
 ];
 
 // El endpoint ya recorta a 20; en el dropdown solo caben unos pocos.
@@ -76,7 +77,7 @@ interface OneVidHeaderProps {
   onMovieSelect?: (movie: MediaMeta) => void;
   setupCompleted: boolean;
   /** Pestaña activa; la elige `?surface=` en /home. */
-  surface?: FeedSurface;
+  surface?: FeedSurface | "live";
 }
 
 export function OneVidHeader({
@@ -332,15 +333,12 @@ export function OneVidHeader({
         />
       </Link>
 
-      {/* Las dos superficies configurables. Son enlaces y no un control con
-          estado porque cada una es una carga distinta del Server Component; el
-          feed de cada pestaña lo arma el usuario en el paso 2 del stepper. */}
-      <nav className="flex shrink-0 items-center gap-1">
+      <nav aria-label="Navegación principal" className="flex min-w-0 items-center gap-0.5 overflow-x-auto sm:gap-1">
         {SURFACE_TABS.map((tab) => (
           <Link
             aria-current={surface === tab.surface ? "page" : undefined}
             className={cn(
-              "rounded-full border border-transparent px-3 py-1 font-medium text-sm transition-colors",
+              "shrink-0 whitespace-nowrap rounded-full border border-transparent px-2 py-1 font-medium text-xs transition-colors sm:px-3 sm:text-sm",
               surface === tab.surface
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:text-foreground"
@@ -357,7 +355,7 @@ export function OneVidHeader({
       {/* Búsqueda + perfil + configuración. Los selectores de tipo / catálogo /
           cadena que vivían aquí ahora son el paso 2 del stepper ("Configurar
           feed"): el usuario arma su inicio una vez y /home lo respeta. */}
-      <div className="flex flex-1 items-center justify-end gap-2">
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
         {/* Móvil: la búsqueda se abre desde un icono y ocupa todo el header. */}
         {!mobileSearchOpen && (
           <Button

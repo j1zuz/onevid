@@ -9,7 +9,13 @@ import {
 } from "@videojs/react";
 import { HlsJsVideo } from "@videojs/react/media/hlsjs-video";
 import { Video, VideoSkin } from "@videojs/react/video";
-import { useCallback, useEffect, useState, type ComponentProps } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import "@videojs/react/video/skin.css";
 import { cn } from "@workspace/ui/lib/utils";
 import "./video-js-player-overrides.css";
@@ -84,6 +90,10 @@ interface VideoJsStreamPlayerProps {
   className?: string;
   controls?: boolean;
   isPlayMode?: boolean;
+  /** Opt-in live controls and credential-safe error reporting; movies retain their defaults. */
+  liveMode?: boolean;
+  /** Rendered inside the skin so live controls are included in its fullscreen element. */
+  liveControls?: ReactNode;
   mimeType?: MimeType;
   onEnded?: () => void;
   onError?: (error: Error) => void;
@@ -142,6 +152,18 @@ function PlayerControlsBridge({
   return null;
 }
 
+function LivePlaybackErrorBridge({
+  onError,
+}: {
+  onError: (error: unknown) => void;
+}) {
+  const error = usePlayer((state) => state.error);
+  useEffect(() => {
+    if (error) onError(error);
+  }, [error, onError]);
+  return null;
+}
+
 export function VideoJsStreamPlayer({
   onMediaRef,
   subtitles,
@@ -154,6 +176,8 @@ export function VideoJsStreamPlayer({
   playsInline = true,
   preload = "metadata",
   isPlayMode = false,
+  liveMode = false,
+  liveControls,
   onEnded,
   onError,
   onSourceInfo,
@@ -177,6 +201,7 @@ export function VideoJsStreamPlayer({
   const rootClassName = cn(
     "stream-video-player-root relative w-full overflow-hidden rounded-lg",
     isPlayMode && "play-mode",
+    liveMode && "live-mode",
     className
   );
 
@@ -202,12 +227,20 @@ export function VideoJsStreamPlayer({
     }
   }, [src, mimeType, onSourceInfo]);
 
-  const handleError = (error: unknown) => {
-    const message = serializePlaybackError(error);
-    const err = error instanceof Error ? error : new Error(message);
-    console.error("Playback error:", err);
-    onError?.(err);
-  };
+  const handleError = useCallback(
+    (error: unknown) => {
+      if (liveMode) {
+        // HLS errors can embed provider URLs and credentials, including in their cause/data.
+        onError?.(new Error("No se pudo reproducir este canal de Live TV."));
+        return;
+      }
+      const message = serializePlaybackError(error);
+      const err = error instanceof Error ? error : new Error(message);
+      console.error("Playback error:", err);
+      onError?.(err);
+    },
+    [liveMode, onError],
+  );
 
   const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     const el = e.target as HTMLVideoElement;
@@ -229,13 +262,38 @@ export function VideoJsStreamPlayer({
     poster,
     preload,
     ref: setVideoEl,
-    source: { src, type: "application/vnd.apple.mpegurl" },
+    source: {
+      src,
+      type: "application/vnd.apple.mpegurl",
+      ...(liveMode ? { engine: { hlsJs: { debug: false } } } : {}),
+    },
+    ...(liveMode
+      ? {
+          crossOrigin: "anonymous",
+          fallback: "Tu navegador no admite la reproducción de este canal.",
+        }
+      : {}),
   } as ComponentProps<typeof HlsJsVideo>;
 
   return (
-    <div className={rootClassName}>
+    <div
+      className={rootClassName}
+      onKeyDownCapture={
+        liveMode
+          ? (event) => {
+              // Keep live playback at normal speed even though VideoSkin registers VOD hotkeys.
+              if (event.key === ">" || event.key === "<") {
+                event.preventDefault();
+                event.stopPropagation();
+              }
+            }
+          : undefined
+      }
+    >
       <Player>
         <VideoSkin>
+          {liveMode ? <LivePlaybackErrorBridge onError={handleError} /> : null}
+          {liveMode ? liveControls : null}
           {isHls ? (
             <HlsJsVideo {...hlsVideoProps}>
               {subtitleTracks}

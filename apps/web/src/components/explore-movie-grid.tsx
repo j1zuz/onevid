@@ -22,7 +22,7 @@ export function ExploreMovieGrid({
   return (
     <div className="container mx-auto flex flex-col gap-8 px-2">
       <section className={VIEW_ALL_GRID_CLASS} data-dpad-poster-grid>
-        {posters.map((item, index) => (
+        {posters.map((item) => (
           <PosterCard
             item={item}
             key={`${item.type}-${item.id}`}

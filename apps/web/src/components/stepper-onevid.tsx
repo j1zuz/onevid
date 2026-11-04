@@ -31,6 +31,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { SetupFeedStep } from "@/components/stepper-onevid-feed-step";
+import { SetupLiveTvSources } from "@/components/stepper-onevid-live-tv";
 import type { AddonCatalogRef, OneVidFeedRow } from "@/lib/onevid-feed";
 
 // El indicador numerado repite el mismo set de variantes en los 3 pasos.
@@ -59,7 +60,6 @@ interface SetupStepperProps {
   setupCompleted: boolean;
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: stepper bundles feed + addons + torbox UI with multiple async flows
 export function SetupStepper({
   discoverRows,
   feedConfigured,
@@ -72,6 +72,7 @@ export function SetupStepper({
   const [feedSaved, setFeedSaved] = useState(feedConfigured);
   const [feedSaving, setFeedSaving] = useState(false);
   const [addons, setAddons] = useState<OneVidAddonSummary[]>(initialAddons);
+  const [liveTvConfigured, setLiveTvConfigured] = useState(false);
   const [addonUrl, setAddonUrl] = useState("");
   const [addingAddon, setAddingAddon] = useState(false);
   const [addonError, setAddonError] = useState("");
@@ -106,15 +107,6 @@ export function SetupStepper({
     }
     prevFeedSaved.current = feedSaved;
   }, [feedSaved, activeStep]);
-
-  const prevHasAddons = useRef(addons.length > 0);
-  useEffect(() => {
-    const hasAddons = addons.length > 0;
-    if (!prevHasAddons.current && hasAddons && activeStep === 2) {
-      setActiveStep(3);
-    }
-    prevHasAddons.current = hasAddons;
-  }, [addons.length, activeStep]);
 
   async function handleSaveTorboxKey() {
     const trimmed = torboxKeyValue.trim();
@@ -265,7 +257,7 @@ export function SetupStepper({
         </StepperItem>
 
         <StepperItem
-          completed={addons.length > 0}
+          completed={addons.length > 0 || liveTvConfigured}
           loading={addingAddon}
           step={2}
         >
@@ -298,14 +290,16 @@ export function SetupStepper({
         </StepperContent>
 
         <StepperContent value={2}>
-          {addons.length > 0 && !addonsEditMode ? (
+          {!addonsEditMode ? (
             <div className="flex items-center justify-between gap-2 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
               <div className="flex items-center gap-2">
                 <CircleCheck className="size-3.5 fill-primary text-primary-foreground" />
                 <span className="font-medium text-xs">
-                  {addons.length === 1
-                    ? "1 complemento configurado"
-                    : `${addons.length} complementos configurados`}
+                  {addons.length > 0
+                    ? `${addons.length} ${addons.length === 1 ? "complemento" : "complementos"}${liveTvConfigured ? " · Live TV" : ""}`
+                    : liveTvConfigured
+                      ? "Live TV configurado"
+                      : "Fuentes opcionales"}
                 </span>
               </div>
               <DropdownMenu>
@@ -320,12 +314,12 @@ export function SetupStepper({
                     Editar
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    disabled={removingId !== null}
+                    disabled={removingId !== null || addons.length === 0}
                     onClick={handleRemoveAllAddons}
                     variant="destructive"
                   >
                     <TrashIcon className="size-3" />
-                    Eliminar
+                    Eliminar complementos
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -371,7 +365,8 @@ export function SetupStepper({
 
               {addons.length === 0 ? (
                 <p className="text-[0.7rem] text-muted-foreground">
-                  Aún no has añadido ningún complemento. Necesitas al menos uno.
+                  Los complementos de streaming son opcionales e independientes
+                  de Live TV.
                 </p>
               ) : (
                 <ul className="flex flex-col gap-1.5">
@@ -411,6 +406,21 @@ export function SetupStepper({
               )}
             </div>
           )}
+          <SetupLiveTvSources
+            editing={addonsEditMode}
+            onConfiguredChange={setLiveTvConfigured}
+          />
+          {addonsEditMode && setupCompleted ? (
+            <Button
+              className="mt-4 w-full"
+              data-dpad-focusable
+              onClick={() => setAddonsEditMode(false)}
+              size="sm"
+              variant="outline"
+            >
+              Listo
+            </Button>
+          ) : null}
         </StepperContent>
 
         <StepperContent value={3}>

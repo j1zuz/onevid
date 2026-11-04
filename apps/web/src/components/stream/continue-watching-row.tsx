@@ -52,6 +52,7 @@ export function ContinueWatchingRow({
   // NEXT_LOCALE, que el selector persiste antes del refresh). Sin esto, como es
   // un componente cliente, sus datos quedaban en el idioma anterior hasta un
   // recargado manual, aunque el catálogo (server) sí cambiaba.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `language` intentionally refetches localized titles when the locale changes.
   useEffect(() => {
     if (!activeProfileId) {
       setItems([]);

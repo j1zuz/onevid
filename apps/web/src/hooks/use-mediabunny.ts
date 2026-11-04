@@ -356,17 +356,17 @@ function readAacObjectTypeAtEsds(moov: Uint8Array, esdsIdx: number): number | nu
   };
   // ES_Descriptor (0x03) → DecoderConfigDescriptor (0x04) → DecoderSpecificInfo (0x05)
   const esDesc = readTag();
-  if (!esDesc || esDesc.tag !== 0x03) {
+  if (esDesc?.tag !== 0x03) {
     return null;
   }
   p += 2 + 1; // ES_ID(2) + flags(1)
   const decCfg = readTag();
-  if (!decCfg || decCfg.tag !== 0x04) {
+  if (decCfg?.tag !== 0x04) {
     return null;
   }
   p += 1 + 3 + 4 + 4; // objectTypeIndication(1) + streamType(1) + bufferSizeDB(3) + maxBitrate(4) + avgBitrate(4)
   const spec = readTag();
-  if (!spec || spec.tag !== 0x05 || spec.len < 1) {
+  if (spec?.tag !== 0x05 || spec.len < 1) {
     return null;
   }
   // Primeros 5 bits del AudioSpecificConfig = audioObjectType.
@@ -460,6 +460,7 @@ function indexOfFourcc(buf: Uint8Array, fourcc: string, from: number): number {
  * OPFS file the caller has already deleted, which pins GPU decoder sessions
  * and can leave the page's compositor stuck painting black.
  */
+// biome-ignore lint/correctness/noUnusedVariables: kept as the non-streaming reference path for future download flows.
 async function transcodeToMp4(
   source: File | string,
   opfsName: string,
@@ -1382,7 +1383,7 @@ export type DownloadOutcome = "done" | "canceled";
  * Cancelación: el caller pone `abortedRef.current = true` y, si hay conversión en
  * curso, llama `conversionRef.current?.cancel()` — igual que el hook al desmontar.
  */
-export async function downloadMediaFile(opts: {
+interface DownloadMediaFileOptions {
   url: string;
   filename: string;
   storageKey: string;
@@ -1390,7 +1391,11 @@ export async function downloadMediaFile(opts: {
   onProgress?: (progress: number) => void;
   abortedRef: { current: boolean };
   conversionRef: { current: CancellableConversion | null };
-}): Promise<DownloadOutcome> {
+}
+
+export async function downloadMediaFile(
+  opts: DownloadMediaFileOptions
+): Promise<DownloadOutcome> {
   const {
     url,
     filename,
@@ -1548,6 +1553,7 @@ export function useMediaBunny(
     seekRef.current?.(sec);
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `retryKey` intentionally restarts playback without being read inside the effect.
   useEffect(() => {
     if (!(source && needsMediaBunny(filename, codecHint))) {
       setState({ status: "idle" });

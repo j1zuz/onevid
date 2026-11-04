@@ -81,12 +81,13 @@ export function HeroCarousel({ items }: { items: MediaMeta[] }) {
   );
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: hover only pauses the carousel; all navigation stays keyboard accessible.
     <section
       // min-h además de aspect-ratio: red de seguridad para que la sección
       // nunca quede en 0 de alto si el aspect-ratio no llega a calcularse
       // dentro del contenedor flex-col que la envuelve. En móvil no hay
       // aspect-ratio en la sección: el alto lo marca el póster.
-      className="relative mb-2 w-full overflow-hidden rounded-(--radius) border border-border/70 bg-muted md:aspect-[21/9] md:min-h-96"
+      className="relative mb-2 w-full overflow-hidden rounded-(--radius) border border-border/70 bg-muted md:aspect-21/9 md:min-h-96"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
@@ -96,7 +97,7 @@ export function HeroCarousel({ items }: { items: MediaMeta[] }) {
         data-dpad-no-hover
         href={`/home/detail/${active.type}/${encodeURIComponent(active.id)}`}
       >
-        <div className="relative aspect-[4/5] w-full md:absolute md:inset-0 md:aspect-auto md:h-full">
+        <div className="relative aspect-4/5 w-full md:absolute md:inset-0 md:aspect-auto md:h-full">
           {/* Sin motion/react para esto: la imagen siempre visible de
               entrada (opacity-100 fijo), sin depender de que una animación
               JS termine de aplicarse para que se vea algo. El `key` sigue
@@ -105,7 +106,6 @@ export function HeroCarousel({ items }: { items: MediaMeta[] }) {
               móvil y backdrop en escritorio. */}
           <picture>
             <source media="(max-width: 767px)" srcSet={posterArt} />
-            {/* biome-ignore lint/performance/noImgElement: external CDN backdrop */}
             <img
               alt={active.name}
               // object-top en vez de center: los backdrops de TMDB suelen tener
@@ -125,7 +125,7 @@ export function HeroCarousel({ items }: { items: MediaMeta[] }) {
 
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background via-background/10 to-transparent"
+            className="pointer-events-none absolute inset-0 bg-linear-to-t from-background via-background/10 to-transparent"
           />
 
           <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-3 p-5 pb-8 text-center md:items-start md:p-10 md:text-left">

@@ -97,6 +97,7 @@ export function PosterCard({
             <span
               aria-label={t("Visto")}
               className="absolute top-1.5 right-1.5 z-10 flex size-6 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm"
+              role="img"
             >
               <CircleCheckIcon className="size-4" />
             </span>
@@ -106,6 +107,7 @@ export function PosterCard({
             <span
               aria-label={`Top ${rank}`}
               className="absolute top-1 left-1 z-10 h-7 w-11 overflow-hidden rounded-tl-[calc(var(--radius)-2px)] text-base text-white [clip-path:polygon(0_0,100%_0,82%_100%,0_100%)]"
+              role="img"
             >
               {art && (
                 <span

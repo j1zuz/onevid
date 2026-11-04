@@ -168,7 +168,7 @@ export function PlayerDownloadButton({
             />
           }
         >
-          <svg className="-rotate-90 absolute" height="30" viewBox="0 0 30 30" width="30">
+          <svg aria-hidden="true" className="-rotate-90 absolute" height="30" viewBox="0 0 30 30" width="30">
           <circle
             cx="15"
             cy="15"

@@ -210,7 +210,7 @@ export function TvDeviceLogin() {
       {status === "loading" ? (
         <div className="flex flex-col items-center gap-6">
           <Skeleton className="h-8 w-48" />
-          <Skeleton className="size-[200px] rounded-2xl" />
+          <Skeleton className="size-50 rounded-2xl" />
           <Skeleton className="h-5 w-72" />
           <Skeleton className="h-20 w-64 rounded-2xl" />
           <Skeleton className="h-7 w-44 rounded-full" />
@@ -234,7 +234,7 @@ export function TvDeviceLogin() {
               />
             </div>
           ) : (
-            <Skeleton className="size-[200px] rounded-2xl" />
+            <Skeleton className="size-50 rounded-2xl" />
           )}
           <div className="max-w-xl space-y-1 text-balance text-muted-foreground">
             <p>Escanea el código QR con tu teléfono.</p>

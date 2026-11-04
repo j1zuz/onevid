@@ -82,12 +82,11 @@ function SourceItem({
           {lines.map((line, index) => (
             <p
               className={cn(
-                "min-w-0 max-w-full overflow-hidden break-words whitespace-pre-line text-xs leading-relaxed",
+                "min-w-0 max-w-full overflow-hidden wrap-break-word whitespace-pre-line text-xs leading-relaxed",
                 index === 0
                   ? "line-clamp-2 font-medium text-foreground"
                   : "text-muted-foreground"
               )}
-              // biome-ignore lint/suspicious/noArrayIndexKey: stream metadata is static text from addon
               key={index}
             >
               {line}

@@ -49,3 +49,29 @@
 .stream-video-player-root .media-default-skin .media-button--captions {
   display: none;
 }
+
+/* Live TV opts into the same movie skin without its VOD timeline or speed menu.
+   Include the installed v10 class names and the legacy names used above. */
+.stream-video-player-root.live-mode
+  :is(
+    .video-time-slider-group,
+    .media-time-value,
+    .media-time-toggle,
+    .video-controls-settings-button,
+    .video-controls-captions-button,
+    .media-button--captions,
+    .media-dialog-popup,
+    .media-dialog-backdrop
+  ) {
+  /* biome-ignore lint/complexity/noImportantStyles: Video.js sets inline display styles we must override. */
+  display: none !important;
+}
+
+.stream-video-player-root.live-mode
+  :is(.media-play-button, .media-button--play) {
+  display: inline-flex;
+}
+
+.stream-video-player-root.live-mode .video-controls-primary {
+  flex: 1;
+}

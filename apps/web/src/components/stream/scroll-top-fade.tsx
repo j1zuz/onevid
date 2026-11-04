@@ -42,7 +42,7 @@ export function ScrollTopFade({
     <div
       aria-hidden="true"
       className={cn(
-        "pointer-events-none absolute inset-x-0 top-0 z-10 h-10 bg-gradient-to-b from-background to-transparent transition-opacity duration-150",
+        "pointer-events-none absolute inset-x-0 top-0 z-10 h-10 bg-linear-to-b from-background to-transparent transition-opacity duration-150",
         className,
         isScrolled ? "opacity-100" : "opacity-0"
       )}
