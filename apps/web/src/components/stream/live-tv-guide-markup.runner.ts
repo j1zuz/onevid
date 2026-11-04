@@ -14,6 +14,9 @@ const { outputFiles } = buildSync({
       import { LiveTvGuide } from "./live-tv-guide";
       export function render(props) {
         return renderToStaticMarkup(createElement(LiveTvGuide, {
+          group: "",
+          groups: [],
+          onGroupChange: () => {},
           ...props,
           onChannelSelect: () => {},
         }));

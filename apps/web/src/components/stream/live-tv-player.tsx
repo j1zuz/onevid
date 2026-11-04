@@ -7,13 +7,8 @@ import {
   AlertTitle,
 } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
-import { AlertCircleIcon, RadioIcon, RefreshCwIcon } from "lucide-react";
+import { AlertCircleIcon, RefreshCwIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMediaTracks } from "@/hooks/use-media-tracks";
 import type { LiveTvChannel } from "@/lib/live-tv";
@@ -73,7 +68,6 @@ function LiveTvSession({
   const root = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
-  const [canGoLive, setCanGoLive] = useState(false);
   const [playerRefs, setPlayerRefs] = useState<{
     media: unknown;
     video: HTMLVideoElement | null;
@@ -86,24 +80,8 @@ function LiveTvSession({
   const handleError = useCallback(() => setFailed(true), []);
   const tracks = useMediaTracks(playerRefs.video, playerRefs.media);
   const validSource = isLiveTvPlaybackUrl(channel.url);
-
-  useEffect(() => {
-    const video = playerRefs.video;
-    if (!video) return;
-    const update = () => setCanGoLive(getLiveEdge(video) !== null);
-    update();
-    const controller = new AbortController();
-    for (const event of [
-      "loadedmetadata",
-      "durationchange",
-      "progress",
-      "timeupdate",
-      "emptied",
-    ]) {
-      video.addEventListener(event, update, { signal: controller.signal });
-    }
-    return () => controller.abort();
-  }, [playerRefs.video]);
+  const showTrackPicker =
+    tracks.audioTracks.length > 1 || tracks.subtitleTracks.length > 0;
 
   useEffect(() => {
     const element = root.current;
@@ -129,42 +107,18 @@ function LiveTvSession({
       )}
     >
       <div className="mr-auto min-w-0">
-        <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/60">
-          <span
-            aria-hidden="true"
-            className="size-1.5 rounded-full bg-red-400"
-          />
-          Live TV
-        </p>
         <p className="truncate text-sm font-medium">{channel.name}</p>
       </div>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              aria-label="Volver al directo"
-              className="shrink-0 bg-white/10 text-white backdrop-blur-sm hover:bg-white/20"
-              data-dpad-focusable
-              disabled={!canGoLive}
-              onClick={() => returnToLive(playerRefs.video)}
-              size="sm"
-              variant="ghost"
-            />
-          }
-        >
-          <RadioIcon aria-hidden="true" className="size-4" />
-          <span className="hidden sm:inline">En directo</span>
-        </TooltipTrigger>
-        <TooltipContent>Volver al directo</TooltipContent>
-      </Tooltip>
-      <StreamTrackPicker
-        activeAudioId={tracks.activeAudioId}
-        activeSubtitleId={tracks.activeSubtitleId}
-        audioTracks={tracks.audioTracks}
-        onSelectAudio={tracks.selectAudio}
-        onSelectSubtitle={tracks.selectSubtitle}
-        subtitleTracks={tracks.subtitleTracks}
-      />
+      {showTrackPicker ? (
+        <StreamTrackPicker
+          activeAudioId={tracks.activeAudioId}
+          activeSubtitleId={tracks.activeSubtitleId}
+          audioTracks={tracks.audioTracks}
+          onSelectAudio={tracks.selectAudio}
+          onSelectSubtitle={tracks.selectSubtitle}
+          subtitleTracks={tracks.subtitleTracks}
+        />
+      ) : null}
     </div>
   );
 

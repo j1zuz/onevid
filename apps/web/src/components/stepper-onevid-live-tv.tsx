@@ -4,10 +4,11 @@ import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
+import { Skeleton } from "@workspace/ui/components/skeleton";
+import { Spinner } from "@workspace/ui/components/spinner";
 import { cn } from "@workspace/ui/lib/utils";
 import {
   CalendarDaysIcon,
-  LoaderIcon,
   PlusIcon,
   TrashIcon,
   TvIcon,
@@ -347,7 +348,7 @@ export function SetupLiveTvSources({
               type="submit"
             >
               {busy === "add" ? (
-                <LoaderIcon className="size-3 animate-spin" />
+                <Spinner aria-label="Validando fuente" className="size-3" />
               ) : (
                 <PlusIcon className="size-3" />
               )}
@@ -357,9 +358,11 @@ export function SetupLiveTvSources({
         </fieldset>
       </form>
       {loading ? (
-        <p className="text-xs text-muted-foreground" role="status">
-          Cargando fuentes de Live TV...
-        </p>
+        <div className="space-y-2" role="status">
+          <span className="sr-only">Cargando fuentes de Live TV...</span>
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-8 w-2/3" />
+        </div>
       ) : null}
       {error ? (
         <p className="text-destructive text-xs" role="alert">
@@ -419,7 +422,7 @@ export function SetupLiveTvSources({
                     variant="ghost"
                   >
                     {busy === source.id ? (
-                      <LoaderIcon className="size-3 animate-spin" />
+                      <Spinner aria-label="Procesando fuente" className="size-3" />
                     ) : (
                       <TrashIcon className="size-3 text-muted-foreground" />
                     )}
@@ -471,7 +474,7 @@ export function SetupLiveTvSources({
                       type="submit"
                     >
                       {busy === `epg:${source.id}` ? (
-                        <LoaderIcon className="size-3 animate-spin" />
+                        <Spinner aria-label="Guardando guía" className="size-3" />
                       ) : null}
                       Guardar guía
                     </Button>

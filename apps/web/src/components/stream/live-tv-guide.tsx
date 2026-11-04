@@ -18,12 +18,20 @@ import {
   DialogTrigger,
 } from "@workspace/ui/components/dialog";
 import { ScrollArea, ScrollBar } from "@workspace/ui/components/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import {
   CalendarDaysIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  RefreshCwIcon,
+  Loader,
+  RefreshCcwDotIcon,
 } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 import type {
@@ -48,6 +56,9 @@ type GuideState =
 export interface LiveTvGuideProps {
   source: LiveTvSourceSummary;
   channels: LiveTvChannel[];
+  group: string;
+  groups: string[];
+  onGroupChange: (group: string) => void;
   selectedChannelId?: string;
   onChannelSelect: (channel: LiveTvChannel) => void;
 }
@@ -67,9 +78,9 @@ function ChannelLogo({ channel }: { channel: LiveTvChannel }) {
     // biome-ignore lint/performance/noImgElement: provider logos are remote and bypass the Next.js image optimizer.
     <img
       alt=""
-      className="size-7 shrink-0 object-contain"
-      height={28}
-      width={28}
+      className="h-9 w-16 shrink-0 rounded-md object-contain"
+      height={36}
+      width={64}
       loading="lazy"
       onError={() => setFailed(true)}
       referrerPolicy="no-referrer"
@@ -136,10 +147,14 @@ function ProgrammeDetails({
 export function LiveTvGuide({
   source,
   channels,
+  group,
+  groups,
+  onGroupChange,
   selectedChannelId,
   onChannelSelect,
 }: LiveTvGuideProps) {
   const titleId = useId();
+  const categoryId = useId();
   const [page, setPage] = useState(0);
   const [windowStart, setWindowStart] = useState<number | null>(null);
   const [now, setNow] = useState<number | null>(null);
@@ -149,7 +164,6 @@ export function LiveTvGuide({
   const [formatters, setFormatters] = useState<{
     time: Intl.DateTimeFormat;
     date: Intl.DateTimeFormat;
-    zone: string;
   } | null>(null);
 
   useEffect(() => {
@@ -169,7 +183,6 @@ export function LiveTvGuide({
         month: "short",
         year: "numeric",
       }),
-      zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
@@ -272,29 +285,60 @@ export function LiveTvGuide({
       className="min-w-0 max-w-full overflow-hidden rounded-xl border border-border bg-card text-card-foreground"
     >
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-3">
-        <div className="min-w-0">
-          <h2
-            className="flex items-center gap-2 text-sm font-semibold"
-            id={titleId}
-          >
-            <CalendarDaysIcon
-              aria-hidden="true"
-              className="size-4 text-muted-foreground"
-            />
-            Guía de Live TV
-          </h2>
-          <p className="mt-1 wrap-break-word text-xs text-muted-foreground">
-            {formatters && windowStart !== null && windowEnd !== null
-              ? `${formatters.date.format(windowStart)} – ${formatters.date.format(windowEnd)} · ${formatters.zone}`
-              : "Horarios en tu zona horaria local"}
-          </p>
-        </div>
-        {/* biome-ignore lint/a11y/useSemanticElements: toolbar group; a fieldset would add unwanted form semantics. */}
-        <div
-          aria-label="Ventana de programación"
-          className="flex flex-wrap items-center gap-1"
-          role="group"
+        <h2
+          className="flex items-center gap-2 text-sm font-semibold"
+          id={titleId}
         >
+          <CalendarDaysIcon
+            aria-hidden="true"
+            className="size-4 text-muted-foreground"
+          />
+          Guía de Live TV
+        </h2>
+        <div className="flex flex-wrap items-center gap-2">
+          {groups.length > 0 ? (
+            <Select
+              items={[
+                { value: "all", label: "Todas las categorías" },
+                ...groups.map((name) => ({ value: name, label: name })),
+              ]}
+              onValueChange={(value) =>
+                onGroupChange(!value || value === "all" ? "" : value)
+              }
+              value={group || "all"}
+            >
+              <SelectTrigger
+                aria-label="Categoría"
+                className="h-8 w-auto min-w-0 rounded-lg px-2.5 text-xs"
+                data-dpad-focusable
+                id={categoryId}
+                size="sm"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent
+                align="end"
+                className="max-w-[min(24rem,calc(100vw-2rem))] min-w-(--anchor-width) w-auto"
+              >
+                <SelectItem value="all">Todas las categorías</SelectItem>
+                {groups.map((name) => (
+                  <SelectItem
+                    className="[&>div]:min-w-0 [&>div]:truncate"
+                    key={name}
+                    value={name}
+                  >
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+          {/* biome-ignore lint/a11y/useSemanticElements: toolbar group; a fieldset would add unwanted form semantics. */}
+          <div
+            aria-label="Ventana de programación"
+            className="flex flex-wrap items-center gap-1"
+            role="group"
+          >
           <Button
             aria-label="Tres horas anteriores"
             data-dpad-focusable
@@ -344,11 +388,15 @@ export function LiveTvGuide({
             size="icon-sm"
             variant="ghost"
           >
-            <RefreshCwIcon
+            <RefreshCcwDotIcon
               aria-hidden="true"
-              className={loading ? "motion-safe:animate-spin" : ""}
+              className={loading ? "hidden" : ""}
             />
+            {loading ? (
+              <Loader aria-label="Cargando guía" className="size-4 animate-spin" />
+            ) : null}
           </Button>
+          </div>
         </div>
       </div>
 
@@ -402,7 +450,7 @@ export function LiveTvGuide({
           </p>
           <ScrollArea
             aria-label="Canales y horarios de Live TV. Usa las flechas para desplazarte."
-            className="h-[min(65vh,36rem)] w-full min-w-0 overflow-hidden [--channel-width:112px] sm:[--channel-width:144px] **:data-[slot=scroll-area-viewport]:scroll-pt-12 **:data-[slot=scroll-area-viewport]:scroll-pl-(--channel-width)"
+            className="h-[min(65vh,36rem)] w-full min-w-0 overflow-hidden [--channel-width:132px] sm:[--channel-width:164px] **:data-[slot=scroll-area-viewport]:scroll-pt-12 **:data-[slot=scroll-area-viewport]:scroll-pl-(--channel-width)"
             data-dpad-focusable
             role="region"
             tabIndex={0}
@@ -425,8 +473,16 @@ export function LiveTvGuide({
           >
             <div className="relative w-[calc(var(--channel-width)+960px)] min-w-full pb-3">
               <div className="sticky top-0 z-30 flex h-12 border-b border-border bg-muted">
-                <div className="sticky left-0 z-40 flex w-(--channel-width) shrink-0 items-center border-r border-border bg-muted px-3 text-xs font-semibold">
-                  Canal
+                <div className="sticky left-0 z-40 flex w-(--channel-width) shrink-0 items-center gap-1 overflow-hidden border-r border-border bg-muted px-2 text-xs font-semibold">
+                  <span>Canal</span>
+                  {channels.length > 0 ? (
+                    <Badge
+                      className="ml-auto h-4 shrink-0 px-1 text-[9px]"
+                      variant="outline"
+                    >
+                      {channels.length} canales
+                    </Badge>
+                  ) : null}
                 </div>
                 <div className="relative min-w-0 flex-1">
                   {ticks.map((tick, index) => (
@@ -503,16 +559,21 @@ export function LiveTvGuide({
                         ))}
                       </div>
                       {loading ? (
-                        <div aria-hidden="true" className="p-3">
-                          <Skeleton className="h-3 w-44" />
-                          <Skeleton className="mt-3 h-3 w-28" />
+                        <div
+                          aria-hidden="true"
+                          className="flex h-full w-[calc(100%/6)] flex-col justify-center gap-2 p-2"
+                        >
+                          <Skeleton className="h-3 w-full" />
+                          <Skeleton className="h-3 w-3/4" />
                         </div>
                       ) : rowError ? (
                         <div
-                          className="relative flex h-full items-center gap-2 px-3 text-xs text-muted-foreground"
+                          className="relative flex h-full w-[calc(100%/6)] flex-col items-center justify-center gap-1 px-2 py-2 text-center text-xs text-muted-foreground"
                           role="status"
                         >
-                          No se pudo cargar este canal.
+                          <span className="line-clamp-2">
+                            No se pudo cargar este canal.
+                          </span>
                           <Button
                             aria-label={`Reintentar guía de ${channel.name}`}
                             data-dpad-focusable
@@ -524,12 +585,12 @@ export function LiveTvGuide({
                           </Button>
                         </div>
                       ) : layout.length === 0 ? (
-                        <p className="relative px-3 py-6 text-xs text-muted-foreground">
+                        <p className="relative flex h-full w-[calc(100%/6)] items-center justify-center whitespace-nowrap px-2 text-center text-xs text-muted-foreground">
                           {!source.hasEpg
                             ? "Sin guía configurada"
                             : currentState?.status === "error"
                               ? "Guía no disponible"
-                              : "Sin programación en este horario"}
+                              : "Sin programación"}
                         </p>
                       ) : (
                         layout.map(

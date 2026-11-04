@@ -2,6 +2,36 @@
   color-scheme: dark;
 }
 
+/* Swap play/pause instantly so both icons never overlap mid-transition. */
+.onevid-live-player .media-play-button .media-button-icon {
+  transition: none;
+}
+
+/* Live mode hides the timeline that normally expands and pushes the secondary
+   controls to the right; keep them anchored to the right edge instead. */
+.stream-video-player-root.live-mode .video-controls-secondary {
+  margin-inline-start: auto;
+}
+
+/* Match the container's rounded frame so the skin never leaves a black wedge
+   between the video surface and the border. */
+.onevid-live-player .stream-video-player-root.play-mode {
+  border-radius: var(--radius-xl);
+}
+
+/* The outer container already draws the frame; remove the skin's own 1px
+   frame border so the player doesn't render two concentric borders. */
+.onevid-live-player .video-skin {
+  --media-border-color: transparent;
+}
+
+.onevid-live-player
+  .stream-video-player-root.play-mode
+  .video-skin {
+  --media-border-radius: var(--radius-xl);
+  --media-video-border-radius: var(--radius-xl);
+}
+
 .onevid-live-player :is(.stream-video-player-root, .video-skin) {
   width: 100%;
   height: 100%;

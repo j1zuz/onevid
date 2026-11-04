@@ -9,6 +9,7 @@ import {
   POSTER_ROW_ITEM_CLASS,
   PosterCard,
 } from "@/components/stream/poster-card";
+import { LiveTvFeedRow } from "@/components/stream/live-tv-feed-row";
 import type { FeedSection } from "@/lib/onevid-feed-sections";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 
@@ -30,6 +31,10 @@ export type { FeedSection };
 export function FeedRow({ section }: { section: FeedSection }) {
   const { t: rawT } = useTranslation();
   const t = (key: string) => rawT(key as never);
+
+  if (section.kind === "live") {
+    return <LiveTvFeedRow section={section} />;
+  }
 
   return (
     <section className="container mx-auto flex flex-col gap-3 px-2">

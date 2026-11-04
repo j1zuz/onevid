@@ -126,13 +126,15 @@ const PlayerTopBar = memo(function PlayerTopBar({
           />
           <TooltipContent>Volver</TooltipContent>
         </Tooltip>
-      <h1 className="min-w-0 flex-1 truncate font-medium text-base text-white">
-        {contentTitle}
-      </h1>
-      {trackPicker}
-      {episodePicker}
-      {downloadButton}
-      {sourcePicker}
+        <h1 className="min-w-0 flex-1 truncate font-medium text-base text-white">
+          {contentTitle}
+        </h1>
+        <div className="hidden items-center gap-3 landscape:flex">
+          {trackPicker}
+          {episodePicker}
+          {downloadButton}
+          {sourcePicker}
+        </div>
       </div>
     </TooltipProvider>
   );

@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OneVidAddonSummary } from "@/components/stepper-onevid";
 import { OneVidProfileSwitcher } from "@/components/stream/onevid-profile-switcher";
+import { useLiveTvSearch } from "@/components/stream/live-tv-search";
 import { useDebouncedSearch } from "@/hooks/use-debounced-search";
 import {
   buildMagnetPlayerHref,
@@ -86,9 +87,11 @@ export function OneVidHeader({
   const router = useRouter();
   const { t: rawT } = useTranslation();
   const t = (key: string) => rawT(key as never);
+  // En Live TV el buscador del header filtra los canales, no el catálogo TMDB.
+  const liveSearch = useLiveTvSearch();
   const {
     loading: searchLoading,
-    query: searchQuery,
+    query: catalogQuery,
     reset: resetSearch,
     results: searchResults,
     search,
@@ -97,9 +100,10 @@ export function OneVidHeader({
     buildUrl: buildSearchUrl,
     inputId: SEARCH_INPUT_ID,
     parse: parseSearchResults,
-    shouldSearch: shouldSearchCatalog,
+    shouldSearch: (query) => !liveSearch && shouldSearchCatalog(query),
     storageKey: SEARCH_STORAGE_KEY,
   });
+  const searchQuery = liveSearch?.query ?? catalogQuery;
   // `open` es independiente de la respuesta del fetch a propósito: antes el
   // dropdown se abría al *recibir* los resultados, así que en la primera
   // búsqueda el skeleton no llegaba a verse nunca y la lista aparecía de
@@ -114,10 +118,15 @@ export function OneVidHeader({
 
   const hasQuery = searchQuery.trim().length > 0;
   const magnetQuery = isMagnetLink(searchQuery) ? searchQuery.trim() : null;
-  const showResults = open && hasQuery;
+  const showResults = open && hasQuery && !liveSearch;
 
   const handleSearchChange = useCallback(
     (value: string) => {
+      if (liveSearch) {
+        liveSearch.setQuery(value);
+        setOpen(false);
+        return;
+      }
       search(value);
       setOpen(value.trim().length > 0);
       // Persistimos la búsqueda para recuperarla al recargar. El <script> de
@@ -136,12 +145,18 @@ export function OneVidHeader({
         /* almacenamiento bloqueado o lleno */
       }
     },
-    [search]
+    [liveSearch, search]
   );
 
   const handleSearchSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
+      // En Live TV el submit no navega: el filtrado es en vivo.
+      if (liveSearch) {
+        setOpen(false);
+        setMobileSearchOpen(false);
+        return;
+      }
       const trimmed = searchQuery.trim();
       // Enter sobre un magnet va directo al reproductor, sin pasar por TMDB.
       if (isMagnetLink(trimmed)) {
@@ -153,10 +168,16 @@ export function OneVidHeader({
       submit();
       setOpen(trimmed.length > 0);
     },
-    [router, searchQuery, submit]
+    [liveSearch, router, searchQuery, submit]
   );
 
   const clearSearch = useCallback(() => {
+    if (liveSearch) {
+      liveSearch.setQuery("");
+      setOpen(false);
+      setMobileSearchOpen(false);
+      return;
+    }
     resetSearch();
     setOpen(false);
     // En móvil el campo vive en un overlay: al borrar, se vuelve al header.
@@ -166,7 +187,7 @@ export function OneVidHeader({
     } catch {
       /* almacenamiento bloqueado */
     }
-  }, [resetSearch]);
+  }, [liveSearch, resetSearch]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -196,13 +217,16 @@ export function OneVidHeader({
   // React tomara el control): la buscamos y abrimos el dropdown una vez.
   const restoredQueryRef = useRef(searchQuery);
   useEffect(() => {
+    if (liveSearch) {
+      return;
+    }
     const restored = restoredQueryRef.current.trim();
     if (!restored) {
       return;
     }
     search(restoredQueryRef.current);
     setOpen(true);
-  }, [search]);
+  }, [liveSearch, search]);
 
   function renderSearchResults() {
     // Un magnet no es un título del catálogo: el único resultado posible es
@@ -321,6 +345,7 @@ export function OneVidHeader({
       <Link
         className="flex shrink-0 items-center rounded-md border border-border/70 transition-colors hover:border-border"
         data-dpad-focusable
+        data-dpad-primary
         href="/home"
       >
         {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
@@ -344,6 +369,7 @@ export function OneVidHeader({
                 : "text-muted-foreground hover:text-foreground"
             )}
             data-dpad-focusable
+            data-dpad-primary
             href={tab.href}
             key={tab.surface}
           >
@@ -362,6 +388,7 @@ export function OneVidHeader({
             aria-label={t("Buscar")}
             className="text-muted-foreground hover:text-foreground md:hidden"
             data-dpad-focusable
+            data-dpad-primary
             onClick={() => setMobileSearchOpen(true)}
             size="icon-sm"
             variant="ghost"
@@ -388,10 +415,11 @@ export function OneVidHeader({
                 <Input
                   className="w-full pr-8 pl-9"
                   data-dpad-focusable
+                  data-dpad-primary
                   id={SEARCH_INPUT_ID}
                   onChange={(e) => handleSearchChange(e.target.value)}
                   onFocus={() => {
-                    if (hasQuery) {
+                    if (hasQuery && !liveSearch) {
                       setOpen(true);
                     }
                   }}
@@ -400,7 +428,9 @@ export function OneVidHeader({
                       closeSearch();
                     }
                   }}
-                  placeholder={`${t("Buscar")}...`}
+                  placeholder={
+                    liveSearch ? "Buscar canal..." : `${t("Buscar")}...`
+                  }
                   ref={searchInputRef}
                   type="text"
                   value={searchQuery}

@@ -319,7 +319,7 @@ export function SetupStepper({
                     variant="destructive"
                   >
                     <TrashIcon className="size-3" />
-                    Eliminar complementos
+                    Eliminar
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

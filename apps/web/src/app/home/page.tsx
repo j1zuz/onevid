@@ -15,7 +15,8 @@ import { HomeFeedSkeleton } from "@/app/home/loading";
 import { SetupStepper } from "@/components/stepper-onevid";
 import type { FeedSection } from "@/components/stream/feed-row";
 import { OneVidHeader } from "@/components/stream/onevid-header";
-import { OneVidLiveTv } from "@/components/stream/onevid-live-tv";
+import { LiveTvSurface } from "@/components/stream/live-tv-surface";
+import { listLiveTvSources } from "@/lib/live-tv-server";
 import { OneVidPageClient } from "@/components/stream/onevid-page-client";
 import {
   ACTIVE_PROFILE_COOKIE,
@@ -264,9 +265,8 @@ async function OneVidContent({
   // Live TV is independent of the TMDB catalog and streaming addons.
   if (params.surface === "live") {
     return (
-      <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
-        <OneVidHeader {...headerProps} surface="live" />
-        <OneVidLiveTv />
+      <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
+        <LiveTvSurface headerProps={headerProps} />
       </main>
     );
   }
@@ -416,9 +416,13 @@ async function OneVidContent({
     // (stream) por debajo del carrusel: el cliente las envuelve en <Suspense>,
     // así el primer pintado no espera a las N filas de TMDB. Cualquier fallo
     // deja el feed vacío en vez de propagar al cliente.
+    const liveSourcesById = surfaceRows.some((row) => row.type === "live")
+      ? new Map((await listLiveTvSources(userId)).map((s) => [s.id, s.name]))
+      : undefined;
     const rowsPromise = resolveFeedSections({
       addonsById,
       itemsPerRow: FEED_ROW_ITEM_LIMIT,
+      liveSourcesById,
       networksById,
       rows: surfaceRows,
       t,

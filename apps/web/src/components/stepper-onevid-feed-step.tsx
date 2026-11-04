@@ -3,6 +3,7 @@
 import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
 import { Label } from "@workspace/ui/components/label";
+import { Skeleton } from "@workspace/ui/components/skeleton";
 import {
   Select,
   SelectContent,
@@ -26,12 +27,13 @@ import {
 } from "lucide-react";
 import { Reorder, useDragControls } from "motion/react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   type AddonCatalogRef,
   buildFeedRowId,
   FEED_MAX_ROWS,
   type FeedMediaType,
+  type FeedRowType,
   type FeedRowWithId,
   getFeedRowTitle,
   getNetworkOptions,
@@ -214,14 +216,96 @@ function FeedSurfaceEditor({
     [addons]
   );
 
-  const [draftType, setDraftType] = useState<FeedMediaType>("movie");
+  const [draftType, setDraftType] = useState<FeedRowType>("movie");
   const [draftNetwork, setDraftNetwork] = useState("all");
   const [draftSource, setDraftSource] = useState("trending");
+  const [draftLiveSourceId, setDraftLiveSourceId] = useState("");
+  const [draftLiveGroup, setDraftLiveGroup] = useState("");
+  const [liveSources, setLiveSources] = useState<
+    { id: string; name: string }[]
+  >([]);
+  const [liveSourcesLoading, setLiveSourcesLoading] = useState(false);
+  const [liveGroups, setLiveGroups] = useState<string[]>([]);
+  const [liveGroupsLoading, setLiveGroupsLoading] = useState(false);
   const [error, setError] = useState("");
 
   const catalogSources = useMemo(
-    () => buildCatalogSourceOptions(addons, draftType),
+    () =>
+      draftType === "live" ? [] : buildCatalogSourceOptions(addons, draftType),
     [addons, draftType]
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    setLiveSourcesLoading(true);
+    fetch("/api/onevid-live-tv", {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("Live TV unavailable");
+        return response.json();
+      })
+      .then((data: { sources?: { id: string; name: string }[] }) => {
+        if (!active) return;
+        const sources = Array.isArray(data.sources) ? data.sources : [];
+        setLiveSources(sources);
+        setDraftLiveSourceId((current) => current || sources[0]?.id || "");
+      })
+      .catch(() => {
+        if (active && !controller.signal.aborted) setLiveSources([]);
+      })
+      .finally(() => {
+        if (active) setLiveSourcesLoading(false);
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (draftType !== "live" || !draftLiveSourceId) {
+      setLiveGroups([]);
+      setDraftLiveGroup("");
+      return;
+    }
+    const controller = new AbortController();
+    let active = true;
+    setLiveGroupsLoading(true);
+    fetch(
+      `/api/onevid-live-tv/channels?sourceId=${encodeURIComponent(draftLiveSourceId)}&groups=1`,
+      {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      }
+    )
+      .then((response) => {
+        if (!response.ok) throw new Error("Live TV unavailable");
+        return response.json();
+      })
+      .then((data: { groups?: string[] }) => {
+        if (!active) return;
+        setLiveGroups(Array.isArray(data.groups) ? data.groups : []);
+      })
+      .catch(() => {
+        if (active && !controller.signal.aborted) setLiveGroups([]);
+      })
+      .finally(() => {
+        if (active) setLiveGroupsLoading(false);
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [draftLiveSourceId, draftType]);
+
+  const liveSourceNameById = useMemo(
+    () => new Map(liveSources.map((source) => [source.id, source.name])),
+    [liveSources]
   );
 
   function move(from: number, to: number) {
@@ -240,6 +324,26 @@ function FeedSurfaceEditor({
   function handleAdd() {
     if (rows.length >= FEED_MAX_ROWS) {
       setError(`Máximo ${FEED_MAX_ROWS} filas`);
+      return;
+    }
+    if (draftType === "live") {
+      if (!draftLiveSourceId) {
+        setError("Configura una fuente de Live TV primero");
+        return;
+      }
+      const row: OneVidFeedRow = {
+        type: "live",
+        catalog: "trending",
+        liveSourceId: draftLiveSourceId,
+        ...(draftLiveGroup ? { liveGroup: draftLiveGroup } : {}),
+      };
+      const id = buildFeedRowId(row);
+      if (rows.some((existing) => existing.id === id)) {
+        setError("Esa fila ya está en la lista");
+        return;
+      }
+      setError("");
+      onRowsChange([...rows, { ...row, id }]);
       return;
     }
     const selectedSource = catalogSources.find((s) => s.value === draftSource);
@@ -285,9 +389,10 @@ function FeedSurfaceEditor({
             items={[
               { value: "movie", label: t("Películas") },
               { value: "series", label: t("Series") },
+              { value: "live", label: t("Live TV") },
             ]}
             onValueChange={(val) => {
-              setDraftType(val as FeedMediaType);
+              setDraftType(val as FeedRowType);
               // Un catálogo de addon es de un solo tipo: al cambiar de tipo la
               // fuente elegida puede dejar de existir, así que se vuelve a
               // Tendencias en vez de arrastrar una selección inválida.
@@ -301,38 +406,115 @@ function FeedSurfaceEditor({
             <SelectContent>
               <SelectItem value="movie">{t("Películas")}</SelectItem>
               <SelectItem value="series">{t("Series")}</SelectItem>
+              <SelectItem value="live">{t("Live TV")}</SelectItem>
             </SelectContent>
           </Select>
 
-          <Select
-            items={catalogSources.map((source) => ({
-              value: source.value,
-              label:
-                source.kind === "addon"
-                  ? `${source.addonName} · ${source.catalogName}`
-                  : t("Tendencias"),
-            }))}
-            onValueChange={(val) => setDraftSource(val ?? "trending")}
-            value={draftSource}
-          >
-            <SelectTrigger className="flex-1 text-xs" data-dpad-focusable size="sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {catalogSources.map((source) => (
-                <SelectItem key={source.value} value={source.value}>
-                  {source.kind === "addon"
+          {draftType === "live" ? (
+            liveSources.length > 0 ? (
+              <Select
+                items={liveSources.map((source) => ({
+                  value: source.id,
+                  label: source.name,
+                }))}
+                onValueChange={(val) => {
+                  setDraftLiveSourceId(val ?? "");
+                  setDraftLiveGroup("");
+                }}
+                value={draftLiveSourceId}
+              >
+                <SelectTrigger
+                  className="flex-1 text-xs"
+                  data-dpad-focusable
+                  size="sm"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {liveSources.map((source) => (
+                    <SelectItem key={source.id} value={source.id}>
+                      {source.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : liveSourcesLoading ? (
+              <Skeleton className="h-8 flex-1" />
+            ) : (
+              <p className="flex-1 self-center text-[0.65rem] text-muted-foreground">
+                Configura Live TV primero para añadir esta fila.
+              </p>
+            )
+          ) : (
+            <Select
+              items={catalogSources.map((source) => ({
+                value: source.value,
+                label:
+                  source.kind === "addon"
                     ? `${source.addonName} · ${source.catalogName}`
-                    : t("Tendencias")}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+                    : t("Tendencias"),
+              }))}
+              onValueChange={(val) => setDraftSource(val ?? "trending")}
+              value={draftSource}
+            >
+              <SelectTrigger
+                className="flex-1 text-xs"
+                data-dpad-focusable
+                size="sm"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {catalogSources.map((source) => (
+                  <SelectItem key={source.value} value={source.value}>
+                    {source.kind === "addon"
+                      ? `${source.addonName} · ${source.catalogName}`
+                      : t("Tendencias")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
 
         <div className="flex gap-1.5">
-          {draftSource === "trending" && (
-            <Select
+          {draftType === "live" ? (
+            liveGroups.length > 0 ? (
+              <Select
+                items={[
+                  { value: "all", label: t("Todas las categorías") },
+                  ...liveGroups.map((group) => ({
+                    value: group,
+                    label: group,
+                  })),
+                ]}
+                onValueChange={(val) =>
+                  setDraftLiveGroup(!val || val === "all" ? "" : val)
+                }
+                value={draftLiveGroup || "all"}
+              >
+                <SelectTrigger
+                  className="flex-1 text-xs"
+                  data-dpad-focusable
+                  size="sm"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t("Todas las categorías")}</SelectItem>
+                  {liveGroups.map((group) => (
+                    <SelectItem key={group} value={group}>
+                      {group}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : liveGroupsLoading ? (
+              <Skeleton className="h-8 flex-1" />
+            ) : null
+          ) : (
+            draftSource === "trending" && (
+              <Select
               items={[
                 { value: "all", label: t("Todas las cadenas") },
                 ...networks.map((n) => ({
@@ -355,12 +537,16 @@ function FeedSurfaceEditor({
                 ))}
               </SelectContent>
             </Select>
+            )
           )}
 
           <Button
             className="btn-primary shrink-0"
             data-dpad-focusable
-            disabled={rows.length >= FEED_MAX_ROWS}
+            disabled={
+              rows.length >= FEED_MAX_ROWS ||
+              (draftType === "live" && !draftLiveSourceId)
+            }
             onClick={handleAdd}
             size="sm"
           >
@@ -396,13 +582,17 @@ function FeedSurfaceEditor({
               label={getFeedRowTitle(
                 row,
                 t,
-                row.catalog === "addon"
-                  ? addonCatalogNameById.get(
-                      `${row.addonId}::${row.addonCatalogId}`
-                    )
-                  : row.networkId
-                    ? networkNameById.get(row.networkId)
+                row.type === "live"
+                  ? row.liveSourceId
+                    ? liveSourceNameById.get(row.liveSourceId)
                     : undefined
+                  : row.catalog === "addon"
+                    ? addonCatalogNameById.get(
+                        `${row.addonId}::${row.addonCatalogId}`
+                      )
+                    : row.networkId
+                      ? networkNameById.get(row.networkId)
+                      : undefined
               )}
               onMoveDown={() => move(index, index + 1)}
               onMoveUp={() => move(index, index - 1)}

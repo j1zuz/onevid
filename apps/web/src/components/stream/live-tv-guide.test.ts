@@ -264,9 +264,11 @@ describe("Live TV guide markup", () => {
     assert.match(html, /aria-label="Ver Canal 1 en vivo"/);
   });
 
-  it("uses a hydration-stable local time placeholder and loading skeletons when EPG is configured", () => {
+  it("uses a hydration-stable header without repeating the date or timezone", () => {
     const html = renderGuide({ source: { ...source, hasEpg: true } });
-    assert.match(html, /Horarios en tu zona horaria local/);
+    assert.match(html, /Guía de Live TV/);
+    assert.match(html, /5000 canales/);
+    assert.doesNotMatch(html, /zona horaria local|America\//);
     assert.match(html, /Cargando guía de programación/);
     assert.equal((html.match(/data-slot="skeleton"/g) ?? []).length, 20);
     assert.doesNotMatch(

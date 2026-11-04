@@ -36,6 +36,12 @@ export interface FeedSection {
   href: string;
   id: string;
   items: MediaMeta[];
+  /** Las filas de Live TV se pintan con su propio carrusel de canales. */
+  kind?: "live";
+  /** Solo para `kind === "live"`: fuente de Live TV a mostrar. */
+  liveSourceId?: string;
+  /** Solo para `kind === "live"`: categoría/grupo de canales. */
+  liveGroup?: string;
   /** Solo las filas generales de tendencias de películas/series. */
   topTen: boolean;
   /** Posición TMDB dentro del Top 10 combinado de tendencias. */
@@ -62,6 +68,8 @@ interface ResolveFeedOptions {
    * usa la página completa de TMDB porque sus filas hacen scroll horizontal.
    */
   itemsPerRow?: number;
+  /** Nombres de las fuentes de Live TV, por id (solo filas `type: "live"`). */
+  liveSourcesById?: Map<string, string>;
   networksById: Map<number, NetworkOption>;
   rows: OneVidFeedRow[];
   t: (key: string) => string;
@@ -79,6 +87,9 @@ function resolveRow(
   tmdbRegion: string,
   token: string
 ): Promise<MediaMeta[]> {
+  if (row.type === "live") {
+    return Promise.resolve([]);
+  }
   if (row.catalog === "addon") {
     const addon = row.addonId ? addonsById.get(row.addonId) : undefined;
     if (!addon) {
@@ -108,8 +119,12 @@ function resolveRow(
 function resolveRowSourceName(
   row: OneVidFeedRow,
   addonsById: Map<string, FeedAddonRef>,
-  networksById: Map<number, NetworkOption>
+  networksById: Map<number, NetworkOption>,
+  liveSourcesById?: Map<string, string>
 ): string | undefined {
+  if (row.type === "live") {
+    return row.liveSourceId ? liveSourcesById?.get(row.liveSourceId) : undefined;
+  }
   if (row.catalog === "addon") {
     const addon = row.addonId ? addonsById.get(row.addonId) : undefined;
     const catalogName = addon?.catalogs.find(
@@ -212,6 +227,7 @@ export async function resolveHero({
 export async function resolveFeedSections({
   addonsById,
   itemsPerRow,
+  liveSourcesById,
   networksById,
   rows,
   t,
@@ -259,6 +275,30 @@ export async function resolveFeedSections({
     const row = rows[index];
     if (!row) {
       return [];
+    }
+    if (row.type === "live") {
+      return [
+        {
+          href: buildFeedRowHref(row),
+          id: buildFeedRowId(row),
+          items: [],
+          kind: "live" as const,
+          liveSourceId: row.liveSourceId,
+          liveGroup: row.liveGroup,
+          topTen: false,
+          topTenRanks: {},
+          title: getFeedRowTitle(
+            row,
+            t,
+            resolveRowSourceName(
+              row,
+              addonsById,
+              networksById,
+              liveSourcesById
+            )
+          ),
+        },
+      ];
     }
     if (result.status === "rejected") {
       // Una fila caída (red/timeout) desaparece sin tumbar la página.

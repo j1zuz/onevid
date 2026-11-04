@@ -175,6 +175,16 @@
     @apply dpad-pointer:hover:!border-ring;
   }
 
+  /* Dentro del header (foco sutil), las pestañas de superficie mantienen el
+     borde azul primario que usa el D-pad/hover en el resto de la app. */
+  [data-dpad-focus-subtle] [data-dpad-focusable][data-dpad-primary]:not(:has([data-dpad-card-frame])) {
+    @apply dpad-active:!border-primary dpad-active:brightness-125 dpad-active:shadow-md dpad-active:shadow-zinc-950/30;
+  }
+
+  [data-dpad-focus-subtle] [data-dpad-focusable][data-dpad-primary]:not(:has([data-dpad-card-frame])):not([data-dpad-no-hover]) {
+    @apply dpad-pointer:hover:!border-primary dpad-pointer:hover:brightness-125 dpad-pointer:hover:shadow-md dpad-pointer:hover:shadow-zinc-950/30;
+  }
+
   [data-dpad-card-frame] {
     @apply dpad-parent-pointer:!border-primary dpad-parent-pointer:shadow-md dpad-parent-pointer:shadow-zinc-950/30 dpad-parent-active:!border-primary dpad-parent-active:shadow-md dpad-parent-active:shadow-zinc-950/30;
   }
