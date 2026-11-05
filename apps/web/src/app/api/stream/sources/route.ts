@@ -5,6 +5,8 @@ import { auth } from "@/lib/auth";
 import { oneVid, oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
 import { getTmdbReadToken } from "@/lib/onevid-tmdb";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { readTorboxKey } from "@/lib/secret-box";
 import {
   normalizeQualityPref,
   parseQualityTier,
@@ -19,6 +21,8 @@ import type {
   StreamWithAddon,
 } from "@/types/stream";
 import { safeFetch } from "@/utils/ssrf-guard";
+
+export const runtime = "nodejs";
 
 // Allow up to 60s: each addon fetch can take up to ~10s (safeFetch timeout) and
 // they run after an awaited IMDb resolve. The default 10s serverless limit was
@@ -127,8 +131,8 @@ function buildStremioStreamUrl(
 ): string {
   const streamId =
     ref.season !== undefined && ref.episode !== undefined
-      ? `${imdbId}:${ref.season}:${ref.episode}`
-      : imdbId;
+      ? `${encodeURIComponent(imdbId)}:${ref.season}:${ref.episode}`
+      : encodeURIComponent(imdbId);
   return `${baseUrl}/stream/${type}/${streamId}.json`;
 }
 
@@ -269,8 +273,8 @@ async function fetchAddonStremioStreamsByRawId(
 ): Promise<{ success: boolean; streams: StreamSource[]; error?: string }> {
   const streamId =
     type === "series" && season != null && episode != null
-      ? `${rawId}:${season}:${episode}`
-      : rawId;
+      ? `${encodeURIComponent(rawId)}:${season}:${episode}`
+      : encodeURIComponent(rawId);
   try {
     const res = await safeFetch(
       `${baseUrl}/stream/${type}/${streamId}.json`,
@@ -299,7 +303,7 @@ async function loadUserContext(userId: string): Promise<UserContext> {
     .limit(1);
   return {
     tmdbToken: getTmdbReadToken(),
-    torboxKey: row?.torboxApiKey ?? null,
+    torboxKey: readTorboxKey(row?.torboxApiKey),
     qualityPref: normalizeQualityPref(row?.streamQualityOrder),
   };
 }
@@ -328,6 +332,13 @@ export async function POST(request: Request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const limited = checkRateLimit(
+      `stream-sources:${session.user.id}`,
+      30,
+      60_000
+    );
+    if (!limited.ok) return rateLimitResponse(limited.retryAfter);
+
     let body: RequestBody = {};
     try {
       body = (await request.json()) as RequestBody;
@@ -338,7 +349,7 @@ export async function POST(request: Request) {
     const id = typeof body.id === "string" ? body.id.trim() : "";
     const type = body.type === "series" ? "series" : "movie";
 
-    if (!id) {
+    if (!id || id.length > 512) {
       return Response.json(
         { error: "Missing or invalid id parameter" },
         { status: 400 }

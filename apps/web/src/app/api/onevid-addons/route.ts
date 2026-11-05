@@ -4,7 +4,10 @@ import { auth } from "@/lib/auth";
 import { oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
 import type { AddonCatalogRef } from "@/lib/onevid-feed";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { isSafeFetchUrl, safeFetch } from "@/utils/ssrf-guard";
+
+export const runtime = "nodejs";
 
 const MAX_ADDONS_PER_USER = 20;
 const TRAILING_SLASH_REGEX = /\/+$/;
@@ -223,6 +226,13 @@ export async function POST(request: Request) {
     return Response.json({ error: "No autorizado" }, { status: 401 });
   }
 
+  const limited = checkRateLimit(
+    `onevid-addons:${session.user.id}`,
+    10,
+    60_000
+  );
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
+
   let payload: CreatePayload;
   try {
     payload = (await request.json()) as CreatePayload;
@@ -291,9 +301,12 @@ export async function POST(request: Request) {
     // todavía no corrió su `drizzle-kit push` contra esta base) tumbaba la
     // ruta sin JSON de respuesta, y el cliente caía al mensaje genérico
     // "Error al añadir el complemento" sin ninguna pista de la causa real.
-    const message =
-      error instanceof Error ? error.message : "No se pudo guardar el complemento";
-    return Response.json({ error: message }, { status: 500 });
+    // El detalle queda en el log del servidor: nunca se devuelve al cliente.
+    console.error("Addon insert failed:", error);
+    return Response.json(
+      { error: "No se pudo guardar el complemento" },
+      { status: 500 }
+    );
   }
 
   return Response.json(

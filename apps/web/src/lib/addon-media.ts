@@ -9,6 +9,10 @@ import "server-only";
  */
 const PREFIX = "addon";
 const SEPARATOR = "~";
+// Un id de addon es un UUID y el rawId lo emite el catalogo; ambos acotados
+// evitan URLs salientes gigantes y caracteres de control inyectados.
+const MAX_ADDON_ID_LENGTH = 64;
+const MAX_RAW_ID_LENGTH = 512;
 
 export function encodeAddonMediaId(addonId: string, rawId: string): string {
   return `${PREFIX}${SEPARATOR}${addonId}${SEPARATOR}${Buffer.from(rawId, "utf8").toString("base64url")}`;
@@ -18,12 +22,25 @@ export function parseAddonMediaId(
   value: string
 ): { addonId: string; rawId: string } | null {
   const [prefix, addonId, encoded, ...rest] = value.split(SEPARATOR);
-  if (prefix !== PREFIX || !addonId || !encoded || rest.length > 0) {
+  if (
+    prefix !== PREFIX ||
+    !addonId ||
+    addonId.length > MAX_ADDON_ID_LENGTH ||
+    !encoded ||
+    rest.length > 0
+  ) {
     return null;
   }
   try {
     const rawId = Buffer.from(encoded, "base64url").toString("utf8");
-    return rawId ? { addonId, rawId } : null;
+    if (
+      !rawId ||
+      rawId.length > MAX_RAW_ID_LENGTH ||
+      /[\u0000-\u001f\u007f]/.test(rawId)
+    ) {
+      return null;
+    }
+    return { addonId, rawId };
   } catch {
     return null;
   }

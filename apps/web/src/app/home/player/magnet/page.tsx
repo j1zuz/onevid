@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { MagnetConsentGate } from "@/components/stream/magnet-consent-gate";
 import { StreamOnevid } from "@/components/stream/stream-onevid";
 import { auth } from "@/lib/auth";
 import {
@@ -39,19 +40,21 @@ export default async function MagnetPlayerPage({
   const displayName = magnetDisplayName(magnetValue);
 
   return (
-    <StreamOnevid
-      contentId={hash}
-      contentTitle={displayName}
-      contentType="movie"
-      directSource={{
-        addonId: "magnet",
-        addonName: "Magnet link",
-        sourceIndex: 0,
-        title: displayName,
-        url: `/api/torbox/resolve?magnet=${encodeURIComponent(magnetValue)}&redirect=final`,
-      }}
-      key={magnetValue}
-      rawId={hash}
-    />
+    <MagnetConsentGate title={displayName}>
+      <StreamOnevid
+        contentId={hash}
+        contentTitle={displayName}
+        contentType="movie"
+        directSource={{
+          addonId: "magnet",
+          addonName: "Magnet link",
+          sourceIndex: 0,
+          title: displayName,
+          url: `/api/torbox/resolve?magnet=${encodeURIComponent(magnetValue)}&redirect=final`,
+        }}
+        key={magnetValue}
+        rawId={hash}
+      />
+    </MagnetConsentGate>
   );
 }

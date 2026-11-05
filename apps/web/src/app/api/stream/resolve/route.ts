@@ -1,6 +1,12 @@
+import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
+import { oneVidAddon } from "@/lib/auth-schema";
+import { db } from "@/lib/db";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { resolveTorboxRedirect } from "@/lib/torbox";
+
+export const runtime = "nodejs";
 
 // Resuelve server-side la cadena de redirects de TorBox y devuelve la URL
 // final del CDN, que el browser puede leer con `fetch()` (refleja ACAO + soporta
@@ -15,6 +21,13 @@ export async function POST(request: Request) {
     return Response.json({ error: "No autorizado" }, { status: 401 });
   }
 
+  const limited = checkRateLimit(
+    `stream-resolve:${session.user.id}`,
+    60,
+    60_000
+  );
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
+
   let body: { url?: unknown } = {};
   try {
     body = (await request.json()) as { url?: unknown };
@@ -23,11 +36,30 @@ export async function POST(request: Request) {
   }
 
   const url = typeof body.url === "string" ? body.url.trim() : "";
-  if (!url) {
+  if (!url || url.length > 4096) {
     return Response.json({ error: "url requerido" }, { status: 400 });
   }
 
-  const resolved = await resolveTorboxRedirect(url).catch(() => null);
+  // Solo se aceptan redirects de la API de TorBox o de los addons que el
+  // usuario tiene registrados. Sin esto, cualquier host con `/resolve/torbox/`
+  // en el path convertiría esta ruta en un SSRF ciego genérico.
+  const addons = await db
+    .select({ baseUrl: oneVidAddon.baseUrl })
+    .from(oneVidAddon)
+    .where(eq(oneVidAddon.userId, session.user.id));
+
+  const allowedHosts = new Set<string>();
+  for (const addon of addons) {
+    try {
+      allowedHosts.add(new URL(addon.baseUrl).hostname.toLowerCase());
+    } catch {
+      /* baseUrl corrupta: se ignora. */
+    }
+  }
+
+  const resolved = await resolveTorboxRedirect(url, { allowedHosts }).catch(
+    () => null
+  );
   if (!resolved) {
     return Response.json({ error: "No se pudo resolver el stream" }, {
       status: 502,
