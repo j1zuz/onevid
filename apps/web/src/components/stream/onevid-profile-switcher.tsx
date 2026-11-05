@@ -128,6 +128,7 @@ export function OneVidProfileSwitcher() {
             "overflow-hidden rounded-full p-0"
           )}
           data-dpad-focusable
+          data-dpad-primary
         >
           {activeProfile ? (
             <OneVidProfileAvatar

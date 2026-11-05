@@ -19,7 +19,7 @@ import {
   getTmdbLocale,
 } from "@/lib/tmdb";
 
-const NUMERIC_ID_RE = /^\d+$/;
+const MAX_MEDIA_ID_LENGTH = 200;
 
 /** GET: list "Continue watching" (no query) or resume a single title (?id=&type=). */
 export async function GET(request: NextRequest) {
@@ -86,6 +86,10 @@ export async function GET(request: NextRequest) {
       const tmdbLocale = getTmdbLocale(locale);
       await Promise.all(
         results.map(async (item) => {
+          // Los items de addons con ids propios no existen en TMDB.
+          if (item.id.startsWith("addon~")) {
+            return;
+          }
           const localized = await fetchLocalizedTitle(
             token,
             item.type,
@@ -111,7 +115,20 @@ export async function GET(request: NextRequest) {
     /* enriquecimiento best-effort: mantenemos los datos guardados */
   }
 
-  return NextResponse.json({ results });
+  const resultsWithLinks = results.map((item) => {
+    if (!item.id.startsWith("addon~")) {
+      return item;
+    }
+    const params = new URLSearchParams({ title: item.name ?? "" });
+    if (item.poster) {
+      params.set("poster", item.poster);
+    }
+    return {
+      ...item,
+      playHref: `/home/player/${item.type}/${encodeURIComponent(item.id)}?${params.toString()}`,
+    };
+  });
+  return NextResponse.json({ results: resultsWithLinks });
 }
 
 /** POST: upsert playback position for a title. */
@@ -145,7 +162,7 @@ export async function POST(request: Request) {
       .toLowerCase();
     const positionSec = Number(body.positionSec);
 
-    if (!NUMERIC_ID_RE.test(mediaId)) {
+    if (!mediaId || mediaId.length > MAX_MEDIA_ID_LENGTH) {
       return Response.json({ error: "mediaId inválido" }, { status: 400 });
     }
     if (mediaType !== "movie" && mediaType !== "series") {

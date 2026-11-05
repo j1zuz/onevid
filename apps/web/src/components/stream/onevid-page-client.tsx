@@ -1,33 +1,22 @@
 "use client";
 
 import { buttonVariants } from "@workspace/ui/components/button";
-import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
+import { TransitionLink, useTransitionRouter } from "glimm/next";
 import { ChevronRightIcon } from "lucide-react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import {
   type ReactNode,
-  Suspense,
-  use,
   useCallback,
-  useEffect,
   useRef,
-  useState,
 } from "react";
 import { ExploreMovieGrid } from "@/components/explore-movie-grid";
 import type { OneVidAddonSummary } from "@/components/stepper-onevid";
 import { ContinueWatchingRow } from "@/components/stream/continue-watching-row";
-import { type FeedSection, FeedRow } from "@/components/stream/feed-row";
 import { HeroCarousel } from "@/components/stream/hero-carousel";
 import { OneVidHeader } from "@/components/stream/onevid-header";
 import { ScrollTopFade } from "@/components/stream/scroll-top-fade";
 import {
-  POSTER_ROW_CLASS,
-  POSTER_ROW_ITEM_CLASS,
-} from "@/components/stream/poster-card";
-import {
-  FEED_ROW_ITEM_LIMIT,
   type FeedSurface,
   type OneVidFeedRow,
 } from "@/lib/onevid-feed";
@@ -41,19 +30,19 @@ function BackToHomeHeader({ title }: { title: string }) {
   const { t: rawT } = useTranslation();
   const t = (key: string) => rawT(key as never);
   return (
-    <div className="container mx-auto flex items-baseline justify-between gap-2 px-3">
+    <div className="flex items-baseline justify-between gap-2 px-3">
       <h1 className="font-semibold text-lg md:text-xl">{title}</h1>
       {/* Un `<a>` no debe renderizarse a través del `render` de Button (Base UI
           le exige semántica de botón nativo); se estilan las clases del botón
           directamente sobre el Link. */}
-      <Link
+      <TransitionLink
         className={cn(buttonVariants({ size: "xs" }), "btn-primary shrink-0")}
         data-dpad-focusable
         href="/home"
       >
         <ChevronRightIcon data-icon="inline-start" />
         {t("Volver al inicio")}
-      </Link>
+      </TransitionLink>
     </div>
   );
 }
@@ -68,49 +57,14 @@ function NoFeedResults() {
   );
 }
 
-// Filas del feed transmitidas por el server: `use()` suspende hasta que el
-// promise resuelve, y el <Suspense> de arriba muestra el esqueleto mientras
-// tanto. Así el hero (LCP) pinta sin esperar a las N filas de TMDB.
-function StreamedFeedRows({ promise }: { promise: Promise<FeedSection[]> }) {
-  const sections = use(promise);
-  if (!sections.length) {
-    return <NoFeedResults />;
-  }
-  return sections.map((section) => (
-    <FeedRow key={section.id} section={section} />
-  ));
-}
-
-const FEED_SKELETON_ROWS = 3;
-
-function FeedRowsSkeleton() {
-  return Array.from({ length: FEED_SKELETON_ROWS }).map((_, rowIndex) => (
-    <section
-      className="container mx-auto flex flex-col gap-3 px-2"
-      key={`feed-skeleton-${rowIndex.toString()}`}
-    >
-      <Skeleton className="h-7 w-40" />
-      <div className={POSTER_ROW_CLASS}>
-        {Array.from({ length: FEED_ROW_ITEM_LIMIT }).map((_, cardIndex) => (
-          <div
-            className={POSTER_ROW_ITEM_CLASS}
-            key={`feed-skeleton-${rowIndex.toString()}-${cardIndex.toString()}`}
-          >
-            <Skeleton className="aspect-video w-full rounded-(--radius)" />
-          </div>
-        ))}
-      </div>
-    </section>
-  ));
-}
 
 interface OneVidPageClientProps {
   addons: OneVidAddonSummary[];
   discoverRows: OneVidFeedRow[];
   feedConfigured: boolean;
   feedRows: OneVidFeedRow[];
-  /** Modo feed: filas que el server transmite (stream) por debajo del hero. */
-  feedSectionsPromise?: Promise<FeedSection[]>;
+  /** Modo feed: filas ya renderizadas por el server, cada una con su Suspense. */
+  feedRowsContent?: ReactNode;
   hasTorboxKey: boolean;
   /** Hero destacado (trending película/serie), solo modo feed. */
   heroItems: MediaMeta[];
@@ -130,7 +84,7 @@ export function OneVidPageClient({
   discoverRows,
   feedConfigured,
   feedRows,
-  feedSectionsPromise,
+  feedRowsContent,
   hasTorboxKey,
   heroItems,
   posters,
@@ -146,7 +100,7 @@ export function OneVidPageClient({
   // Vista completa de Continuar viendo (navegada desde su propio "Ver todo").
   // No depende del server: los datos de progreso ya se piden en el cliente.
   const continueViewAll = searchParams.get("view") === "continuing";
-  const router = useRouter();
+  const router = useTransitionRouter();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   const handleMovieSelect = useCallback((movie: MediaMeta) => {
@@ -154,14 +108,10 @@ export function OneVidPageClient({
   }, [router]);
 
   let mainContent: ReactNode;
-  if (feedSectionsPromise) {
-    // Las filas llegan por streaming: hasta que resuelven se muestra el
-    // esqueleto, que reserva su alto para no mover el hero (evita CLS).
-    mainContent = (
-      <Suspense fallback={<FeedRowsSkeleton />}>
-        <StreamedFeedRows promise={feedSectionsPromise} />
-      </Suspense>
-    );
+  if (feedRowsContent) {
+    // El server ya envolvió cada fila en su propio Suspense: se pintan según
+    // van resolviendo, sin esperar a los catálogos de addons lentos.
+    mainContent = feedRowsContent;
   } else if (posters?.length) {
     mainContent = (
       <ExploreMovieGrid
@@ -224,7 +174,7 @@ export function OneVidPageClient({
                 // -mt-4 para acercarlo al header: cancela el padding
                 // superior del contenedor con scroll (py-4) sin tocar el
                 // espaciado del resto de las filas.
-                <div className="-mt-4">
+                <div className="-mt-4 px-2">
                   <HeroCarousel items={heroItems} />
                 </div>
               )}

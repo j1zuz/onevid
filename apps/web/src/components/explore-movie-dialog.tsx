@@ -54,18 +54,15 @@ interface ExploreMovieDialogProps {
 export function MovieDetailPage({
   initialSeason,
   movie,
-  onPlay,
 }: {
   initialSeason?: number;
   movie: MediaMeta;
-  onPlay?: () => void;
 }) {
   return (
     <MovieDialogContent
       initialSeason={initialSeason}
       isOpen
       movie={movie}
-      onPlay={onPlay}
       pageMode
     />
   );
@@ -97,7 +94,7 @@ function formatDate(dateStr?: string): string {
 
 function MetaLine({ movie }: { movie: MediaMeta }) {
   const { t: rawT } = useTranslation();
-  const t = (key: string) => rawT(key as never);
+  const t = useCallback((key: string) => rawT(key as never), [rawT]);
   return (
     <span className="flex flex-wrap items-center justify-center gap-2 text-muted-foreground text-xs">
       {movie.year && <span>{movie.year}</span>}
@@ -164,7 +161,6 @@ function SourceOption({
                   ? "font-medium text-foreground"
                   : "text-muted-foreground"
               )}
-              // biome-ignore lint/suspicious/noArrayIndexKey: stream metadata is static text from addon
               key={index}
             >
               {line}
@@ -241,7 +237,6 @@ export function ExploreMovieDialog({
   );
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: complex dialog with source fetching and state management
 function MovieDialogContent({
   initialSeason,
   movie,
@@ -257,8 +252,11 @@ function MovieDialogContent({
 }) {
   const { push } = useRouter();
   const { t: rawT } = useTranslation();
-  const t = (key: string, options?: Record<string, unknown>) =>
-    rawT(key as never, options as never) as unknown as string;
+  const t = useCallback(
+    (key: string, options?: Record<string, unknown>) =>
+      rawT(key as never, options as never) as unknown as string,
+    [rawT]
+  );
   // The dialog can mount on the player route, which has no profile provider, so
   // read the context tolerantly and fall back to no active profile there.
   const activeProfileId = useOptionalOneVidProfiles()?.activeProfileId ?? null;
@@ -619,33 +617,36 @@ function MovieDialogContent({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [seasonDropdownOpen]);
 
-  const handlePlay = (
-    source: StreamWithAddon,
-    episode: EpisodeItem | null = selectedEpisode
-  ) => {
-    // `selectedEpisode.id` es "imdbId:season:episode" (lo necesita el addon de
-    // streams), pero la página de detalle espera "tmdbId:season:episode" para
-    // poder pedirle el detalle a TMDB (que rechaza IDs de IMDb en /tv/{id}).
-    // Por eso el prefijo acá siempre es `movie.id` (el TMDB id numérico).
-    const playId = episode
-      ? `${movie.id}:${episode.season}:${episode.number}`
-      : movie.id;
-    const key = `stream-source-${movie.type}-${playId}`;
-    sessionStorage.setItem(key, JSON.stringify(source));
-    if (episode) {
-      const title = `${movie.name} - S${episode.season}E${episode.number} ${episode.name}`;
-      try {
-        sessionStorage.setItem(
-          `stream-episode-title-${episode.id}`,
-          title
-        );
-      } catch {
-        // ignore
+  const handlePlay = useCallback(
+    (
+      source: StreamWithAddon,
+      episode: EpisodeItem | null = selectedEpisode
+    ) => {
+      // `selectedEpisode.id` es "imdbId:season:episode" (lo necesita el addon de
+      // streams), pero la página de detalle espera "tmdbId:season:episode" para
+      // poder pedirle el detalle a TMDB (que rechaza IDs de IMDb en /tv/{id}).
+      // Por eso el prefijo acá siempre es `movie.id` (el TMDB id numérico).
+      const playId = episode
+        ? `${movie.id}:${episode.season}:${episode.number}`
+        : movie.id;
+      const key = `stream-source-${movie.type}-${playId}`;
+      sessionStorage.setItem(key, JSON.stringify(source));
+      if (episode) {
+        const title = `${movie.name} - S${episode.season}E${episode.number} ${episode.name}`;
+        try {
+          sessionStorage.setItem(
+            `stream-episode-title-${episode.id}`,
+            title
+          );
+        } catch {
+          // ignore
+        }
       }
-    }
-    push(`/home/player/${movie.type}/${playId}`);
-    onPlay?.();
-  };
+      push(`/home/player/${movie.type}/${playId}`);
+      onPlay?.();
+    },
+    [movie.id, movie.name, movie.type, onPlay, push, selectedEpisode]
+  );
 
   const handlePlayFirstAvailable = useCallback(async () => {
     setStartingPlayback(true);
@@ -713,9 +714,9 @@ function MovieDialogContent({
             // Igual que el hero de /home: en móvil el póster va en vertical
             // (4:5) y sin logo/descripción duplicados; el backdrop 21:9 se
             // mantiene en escritorio.
-            className="relative mb-2 w-full overflow-hidden rounded-(--radius) border border-border/70 bg-muted transition-[filter] duration-200 hover:brightness-125 md:aspect-[21/9] md:min-h-96"
+            className="relative mb-2 w-full overflow-hidden rounded-(--radius) border border-border/70 bg-muted transition-[filter] duration-200 hover:brightness-125 md:aspect-21/9 md:min-h-96"
           >
-            <div className="relative aspect-[4/5] w-full md:absolute md:inset-0 md:aspect-auto md:h-full">
+            <div className="relative aspect-4/5 w-full md:absolute md:inset-0 md:aspect-auto md:h-full">
               <picture>
                 <source
                   media="(max-width: 767px)"
@@ -737,7 +738,7 @@ function MovieDialogContent({
                   <div className="absolute inset-0 bg-muted" />
                 )}
               </picture>
-              <div className="absolute inset-0 bg-gradient-to-t from-background via-background/10 to-transparent" />
+              <div className="absolute inset-0 bg-linear-to-t from-background via-background/10 to-transparent" />
               <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-3 p-5 pb-8 text-center md:items-start md:p-10 md:text-left">
                 {/* En móvil se oculta solo el logo (el póster ya trae el
                     título); la sinopsis se mantiene. */}
@@ -845,8 +846,10 @@ function MovieDialogContent({
           trailerKey &&
           typeof document !== "undefined" &&
           createPortal(
+            // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click closes the trailer; keyboard users have the close button.
+            // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop click closes the trailer; keyboard users have the close button.
             <div
-              className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
+              className="fixed inset-0 z-9999 flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
               onClick={() => setShowTrailer(false)}
             >
               <button
@@ -857,6 +860,8 @@ function MovieDialogContent({
               >
                 <X className="size-5" />
               </button>
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: stops click propagation from the player iframe. */}
+              {/* biome-ignore lint/a11y/useKeyWithClickEvents: only stops click propagation; there is no keyboard action here. */}
               <div
                 className="aspect-video w-full max-w-4xl overflow-hidden rounded-lg bg-black shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
@@ -986,19 +991,19 @@ function MovieDialogContent({
 
   function DetailBody() {
     return (
-      <div className="relative isolate space-y-4 [&>*]:relative [&>*]:z-10">
+      <div className="relative isolate space-y-4 *:relative *:z-10">
         {pageMode && movie.background && (
           <>
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-x-[-12%] top-[-8rem] bottom-[-8rem] z-0 bg-cover bg-center opacity-35 blur-3xl"
+              className="pointer-events-none absolute inset-x-[-12%] -top-32 -bottom-32 z-0 bg-cover bg-center opacity-35 blur-3xl"
               style={{
                 backgroundImage: `url("${tmdbImage(movie.background, "w780")}")`,
               }}
             />
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-x-[-12%] top-[-8rem] bottom-[-8rem] z-0 bg-gradient-to-b from-transparent via-background/35 to-background"
+              className="pointer-events-none absolute inset-x-[-12%] -top-32 -bottom-32 z-0 bg-linear-to-b from-transparent via-background/35 to-background"
             />
           </>
         )}

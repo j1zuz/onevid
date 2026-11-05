@@ -93,9 +93,11 @@
         "@videojs/hlsjs-video": "^10.2.0",
         "@videojs/react": "^10.2.0",
         "@workspace/ui": "workspace:*",
+        "@xmldom/xmldom": "0.9.10",
         "better-auth": "1.7.15",
         "dotenv": "18.0.9",
         "drizzle-orm": "0.45.4",
+        "glimm": "^0.4.0",
         "i18next": "26.7.1",
         "input-otp": "^1.4.2",
         "lucide-react": "catalog:",
@@ -1792,6 +1794,8 @@
     "get-tsconfig": ["get-tsconfig@4.14.0", "", { "dependencies": { "resolve-pkg-maps": "^1.0.0" } }, "sha512-yTb+8DXzDREzgvYmh6s9vHsSVCHeC0G3PI5bEXNBHtmshPnO+S5O7qgLEOn0I5QvMy6kpZN8K1NKGyilLb93wA=="],
 
     "getenv": ["getenv@1.0.0", "", {}, "sha512-7yetJWqbS9sbn0vIfliPsFgoXMKn/YMF+Wuiog97x+urnSRRRZ7xB+uVkwGKzRgq9CDFfMQnE9ruL5DHv9c6Xg=="],
+
+    "glimm": ["glimm@0.4.0", "", { "peerDependencies": { "next": ">=14", "react": ">=18", "react-dom": ">=18" }, "optionalPeers": ["next", "react", "react-dom"] }, "sha512-Fqq9QW2drEw4vo9SjNdIlDWybKrO5TxJJqNx4jTLeY0Aocp66+QRJitrVQkl6SRl6b5STBeTymwlMXrrKD38hw=="],
 
     "glob": ["glob@11.1.0", "", { "dependencies": { "foreground-child": "^3.3.1", "jackspeak": "^4.1.1", "minimatch": "^10.1.1", "minipass": "^7.1.2", "package-json-from-dist": "^1.0.0", "path-scurry": "^2.0.0" }, "bin": { "glob": "dist/esm/bin.mjs" } }, "sha512-vuNwKSaKiqm7g0THUBu2x7ckSs3XJLXE+2ssL7/MfTGPLLcrJQ/4Uq1CjPTtO5cCIiRxqvN6Twy1qOwhL0Xjcw=="],
 

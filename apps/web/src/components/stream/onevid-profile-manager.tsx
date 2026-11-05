@@ -69,7 +69,6 @@ function AvatarPicker({
           type="button"
         >
           {/* biome-ignore lint/performance/noImgElement: small local static asset */}
-          {/* biome-ignore lint/correctness/useImageSize: avatar scaled by CSS (size-full) */}
           <img
             alt={a}
             className="size-full object-cover"
@@ -198,17 +197,19 @@ function AuthPinField({
   );
 }
 
+interface OneVidProfileManagerProps {
+  initialEditId?: string | null;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+}
+
 export function OneVidProfileManager({
   open,
   onOpenChange,
   // Opens straight into editing this profile (e.g. tapped from the "¿Quién
   // está viendo?" gate in edit mode) instead of the plain list view.
   initialEditId,
-}: {
-  initialEditId?: string | null;
-  onOpenChange: (open: boolean) => void;
-  open: boolean;
-}) {
+}: OneVidProfileManagerProps) {
   const { t: rawT } = useTranslation();
   const t = (key: string, options?: Record<string, unknown>) =>
     rawT(key as never, options as never) as unknown as string;
@@ -327,8 +328,7 @@ export function OneVidProfileManager({
     setDeletingId(null);
   }
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only react to the
-  // dialog opening with a target id, not to `profiles` refreshing underneath.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only react when the dialog opens with a target id; profile refreshes must not reset the form.
   useEffect(() => {
     if (!(open && initialEditId)) {
       return;

@@ -84,6 +84,7 @@ export function glLayer({ canvas, fragment, view, camera, uniforms = [], fixed =
     onError(gl.getProgramInfoLog(program));
     return null;
   }
+  // biome-ignore lint/correctness/useHookAtTopLevel: gl.useProgram is a WebGL API, not a React Hook.
   gl.useProgram(program);
   const buffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);

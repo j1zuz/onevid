@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { StreamOnevid } from "@/components/stream/stream-onevid";
+import { parseAddonMediaId } from "@/lib/addon-media";
 import { auth } from "@/lib/auth";
 import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { getServerT } from "@/lib/server-t";
@@ -13,31 +14,64 @@ import {
 } from "@/lib/tmdb";
 
 type Params = Promise<{ type: string; id: string }>;
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: "Reproducir" };
 }
 
-export default async function PlayerPage({ params }: { params: Params }) {
+export default async function PlayerPage({
+  params,
+  searchParams,
+}: {
+  params: Params;
+  searchParams: SearchParams;
+}) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
     redirect("/");
   }
 
-  return <PlayerContent params={params} />;
+  return <PlayerContent params={params} searchParams={searchParams} />;
 }
 
-async function PlayerContent({ params }: { params: Params }) {
+async function PlayerContent({
+  params,
+  searchParams,
+}: {
+  params: Params;
+  searchParams: SearchParams;
+}) {
   const { type: typeParam, id: rawId } = await params;
   const id = decodeURIComponent(rawId);
   const contentType = typeParam === "series" ? "series" : "movie";
+  const baseId = contentType === "series" ? id.split(":")[0] : id;
+
+  // Pelis/series de un addon con id propio: no pasan por TMDB; el propio addon
+  // resuelve el stream con su id. El título/póster vienen en la URL.
+  if (parseAddonMediaId(baseId)) {
+    const sp = await searchParams;
+    const title = typeof sp.title === "string" ? sp.title : "";
+    const poster = typeof sp.poster === "string" ? sp.poster : undefined;
+    return (
+      <StreamOnevid
+        contentId={baseId}
+        contentPoster={poster}
+        contentTitle={title || "Video"}
+        contentType={contentType}
+        isAddon
+        key={id}
+        rawId={id}
+      />
+    );
+  }
+
   const { locale } = await getServerT();
   const token = getTmdbReadToken();
   if (!token) {
     redirect("/home");
   }
 
-  const baseId = contentType === "series" ? id.split(":")[0] : id;
   let meta: MediaMeta | null = null;
   try {
     meta =

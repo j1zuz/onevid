@@ -1,5 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
+import { parseAddonStreamId } from "@/lib/addon-media";
 import { auth } from "@/lib/auth";
 import { oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
@@ -155,6 +156,32 @@ export async function POST(request: Request) {
     if (!id) {
       return Response.json({ error: "Missing id parameter" }, { status: 400 });
     }
+
+    // Subtítulos de un addon con id propio: sin pasar por IMDb.
+    const addonRef = parseAddonStreamId(id);
+    if (addonRef) {
+      const [addon] = await db
+        .select({ baseUrl: oneVidAddon.baseUrl })
+        .from(oneVidAddon)
+        .where(
+          and(
+            eq(oneVidAddon.id, addonRef.addonId),
+            eq(oneVidAddon.userId, session.user.id)
+          )
+        )
+        .limit(1);
+      if (!addon) {
+        return Response.json({ subtitles: [] });
+      }
+      const tracks = await fetchAddonSubtitles(
+        addon.baseUrl,
+        type,
+        addonRef.rawId,
+        { episode: addonRef.episode, season: addonRef.season }
+      );
+      return Response.json({ subtitles: tracks.slice(0, MAX_SUBTITLES) });
+    }
+
     const ref = parseRef(id, type);
     if (!ref) {
       return Response.json({ error: "Unsupported id format" }, { status: 400 });

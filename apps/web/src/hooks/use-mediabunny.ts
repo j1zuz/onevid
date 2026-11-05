@@ -356,17 +356,17 @@ function readAacObjectTypeAtEsds(moov: Uint8Array, esdsIdx: number): number | nu
   };
   // ES_Descriptor (0x03) → DecoderConfigDescriptor (0x04) → DecoderSpecificInfo (0x05)
   const esDesc = readTag();
-  if (!esDesc || esDesc.tag !== 0x03) {
+  if (esDesc?.tag !== 0x03) {
     return null;
   }
   p += 2 + 1; // ES_ID(2) + flags(1)
   const decCfg = readTag();
-  if (!decCfg || decCfg.tag !== 0x04) {
+  if (decCfg?.tag !== 0x04) {
     return null;
   }
   p += 1 + 3 + 4 + 4; // objectTypeIndication(1) + streamType(1) + bufferSizeDB(3) + maxBitrate(4) + avgBitrate(4)
   const spec = readTag();
-  if (!spec || spec.tag !== 0x05 || spec.len < 1) {
+  if (spec?.tag !== 0x05 || spec.len < 1) {
     return null;
   }
   // Primeros 5 bits del AudioSpecificConfig = audioObjectType.
@@ -460,6 +460,7 @@ function indexOfFourcc(buf: Uint8Array, fourcc: string, from: number): number {
  * OPFS file the caller has already deleted, which pins GPU decoder sessions
  * and can leave the page's compositor stuck painting black.
  */
+// biome-ignore lint/correctness/noUnusedVariables: kept as the non-streaming reference path for future download flows.
 async function transcodeToMp4(
   source: File | string,
   opfsName: string,
@@ -683,6 +684,12 @@ async function transcodeToWritable(
  */
 async function runProgressivePlayback(opts: {
   source: File | string;
+  /**
+   * El origen es un HLS en directo (Live TV). Cambia el modo de espera del
+   * input, desactiva la duración/seek/EOF y deja la conversión corriendo hasta
+   * que se cancele: un directo no termina.
+   */
+  live?: boolean;
   /** Índice 0-based de la pista de audio con la que arrancar. */
   audioTrackIndex: number;
   onProgress: (progress: number) => void;
@@ -696,7 +703,7 @@ async function runProgressivePlayback(opts: {
   abortedRef: { current: boolean };
   cleanupRef: { current: (() => void) | null };
 }): Promise<void> {
-  const { source, onProgress, onStreamStart, abortedRef } = opts;
+  const { source, onProgress, onStreamStart, abortedRef, live = false } = opts;
 
   if (typeof MediaSource === "undefined") {
     throw new Error("MediaSource no soportado");
@@ -744,6 +751,10 @@ async function runProgressivePlayback(opts: {
           ? new UrlSource(source, urlSourceOptions(source, abortedRef))
           : new BlobSource(source),
       formats: ALL_FORMATS,
+      // En HLS, los timestamps anclados al epoch (por `#EXT-X-PROGRAM-DATE-TIME`)
+      // no sirven para MSE: el <video> arrancaría en 1.7e9 s. Relativos, el
+      // muxer empieza cerca de 0 y el navegador puede reproducir el directo.
+      formatOptions: { hls: { offsetTimestampsByDateTime: false } },
     });
 
   const probe = makeInput();
@@ -780,7 +791,9 @@ async function runProgressivePlayback(opts: {
   // del mismo archivo compitiendo por el ancho de banda, y el primer frame
   // llega bastante más tarde (medido: 36 s frente a 14 s). Con una sola pista
   // se muxea todo en el carril de vídeo, como antes.
-  const useSeparateAudioLane = audioTracks.length > 1;
+  // En directo siempre un solo carril: muxear vídeo+audio juntos es justo lo
+  // que deja que el <video> sincronice A/V por su cuenta.
+  const useSeparateAudioLane = !live && audioTracks.length > 1;
 
   // Siempre AAC-LC: es lo único que el <video> decodifica en todas las
   // plataformas, y el AC-3/E-AC-3 de los releases no lo soporta ni Chromium.
@@ -1065,16 +1078,21 @@ async function runProgressivePlayback(opts: {
   onStreamStart(objectUrl);
   await sourceOpen;
 
-  const durationSec = await probe
-    .getDurationFromMetadata()
-    .catch(() => null);
-  if (durationSec && Number.isFinite(durationSec) && durationSec > 0) {
-    try {
-      // Fijar la duración desde los metadatos evita que el scrubber quede sin
-      // longitud y que el guardado de progreso reciba `duration: 0`.
-      mediaSource.duration = durationSec;
-    } catch {
-      /* la resuelve `endOfStream` al final */
+  // `getDurationFromMetadata()` sin `skipLiveWait` espera a que el directo
+  // termine, así que en vivo ni se consulta: `mediaSource.duration` se queda
+  // como la calcula el navegador (infinita mientras el stream siga vivo).
+  if (!live) {
+    const durationSec = await probe
+      .getDurationFromMetadata()
+      .catch(() => null);
+    if (durationSec && Number.isFinite(durationSec) && durationSec > 0) {
+      try {
+        // Fijar la duración desde los metadatos evita que el scrubber quede sin
+        // longitud y que el guardado de progreso reciba `duration: 0`.
+        mediaSource.duration = durationSec;
+      } catch {
+        /* la resuelve `endOfStream` al final */
+      }
     }
   }
 
@@ -1128,7 +1146,9 @@ async function runProgressivePlayback(opts: {
       await conversion.cancel();
       return;
     }
-    conversion.onProgress = onProgress;
+    if (!live) {
+      conversion.onProgress = onProgress;
+    }
     if (resuming && lane.sourceBuffer) {
       // El codec de salida es el mismo, así que se reutiliza el SourceBuffer.
       // mediabunny rebasa la salida recortada a 0; `timestampOffset` la devuelve
@@ -1271,7 +1291,9 @@ async function runProgressivePlayback(opts: {
         failProgressivePlayback(error);
       });
   };
-  opts.onAudioSwitcher(useSeparateAudioLane ? switchAudioTrack : null);
+  opts.onAudioSwitcher(
+    !live && useSeparateAudioLane ? switchAudioTrack : null,
+  );
 
   // --- Seek (reinicio de la transcodificación en un offset) ---
   // La conversión es secuencial: saltar más allá de lo ya transcodificado deja
@@ -1288,7 +1310,10 @@ async function runProgressivePlayback(opts: {
     void videoConversionRef.current?.cancel().catch(() => undefined);
     void audioConversionRef.current?.cancel().catch(() => undefined);
   };
-  opts.onSeekRestart(requestSeek);
+  // En directo no hay seek: el <video> solo puede moverse dentro de lo ya
+  // buffereado, y reiniciar la conversión desde el borde en vivo no tiene
+  // sentido (el canal se ve desde la ventana de la playlist, como hls.js).
+  opts.onSeekRestart(live ? null : requestSeek);
 
   try {
     // Bucle de reproducción: corre ambos carriles desde `startAt`. Si llega un
@@ -1357,14 +1382,87 @@ async function runProgressivePlayback(opts: {
     throw progressiveError;
   }
 
-  // Cierra el stream para que el <video> obtenga duración/fin definitivos.
-  if (!abortedRef.current && mediaSource.readyState === "open") {
+  // Cierra el stream para que el <video> obtenga duración/fin definitivos. Un
+  // directo no termina: cerrarlo cortaría el canal.
+  if (!(live || abortedRef.current) && mediaSource.readyState === "open") {
     try {
       mediaSource.endOfStream();
     } catch {
       /* ya cerrado */
     }
   }
+}
+
+/** Handle para cortar una reproducción en directo montada con MediaBunny. */
+export interface LivePlaybackHandle {
+  cancel: () => void;
+}
+
+/**
+ * Reproduce un canal HLS en directo con el pipeline de MediaBunny (MSE) en vez
+ * de hls.js. Es el camino que hace audible un canal cuyo audio el navegador no
+ * puede decodificar (AC-3/E-AC-3/DTS/TrueHD): MediaBunny decodifica el audio,
+ * lo re-encodea a AAC y muxea vídeo+audio en un SourceBuffer, así el `<video>`
+ * sincroniza A/V por su cuenta (sin relojes paralelos que cuadrar).
+ *
+ * No se espera a que termine: un directo nunca termina. Devuelve un handle
+ * para cancelar la conversión al desmontar o al cambiar de canal.
+ */
+export function startLivePlayback(opts: {
+  url: string;
+  onStart: (src: string) => void;
+  onError: (error: Error) => void;
+}): LivePlaybackHandle {
+  const abortedRef = { current: false };
+  const conversionRef: { current: CancellableConversion | null } = {
+    current: null,
+  };
+  const cleanupRef: { current: (() => void) | null } = { current: null };
+
+  if (typeof MediaSource === "undefined") {
+    opts.onError(new Error("MediaSource no soportado"));
+    return { cancel: () => undefined };
+  }
+
+  void runProgressivePlayback({
+    source: opts.url,
+    live: true,
+    audioTrackIndex: 0,
+    onProgress: () => undefined,
+    onStreamStart: (src) => {
+      if (!abortedRef.current) {
+        opts.onStart(src);
+      }
+    },
+    onAudioTracks: () => undefined,
+    onAudioSwitcher: () => undefined,
+    onSeekRestart: () => undefined,
+    conversionRef,
+    abortedRef,
+    cleanupRef,
+  })
+    .then(() => undefined)
+    .catch((error: unknown) => {
+      // Cancelar a propósito también rechaza; eso no es un fallo del canal.
+      if (abortedRef.current) {
+        return;
+      }
+      opts.onError(
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    });
+
+  return {
+    cancel: () => {
+      abortedRef.current = true;
+      try {
+        cleanupRef.current?.();
+      } catch {
+        /* noop */
+      }
+      void conversionRef.current?.cancel().catch(() => undefined);
+    },
+  };
 }
 
 /** Resultado de una descarga, para que la UI distinga cancelar de fallar. */
@@ -1382,7 +1480,7 @@ export type DownloadOutcome = "done" | "canceled";
  * Cancelación: el caller pone `abortedRef.current = true` y, si hay conversión en
  * curso, llama `conversionRef.current?.cancel()` — igual que el hook al desmontar.
  */
-export async function downloadMediaFile(opts: {
+interface DownloadMediaFileOptions {
   url: string;
   filename: string;
   storageKey: string;
@@ -1390,7 +1488,11 @@ export async function downloadMediaFile(opts: {
   onProgress?: (progress: number) => void;
   abortedRef: { current: boolean };
   conversionRef: { current: CancellableConversion | null };
-}): Promise<DownloadOutcome> {
+}
+
+export async function downloadMediaFile(
+  opts: DownloadMediaFileOptions
+): Promise<DownloadOutcome> {
   const {
     url,
     filename,
@@ -1548,6 +1650,7 @@ export function useMediaBunny(
     seekRef.current?.(sec);
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `retryKey` intentionally restarts playback without being read inside the effect.
   useEffect(() => {
     if (!(source && needsMediaBunny(filename, codecHint))) {
       setState({ status: "idle" });

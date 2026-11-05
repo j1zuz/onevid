@@ -26,6 +26,7 @@ import {
   resolveFeedSections,
   resolveHero,
 } from "@/lib/onevid-feed-sections";
+import { listLiveTvSources } from "@/lib/live-tv-server";
 import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { posthogServerCapture } from "@/lib/posthog-server";
 import { getServerT } from "@/lib/server-t";
@@ -132,9 +133,18 @@ export async function GET(request: NextRequest) {
     }
 
     if (only === "sections") {
+      const liveSourcesById = rows.some((row) => row.type === "live")
+        ? new Map(
+            (await listLiveTvSources(session.user.id)).map((source) => [
+              source.id,
+              source.name,
+            ])
+          )
+        : undefined;
       const sectionsResult = await resolveFeedSections({
         addonsById,
         itemsPerRow,
+        liveSourcesById,
         networksById: new Map(getNetworkOptions().map((n) => [n.id, n])),
         rows,
         t,

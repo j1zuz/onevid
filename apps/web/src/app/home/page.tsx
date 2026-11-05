@@ -10,11 +10,15 @@ import { desc, eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { Suspense } from "react";
-import { HomeFeedSkeleton } from "@/app/home/loading";
+import { type ReactNode, Suspense } from "react";
+import { HomeFeedSkeleton, LiveTvSkeleton, LibrarySkeleton } from "@/app/home/loading";
 import { SetupStepper } from "@/components/stepper-onevid";
-import type { FeedSection } from "@/components/stream/feed-row";
+import { FeedRow } from "@/components/stream/feed-row";
+import { FeedRowSkeleton } from "@/components/stream/feed-row-skeleton";
+import { LibrarySurface } from "@/components/stream/library-surface";
 import { OneVidHeader } from "@/components/stream/onevid-header";
+import { LiveTvSurface } from "@/components/stream/live-tv-surface";
+import { listLiveTvSources } from "@/lib/live-tv-server";
 import { OneVidPageClient } from "@/components/stream/onevid-page-client";
 import {
   ACTIVE_PROFILE_COOKIE,
@@ -36,9 +40,11 @@ import {
   type FeedSurface,
   getFeedRowTitle,
   parseFeedRows,
+  type OneVidFeedRow,
 } from "@/lib/onevid-feed";
 import {
-  resolveFeedSections,
+  type ResolveFeedSectionOptions,
+  resolveFeedSection,
   resolveHero,
 } from "@/lib/onevid-feed-sections";
 import { getTmdbReadToken } from "@/lib/onevid-tmdb";
@@ -48,6 +54,7 @@ import {
   getNetworkOptions,
   getTmdbLocale,
   getTmdbRegion,
+  trendingAll,
   trendingAllAtLeast,
   type MediaMeta,
   type NetworkOption,
@@ -94,6 +101,12 @@ export default async function OneVidPage({
     redirect("/");
   }
 
+  // Resolve the surface up front so the Suspense fallback matches the page
+  // the user actually reloaded: without this, /home?surface=live flashes the
+  // home skeleton before LiveTvSurface renders. Awaiting it here is cheap;
+  // searchParams is already parsed by the framework.
+  const params = await searchParams;
+
   const profileRows = await db
     .select({
       id: oneVidProfile.id,
@@ -124,7 +137,17 @@ export default async function OneVidPage({
       initialProfiles={profiles}
       initialVerifiedProfileId={verifiedProfileId}
     >
-      <Suspense fallback={<HomeFeedSkeleton />}>
+      <Suspense
+        fallback={
+          params.surface === "live" ? (
+            <LiveTvSkeleton />
+          ) : params.surface === "library" ? (
+            <LibrarySkeleton />
+          ) : (
+            <HomeFeedSkeleton />
+          )
+        }
+      >
         <OneVidContent
           searchParams={searchParams}
           userId={session.user.id}
@@ -132,6 +155,17 @@ export default async function OneVidPage({
       </Suspense>
     </OneVidProfileProvider>
   );
+}
+
+async function FeedRowServer({
+  deps,
+  row,
+}: {
+  deps: ResolveFeedSectionOptions;
+  row: OneVidFeedRow;
+}) {
+  const section = await resolveFeedSection(row, deps).catch(() => null);
+  return section ? <FeedRow section={section} /> : null;
 }
 
 async function OneVidContent({
@@ -260,6 +294,24 @@ async function OneVidContent({
     surface,
   };
 
+  // Live TV is independent of the TMDB catalog and streaming addons.
+  if (params.surface === "live") {
+    return (
+      <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
+        <LiveTvSurface headerProps={headerProps} />
+      </main>
+    );
+  }
+
+  // Biblioteca: favoritos y "Ver después" del perfil activo, sin catálogo.
+  if (params.surface === "library") {
+    return (
+      <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
+        <LibrarySurface headerProps={headerProps} />
+      </main>
+    );
+  }
+
   // El catálogo se desbloquea al completar el setup. `tmdbToken` (el token
   // global del dueño) se comprueba también para narrow a non-null más abajo.
   if (!(tmdbToken && setupCompleted)) {
@@ -310,7 +362,7 @@ async function OneVidContent({
   // Modo "Ver todo": una grilla; modo feed: N filas en paralelo.
   let posters: MediaMeta[] | undefined;
   let viewAllTitle: string | undefined;
-  let feedSectionsPromise: Promise<FeedSection[]> | undefined;
+  let feedRowsContent: ReactNode;
   let heroItems: MediaMeta[] = [];
   let postersTopTenRanks: Record<string, number> = {};
   let loadError: "auth" | "network" | null = null;
@@ -327,7 +379,9 @@ async function OneVidContent({
       try {
         posters = await fetchAddonCatalogResults({
           addonBaseUrl: addon.baseUrl,
+          addonId: params.addonId ?? "",
           catalogId: catalogRef.id,
+          hydrateTmdb: false,
           limit: CATALOG_VIEW_ALL_ITEM_LIMIT,
           tmdbLocale,
           token,
@@ -405,18 +459,38 @@ async function OneVidContent({
     // (stream) por debajo del carrusel: el cliente las envuelve en <Suspense>,
     // así el primer pintado no espera a las N filas de TMDB. Cualquier fallo
     // deja el feed vacío en vez de propagar al cliente.
-    const rowsPromise = resolveFeedSections({
+    const liveSourcesById = surfaceRows.some((row) => row.type === "live")
+      ? new Map((await listLiveTvSources(userId)).map((s) => [s.id, s.name]))
+      : undefined;
+    const needsTopTen = surfaceRows.some(
+      (row) =>
+        row.type !== "live" &&
+        row.catalog === "trending" &&
+        row.networkId == null
+    );
+    const trendingPromise = needsTopTen
+      ? trendingAll(token, tmdbLocale)
+      : undefined;
+    const rowDeps: ResolveFeedSectionOptions = {
       addonsById,
       itemsPerRow: FEED_ROW_ITEM_LIMIT,
+      liveSourcesById,
       networksById,
-      rows: surfaceRows,
       t,
       tmdbLocale,
       tmdbRegion,
       token,
-    })
-      .then((result) => result.sections)
-      .catch(() => [] as FeedSection[]);
+      trendingPromise,
+    };
+    const rowsContent = (
+      <>
+        {surfaceRows.map((row, index) => (
+          <Suspense fallback={<FeedRowSkeleton />} key={`feed-row-${index}`}>
+            <FeedRowServer deps={rowDeps} row={row} />
+          </Suspense>
+        ))}
+      </>
+    );
 
     // El hero (elemento LCP) se espera aparte: es lo primero que pinta /home y
     // sirve de sonda de auth (mismo token que las filas). Un token muerto lleva
@@ -426,7 +500,7 @@ async function OneVidContent({
     if (heroResult.authFailed) {
       loadError = "auth";
     } else {
-      feedSectionsPromise = rowsPromise;
+      feedRowsContent = rowsContent;
     }
   }
 
@@ -484,7 +558,7 @@ async function OneVidContent({
         discoverRows={discoverRows}
         feedConfigured={feedConfigured}
         feedRows={feedRows}
-        feedSectionsPromise={feedSectionsPromise}
+        feedRowsContent={feedRowsContent}
         hasTorboxKey={Boolean(torboxKey)}
         heroItems={heroItems}
         posters={posters}

@@ -4,12 +4,13 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
+import { TransitionLink } from "glimm/next";
 import { MagnetIcon, ScanSearchIcon, XIcon } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OneVidAddonSummary } from "@/components/stepper-onevid";
 import { OneVidProfileSwitcher } from "@/components/stream/onevid-profile-switcher";
+import { useLiveTvSearch } from "@/components/stream/live-tv-search";
 import { useDebouncedSearch } from "@/hooks/use-debounced-search";
 import {
   buildMagnetPlayerHref,
@@ -39,10 +40,12 @@ interface SearchMeta {
 const SURFACE_TABS: Array<{
   href: string;
   label: string;
-  surface: FeedSurface;
+  surface: FeedSurface | "live" | "library";
 }> = [
   { href: "/home", label: "Inicio", surface: "home" },
   { href: "/home?surface=discover", label: "Descubrir", surface: "discover" },
+  { href: "/home?surface=live", label: "Live TV", surface: "live" },
+  { href: "/home?surface=library", label: "Biblioteca", surface: "library" },
 ];
 
 // El endpoint ya recorta a 20; en el dropdown solo caben unos pocos.
@@ -76,7 +79,7 @@ interface OneVidHeaderProps {
   onMovieSelect?: (movie: MediaMeta) => void;
   setupCompleted: boolean;
   /** Pestaña activa; la elige `?surface=` en /home. */
-  surface?: FeedSurface;
+  surface?: FeedSurface | "live" | "library";
 }
 
 export function OneVidHeader({
@@ -85,9 +88,11 @@ export function OneVidHeader({
   const router = useRouter();
   const { t: rawT } = useTranslation();
   const t = (key: string) => rawT(key as never);
+  // En Live TV el buscador del header filtra los canales, no el catálogo TMDB.
+  const liveSearch = useLiveTvSearch();
   const {
     loading: searchLoading,
-    query: searchQuery,
+    query: catalogQuery,
     reset: resetSearch,
     results: searchResults,
     search,
@@ -96,9 +101,10 @@ export function OneVidHeader({
     buildUrl: buildSearchUrl,
     inputId: SEARCH_INPUT_ID,
     parse: parseSearchResults,
-    shouldSearch: shouldSearchCatalog,
+    shouldSearch: (query) => !liveSearch && shouldSearchCatalog(query),
     storageKey: SEARCH_STORAGE_KEY,
   });
+  const searchQuery = liveSearch?.query ?? catalogQuery;
   // `open` es independiente de la respuesta del fetch a propósito: antes el
   // dropdown se abría al *recibir* los resultados, así que en la primera
   // búsqueda el skeleton no llegaba a verse nunca y la lista aparecía de
@@ -113,10 +119,15 @@ export function OneVidHeader({
 
   const hasQuery = searchQuery.trim().length > 0;
   const magnetQuery = isMagnetLink(searchQuery) ? searchQuery.trim() : null;
-  const showResults = open && hasQuery;
+  const showResults = open && hasQuery && !liveSearch;
 
   const handleSearchChange = useCallback(
     (value: string) => {
+      if (liveSearch) {
+        liveSearch.setQuery(value);
+        setOpen(false);
+        return;
+      }
       search(value);
       setOpen(value.trim().length > 0);
       // Persistimos la búsqueda para recuperarla al recargar. El <script> de
@@ -135,12 +146,18 @@ export function OneVidHeader({
         /* almacenamiento bloqueado o lleno */
       }
     },
-    [search]
+    [liveSearch, search]
   );
 
   const handleSearchSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
+      // En Live TV el submit no navega: el filtrado es en vivo.
+      if (liveSearch) {
+        setOpen(false);
+        setMobileSearchOpen(false);
+        return;
+      }
       const trimmed = searchQuery.trim();
       // Enter sobre un magnet va directo al reproductor, sin pasar por TMDB.
       if (isMagnetLink(trimmed)) {
@@ -152,10 +169,16 @@ export function OneVidHeader({
       submit();
       setOpen(trimmed.length > 0);
     },
-    [router, searchQuery, submit]
+    [liveSearch, router, searchQuery, submit]
   );
 
   const clearSearch = useCallback(() => {
+    if (liveSearch) {
+      liveSearch.setQuery("");
+      setOpen(false);
+      setMobileSearchOpen(false);
+      return;
+    }
     resetSearch();
     setOpen(false);
     // En móvil el campo vive en un overlay: al borrar, se vuelve al header.
@@ -165,7 +188,7 @@ export function OneVidHeader({
     } catch {
       /* almacenamiento bloqueado */
     }
-  }, [resetSearch]);
+  }, [liveSearch, resetSearch]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -195,13 +218,16 @@ export function OneVidHeader({
   // React tomara el control): la buscamos y abrimos el dropdown una vez.
   const restoredQueryRef = useRef(searchQuery);
   useEffect(() => {
+    if (liveSearch) {
+      return;
+    }
     const restored = restoredQueryRef.current.trim();
     if (!restored) {
       return;
     }
     search(restoredQueryRef.current);
     setOpen(true);
-  }, [search]);
+  }, [liveSearch, search]);
 
   function renderSearchResults() {
     // Un magnet no es un título del catálogo: el único resultado posible es
@@ -210,7 +236,7 @@ export function OneVidHeader({
       return (
         <ul className="p-1">
           <li>
-            <Link
+            <TransitionLink
               className="flex w-full items-center gap-3 rounded-md border border-transparent px-3 py-2 text-left transition-colors"
               data-dpad-focusable
               href={buildMagnetPlayerHref(magnetQuery)}
@@ -227,7 +253,7 @@ export function OneVidHeader({
                   {magnetDisplayName(magnetQuery)}
                 </p>
               </div>
-            </Link>
+            </TransitionLink>
           </li>
         </ul>
       );
@@ -270,7 +296,7 @@ export function OneVidHeader({
           // son por colección, así que una película y una serie pueden
           // compartir el mismo número y colisionar como key.
           <li key={`${item.type ?? "movie"}:${item.id}`}>
-            <Link
+            <TransitionLink
               className="flex w-full items-center gap-3 rounded-md border border-transparent px-3 py-2 text-left transition-colors"
               data-dpad-focusable
               href={`/home/detail/${item.type === "series" ? "series" : "movie"}/${encodeURIComponent(item.id)}`}
@@ -304,7 +330,7 @@ export function OneVidHeader({
                   )}
                 </p>
               </div>
-            </Link>
+            </TransitionLink>
           </li>
         ))}
       </ul>
@@ -313,13 +339,14 @@ export function OneVidHeader({
 
   return (
     <section
-      className="sticky top-0 z-20 -mx-4 mb-6 flex items-center gap-3 border-border border-b border-dashed bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:-mx-6 md:px-6"
+      className="sticky top-0 z-20 -mx-4 mb-6 flex flex-wrap items-center gap-3 border-border border-b border-dashed bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 sm:flex-nowrap md:-mx-6 md:px-6"
       data-dpad-focus-subtle
     >
       {/* Logo: lleva de vuelta a /home. */}
-      <Link
+      <TransitionLink
         className="flex shrink-0 items-center rounded-md border border-border/70 transition-colors hover:border-border"
         data-dpad-focusable
+        data-dpad-primary
         href="/home"
       >
         {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
@@ -330,40 +357,49 @@ export function OneVidHeader({
           src="/onevid-pwa-512.png"
           width={32}
         />
-      </Link>
+      </TransitionLink>
 
-      {/* Las dos superficies configurables. Son enlaces y no un control con
-          estado porque cada una es una carga distinta del Server Component; el
-          feed de cada pestaña lo arma el usuario en el paso 2 del stepper. */}
-      <nav className="flex shrink-0 items-center gap-1">
+      <nav
+        aria-label="Navegación principal"
+        className={cn(
+          "flex min-w-0 items-center gap-0.5 overflow-x-auto",
+          // Móvil: las pestañas pasan a una segunda línea a todo el ancho, así
+          // "Biblioteca" no queda cortada detrás del avatar. En sm+ vuelven a
+          // compartir la fila con el logo y los controles.
+          "max-sm:order-3 max-sm:w-full max-sm:justify-between max-sm:border-border/60 max-sm:border-t max-sm:pt-2",
+          "sm:w-auto sm:justify-start sm:gap-1 sm:border-0 sm:pt-0",
+        )}
+      >
         {SURFACE_TABS.map((tab) => (
-          <Link
+          <TransitionLink
             aria-current={surface === tab.surface ? "page" : undefined}
             className={cn(
-              "rounded-full border border-transparent px-3 py-1 font-medium text-sm transition-colors",
+              "shrink-0 whitespace-nowrap rounded-full border border-transparent px-2 py-1 font-medium text-xs transition-colors sm:px-3 sm:text-sm",
               surface === tab.surface
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:text-foreground"
             )}
             data-dpad-focusable
+            data-dpad-primary
             href={tab.href}
             key={tab.surface}
           >
             {t(tab.label)}
-          </Link>
+          </TransitionLink>
         ))}
       </nav>
 
       {/* Búsqueda + perfil + configuración. Los selectores de tipo / catálogo /
           cadena que vivían aquí ahora son el paso 2 del stepper ("Configurar
           feed"): el usuario arma su inicio una vez y /home lo respeta. */}
-      <div className="flex flex-1 items-center justify-end gap-2">
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
         {/* Móvil: la búsqueda se abre desde un icono y ocupa todo el header. */}
         {!mobileSearchOpen && (
           <Button
             aria-label={t("Buscar")}
             className="text-muted-foreground hover:text-foreground md:hidden"
             data-dpad-focusable
+            data-dpad-primary
             onClick={() => setMobileSearchOpen(true)}
             size="icon-sm"
             variant="ghost"
@@ -390,10 +426,11 @@ export function OneVidHeader({
                 <Input
                   className="w-full pr-8 pl-9"
                   data-dpad-focusable
+                  data-dpad-primary
                   id={SEARCH_INPUT_ID}
                   onChange={(e) => handleSearchChange(e.target.value)}
                   onFocus={() => {
-                    if (hasQuery) {
+                    if (hasQuery && !liveSearch) {
                       setOpen(true);
                     }
                   }}
@@ -402,7 +439,9 @@ export function OneVidHeader({
                       closeSearch();
                     }
                   }}
-                  placeholder={`${t("Buscar")}...`}
+                  placeholder={
+                    liveSearch ? t("Buscar canal...") : `${t("Buscar")}...`
+                  }
                   ref={searchInputRef}
                   type="text"
                   value={searchQuery}

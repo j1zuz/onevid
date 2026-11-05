@@ -110,6 +110,8 @@ export interface MediaMeta {
   logo?: string;
   name: string;
   networks?: NetworkRef[];
+  /** Si existe, la tarjeta abre el reproductor en vez de la página de detalle. */
+  playHref?: string;
   popularity?: number;
   poster?: string;
   related?: MediaMeta[];

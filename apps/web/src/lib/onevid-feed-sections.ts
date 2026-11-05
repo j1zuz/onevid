@@ -36,6 +36,12 @@ export interface FeedSection {
   href: string;
   id: string;
   items: MediaMeta[];
+  /** Las filas de Live TV se pintan con su propio carrusel de canales. */
+  kind?: "live";
+  /** Solo para `kind === "live"`: fuente de Live TV a mostrar. */
+  liveSourceId?: string;
+  /** Solo para `kind === "live"`: categoría/grupo de canales. */
+  liveGroup?: string;
   /** Solo las filas generales de tendencias de películas/series. */
   topTen: boolean;
   /** Posición TMDB dentro del Top 10 combinado de tendencias. */
@@ -62,6 +68,8 @@ interface ResolveFeedOptions {
    * usa la página completa de TMDB porque sus filas hacen scroll horizontal.
    */
   itemsPerRow?: number;
+  /** Nombres de las fuentes de Live TV, por id (solo filas `type: "live"`). */
+  liveSourcesById?: Map<string, string>;
   networksById: Map<number, NetworkOption>;
   rows: OneVidFeedRow[];
   t: (key: string) => string;
@@ -79,6 +87,9 @@ function resolveRow(
   tmdbRegion: string,
   token: string
 ): Promise<MediaMeta[]> {
+  if (row.type === "live") {
+    return Promise.resolve([]);
+  }
   if (row.catalog === "addon") {
     const addon = row.addonId ? addonsById.get(row.addonId) : undefined;
     if (!addon) {
@@ -88,6 +99,7 @@ function resolveRow(
     }
     return fetchAddonCatalogResults({
       addonBaseUrl: addon.baseUrl,
+      addonId: row.addonId ?? "",
       catalogId: row.addonCatalogId ?? "",
       tmdbLocale,
       token,
@@ -108,8 +120,12 @@ function resolveRow(
 function resolveRowSourceName(
   row: OneVidFeedRow,
   addonsById: Map<string, FeedAddonRef>,
-  networksById: Map<number, NetworkOption>
+  networksById: Map<number, NetworkOption>,
+  liveSourcesById?: Map<string, string>
 ): string | undefined {
+  if (row.type === "live") {
+    return row.liveSourceId ? liveSourcesById?.get(row.liveSourceId) : undefined;
+  }
   if (row.catalog === "addon") {
     const addon = row.addonId ? addonsById.get(row.addonId) : undefined;
     const catalogName = addon?.catalogs.find(
@@ -209,9 +225,107 @@ export async function resolveHero({
  * primer pintado de /home. Un token muerto se reporta como dato (`authFailed`);
  * una fila caída por red desaparece.
  */
+export interface ResolveFeedSectionOptions
+  extends Omit<ResolveFeedOptions, "rows"> {
+  /** Lista global de tendencias, compartida por las filas que muestran Top 10. */
+  trendingPromise?: Promise<MediaMeta[]>;
+}
+
+/**
+ * Resuelve UNA fila a su sección (o null si no tiene items). Se usa para
+ * transmitir cada fila por separado y no bloquear las rápidas con un catálogo
+ * de addon lento.
+ */
+export async function resolveFeedSection(
+  row: OneVidFeedRow,
+  {
+    addonsById,
+    itemsPerRow,
+    liveSourcesById,
+    networksById,
+    t,
+    tmdbLocale,
+    tmdbRegion,
+    token,
+    trendingPromise,
+  }: ResolveFeedSectionOptions
+): Promise<FeedSection | null> {
+  if (row.type === "live") {
+    return {
+      href: buildFeedRowHref(row),
+      id: buildFeedRowId(row),
+      items: [],
+      kind: "live",
+      liveSourceId: row.liveSourceId,
+      liveGroup: row.liveGroup,
+      topTen: false,
+      topTenRanks: {},
+      title: getFeedRowTitle(
+        row,
+        t,
+        resolveRowSourceName(row, addonsById, networksById, liveSourcesById)
+      ),
+    };
+  }
+
+  let items: MediaMeta[];
+  try {
+    items = await resolveRow(
+      row,
+      addonsById,
+      networksById,
+      tmdbLocale,
+      tmdbRegion,
+      token
+    );
+  } catch {
+    return null;
+  }
+
+  const topTen = row.catalog === "trending" && row.networkId == null;
+  let allTrending: MediaMeta[] | undefined;
+  if (topTen && trendingPromise) {
+    allTrending = await trendingPromise.catch(() => [] as MediaMeta[]);
+    items = allTrending.filter((item) => item.type === row.type);
+  }
+
+  const limitedItems = itemsPerRow ? items.slice(0, itemsPerRow) : items;
+  if (limitedItems.length === 0) {
+    return null;
+  }
+
+  const topTenRanks: Record<string, number> = {};
+  if (topTen && allTrending) {
+    const ranks = new Map(
+      allTrending.map((item, index) => [`${item.type}-${item.id}`, index + 1])
+    );
+    for (const item of limitedItems) {
+      const key = `${item.type}-${item.id}`;
+      const rank = ranks.get(key);
+      if (rank != null && rank <= 10) {
+        topTenRanks[key] = rank;
+      }
+    }
+  }
+
+  return {
+    href: buildFeedRowHref(row),
+    id: buildFeedRowId(row),
+    items: limitedItems,
+    topTen,
+    topTenRanks,
+    title: getFeedRowTitle(
+      row,
+      t,
+      resolveRowSourceName(row, addonsById, networksById, liveSourcesById)
+    ),
+  };
+}
+
 export async function resolveFeedSections({
   addonsById,
   itemsPerRow,
+  liveSourcesById,
   networksById,
   rows,
   t,
@@ -259,6 +373,30 @@ export async function resolveFeedSections({
     const row = rows[index];
     if (!row) {
       return [];
+    }
+    if (row.type === "live") {
+      return [
+        {
+          href: buildFeedRowHref(row),
+          id: buildFeedRowId(row),
+          items: [],
+          kind: "live" as const,
+          liveSourceId: row.liveSourceId,
+          liveGroup: row.liveGroup,
+          topTen: false,
+          topTenRanks: {},
+          title: getFeedRowTitle(
+            row,
+            t,
+            resolveRowSourceName(
+              row,
+              addonsById,
+              networksById,
+              liveSourcesById
+            )
+          ),
+        },
+      ];
     }
     if (result.status === "rejected") {
       // Una fila caída (red/timeout) desaparece sin tumbar la página.

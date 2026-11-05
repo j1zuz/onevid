@@ -100,6 +100,7 @@ export function MysticEye({ className, follow = true, label }: MysticEyeProps) {
   }, [follow, uid]);
 
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label is only set when the container has role="img".
     <div
       aria-hidden={label ? undefined : true}
       aria-label={label}
@@ -113,12 +114,9 @@ export function MysticEye({ className, follow = true, label }: MysticEyeProps) {
         viewBox={`0 0 ${VIEW.w} ${VIEW.h}`}
         xmlns="http://www.w3.org/2000/svg"
       >
-        {/** biome-ignore lint/security/noDangerouslySetInnerHtml: generated gradients/clip, no user input. */}
         <defs dangerouslySetInnerHTML={{ __html: buildDefs(uid) }} />
-        {/** biome-ignore lint/security/noDangerouslySetInnerHtml: generated line-art, no user input. */}
         <g dangerouslySetInnerHTML={{ __html: buildFrame(uid) }} />
         <g clipPath={`url(#${uid}-open)`}>
-          {/** biome-ignore lint/security/noDangerouslySetInnerHtml: generated line-art, no user input. */}
           <g dangerouslySetInnerHTML={{ __html: buildIris(START_PUPIL, uid) }} ref={irisRef} />
         </g>
       </svg>

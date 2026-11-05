@@ -25,6 +25,8 @@
  */
 export type FeedCatalogId = "addon" | "trending";
 export type FeedMediaType = "movie" | "series";
+/** Tipo de fila del feed: películas, series o canales de Live TV. */
+export type FeedRowType = FeedMediaType | "live";
 
 export interface CatalogOption {
   id: string;
@@ -55,8 +57,12 @@ export interface OneVidFeedRow {
   /** Solo cuando `catalog === "addon"`: id del catálogo dentro de ese addon. */
   addonCatalogId?: string;
   catalog: FeedCatalogId;
+  /** Solo para filas `type === "live"`: fuente de Live TV elegida. */
+  liveSourceId?: string;
+  /** Solo para filas `type === "live"`: categoría/grupo de canales. */
+  liveGroup?: string;
   networkId?: number;
-  type: FeedMediaType;
+  type: FeedRowType;
 }
 
 /** Fila con id derivado, para keys de React y el `value` de Reorder.Item. */
@@ -122,6 +128,9 @@ const NETWORK_ALIASES: Record<number, number> = {
  * queda mínimo y no puede desincronizarse del contenido.
  */
 export function buildFeedRowId(row: OneVidFeedRow): string {
+  if (row.type === "live") {
+    return `live:${row.liveSourceId ?? "all"}:${row.liveGroup ?? "all"}`;
+  }
   if (row.catalog === "addon") {
     return `${row.type}:addon:${row.addonId}:${row.addonCatalogId}`;
   }
@@ -196,14 +205,33 @@ export function parseFeedRows(value: unknown): OneVidFeedRow[] | null {
     if (!raw || typeof raw !== "object") {
       continue;
     }
-    const { type, networkId, catalog, addonId, addonCatalogId } =
-      raw as Record<string, unknown>;
-    if (type !== "movie" && type !== "series") {
+    const {
+      type,
+      networkId,
+      catalog,
+      addonId,
+      addonCatalogId,
+      liveSourceId,
+      liveGroup,
+    } = raw as Record<string, unknown>;
+    if (type !== "movie" && type !== "series" && type !== "live") {
       continue;
     }
 
     let row: OneVidFeedRow;
-    if (
+    if (type === "live") {
+      if (typeof liveSourceId !== "string" || !liveSourceId.trim()) {
+        continue;
+      }
+      row = {
+        type: "live",
+        catalog: "trending",
+        liveSourceId: liveSourceId.trim(),
+        ...(typeof liveGroup === "string" && liveGroup.trim()
+          ? { liveGroup: liveGroup.trim() }
+          : {}),
+      };
+    } else if (
       catalog === "addon" &&
       typeof addonId === "string" &&
       addonId.trim() &&
@@ -263,6 +291,12 @@ export function getFeedRowTitle(
   t: Translate,
   sourceName?: string
 ): string {
+  if (row.type === "live") {
+    if (row.liveGroup) {
+      return `${t("Live TV")} · ${row.liveGroup}`;
+    }
+    return sourceName ? `${t("Live TV")} · ${sourceName}` : t("Live TV");
+  }
   const typeLabel = row.type === "movie" ? t("Películas") : t("Series");
   if (row.catalog === "addon") {
     return sourceName
@@ -284,6 +318,11 @@ export function getFeedRowTitle(
  * addon-catalog.ts) en vez de descartar el resto.
  */
 export function buildFeedRowHref(row: OneVidFeedRow): string {
+  if (row.type === "live") {
+    return row.liveGroup
+      ? `/home?surface=live&group=${encodeURIComponent(row.liveGroup)}`
+      : "/home?surface=live";
+  }
   if (row.catalog === "addon") {
     if (!(row.addonId && row.addonCatalogId)) {
       return "";

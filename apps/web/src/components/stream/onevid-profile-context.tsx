@@ -97,12 +97,14 @@ const PROFILE_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 días, en segundos
 
 function writeProfileCookie(name: string, id: string) {
   if (typeof document !== "undefined") {
+    // biome-ignore lint/suspicious/noDocumentCookie: persisting the active profile across reloads is intentional.
     document.cookie = `${name}=${encodeURIComponent(id)}; path=/; max-age=${PROFILE_COOKIE_MAX_AGE}; samesite=lax`;
   }
 }
 
 function clearProfileCookie(name: string) {
   if (typeof document !== "undefined") {
+    // biome-ignore lint/suspicious/noDocumentCookie: clearing the profile cookie on exit is intentional.
     document.cookie = `${name}=; path=/; max-age=0`;
   }
 }
@@ -183,6 +185,7 @@ export function OneVidProfileProvider({
   // sin motivo. Leer `document.cookie` acá cierra esa brecha sin re-preguntar.
   // Solo adopta ids que existan entre los perfiles; nunca "verifica" de más (si
   // no hay cookie, no hace nada y el gate sigue, que es lo correcto).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reconcile once on mount with the cookies the server rendered, not on every profile change.
   useEffect(() => {
     const cookieVerified = readProfileCookie(VERIFIED_PROFILE_COOKIE);
     if (
@@ -203,7 +206,6 @@ export function OneVidProfileProvider({
     setReconciled(true);
     // Solo al montar: cada página monta su propio provider, así que esto corre
     // en cada navegación entrante (home → detalle, player → detalle…).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // If the current active profile disappears (e.g. deleted by another tab's

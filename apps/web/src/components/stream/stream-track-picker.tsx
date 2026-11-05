@@ -36,6 +36,7 @@ function TrackRow({
   onSelect: () => void;
 }) {
   return (
+    // biome-ignore lint/a11y/useSemanticElements: custom TV-friendly radio row built on a button for D-pad focus.
     <button
       aria-checked={isActive}
       className={cn(
@@ -105,7 +106,7 @@ export function StreamTrackPicker({
           </DrawerHeader>
           <div className="no-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pt-3 pb-4">
             {showAudio && (
-              <section aria-label="Idioma del audio" role="radiogroup">
+              <div aria-label="Idioma del audio" role="radiogroup">
                 <h3 className="px-0.5 pb-2 font-semibold text-[0.6875rem] text-muted-foreground uppercase tracking-wide">
                   Idioma del audio
                 </h3>
@@ -122,7 +123,7 @@ export function StreamTrackPicker({
                     />
                   ))}
                 </div>
-              </section>
+              </div>
             )}
 
             {!(showAudio || showSubtitles) && (
@@ -135,7 +136,7 @@ export function StreamTrackPicker({
             )}
 
             {showSubtitles && (
-              <section aria-label="Subtítulos" role="radiogroup">
+              <div aria-label="Subtítulos" role="radiogroup">
                 <h3 className="px-0.5 pb-2 font-semibold text-[0.6875rem] text-muted-foreground uppercase tracking-wide">
                   Subtítulos
                 </h3>
@@ -160,7 +161,7 @@ export function StreamTrackPicker({
                     />
                   ))}
                 </div>
-              </section>
+              </div>
             )}
           </div>
         </DrawerContent>

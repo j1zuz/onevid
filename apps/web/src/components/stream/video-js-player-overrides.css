@@ -1,5 +1,5 @@
 /* Stream player video.js overrides */
-.stream-video-player-root .media-default-skin--video {
+.stream-video-player-root :is(.video-skin, .media-container) {
   --media-border-color: transparent;
   --media-surface-outer-border-color: transparent;
   --media-surface-inner-border-color: transparent;
@@ -10,7 +10,7 @@
 /* Ensure video fills the full container so the controls overlay it correctly.
    Without this the skin's black background (#000) shows as a solid bar behind
    the controls instead of the semi-transparent gradient over the video. */
-.stream-video-player-root .media-default-skin--video video {
+.stream-video-player-root video {
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -23,7 +23,7 @@
   border-radius: 0;
 }
 
-.stream-video-player-root.play-mode .media-default-skin--video {
+.stream-video-player-root.play-mode :is(.video-skin, .media-container) {
   --media-video-border-radius: 0;
 }
 
@@ -48,4 +48,46 @@
    selector tampoco se muestra y el del skin no tendría qué activar. */
 .stream-video-player-root .media-default-skin .media-button--captions {
   display: none;
+}
+
+/* Live TV reproduce con hls.js sobre MSE, así que el <video> usa un origen
+   `blob:` que la Remote Playback API no puede castear. El botón de cast del
+   skin queda siempre deshabilitado (y en las películas MP4 sí sirve), así que
+   solo se oculta en modo live para no ofrecer una acción que nunca funciona. */
+.stream-video-player-root.live-mode .media-cast-button {
+  display: none;
+}
+
+/* Live TV opts into the same movie skin without its VOD timeline or speed menu.
+   Include the installed v10 class names and the legacy names used above. */
+.stream-video-player-root.live-mode
+  :is(
+    .video-time-slider-group,
+    .media-time-value,
+    .media-time-toggle,
+    .video-controls-settings-button,
+    .video-controls-captions-button,
+    .media-button--captions,
+    .media-dialog-popup,
+    .media-dialog-backdrop
+  ) {
+  /* biome-ignore lint/complexity/noImportantStyles: Video.js sets inline display styles we must override. */
+  display: none !important;
+}
+
+.stream-video-player-root.live-mode
+  :is(.media-play-button, .media-button--play) {
+  display: grid;
+}
+
+.stream-video-player-root.live-mode .video-controls-primary {
+  flex: 1;
+}
+
+/* Both players render their own loading state (Live TV: channel logo, VOD: the
+   app's Spinner overlay). The skin's spinner duplicates it and can sit above
+   our overlay, so drop it entirely. */
+.stream-video-player-root .media-buffering-indicator {
+  /* biome-ignore lint/complexity/noImportantStyles: the skin enables it with `display: grid` on `[data-visible]`. */
+  display: none !important;
 }

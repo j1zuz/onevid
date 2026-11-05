@@ -68,7 +68,7 @@ export default async function AccountPage({
     ? (savedLocale as SupportedLanguage)
     : DEFAULT_LANGUAGE;
   const settingsTitle =
-    ALL_TRANSLATIONS[locale]?.["Configuración"] ?? "Configuración";
+    ALL_TRANSLATIONS[locale]?.Configuración ?? "Configuración";
 
   const { view } = await searchParams;
   const initialView = isSettingsView(view) ? view : "home";

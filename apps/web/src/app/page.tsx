@@ -1,7 +1,8 @@
+import { TransitionLink } from "glimm/next";
 import { MonitorPlayIcon } from "lucide-react";
 import { headers } from "next/headers";
-import Link from "next/link";
 import { buttonVariants } from "@workspace/ui/components/button";
+import Footer from "@/components/footer";
 import { LoginDialog } from "@/components/login-dialog";
 import { LocalVideoPlayer } from "@/components/stream/local-video-player";
 import { TvDeviceLogin } from "@/components/tv/tv-device-login";
@@ -53,49 +54,23 @@ export default async function RootPage({
           <span className="font-semibold text-sm">onevid</span>
         </div>
         {session ? (
-          <Link
+          <TransitionLink
             className={buttonVariants({ variant: "outline" })}
             href="/home"
           >
             <MonitorPlayIcon data-icon="inline-start" />
             Volver al modo stream
-          </Link>
+          </TransitionLink>
         ) : (
           <LoginDialog />
         )}
       </header>
 
-      <main className="flex flex-1 flex-col pt-6 pb-8">
+      <main className="flex min-h-0 flex-1 flex-col pt-6 pb-8">
         <LocalVideoPlayer />
       </main>
 
-      <footer className="pb-6">
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-dashed border-border px-6 py-5">
-          <Link
-            className="text-muted-foreground text-xs hover:text-foreground"
-            href="http://deepwiki.com/j1zuz/onevid"
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            Documentación
-          </Link>
-          <a
-            aria-label="Disponible en Google Play"
-            href="https://play.google.com/store/apps/details?id=tech.hackw.onevid"
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            {/* biome-ignore lint/performance/noImgElement: badge SVG estático local */}
-            <img
-              alt="Disponible en Google Play"
-              className="h-10 w-auto"
-              height={40}
-              src="/google-play.svg"
-              width={135}
-            />
-          </a>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

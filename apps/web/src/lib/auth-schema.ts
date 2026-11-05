@@ -201,6 +201,29 @@ export const oneVidAddon = pgTable(
   (table) => [index("one_vid_addon_userId_idx").on(table.userId)]
 );
 
+export const oneVidLiveTvSource = pgTable(
+  "one_vid_live_tv_source",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    name: text("name").notNull(),
+    sourceType: text("source_type").notNull().default("m3u"),
+    epgUrl: text("epg_url"),
+    channelCount: integer("channel_count").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("one_vid_live_tv_source_user_url_unique").on(table.userId, table.url),
+  ]
+);
+
 export const oneVidRelations = relations(oneVid, ({ one }) => ({
   user: one(user, {
     fields: [oneVid.userId],

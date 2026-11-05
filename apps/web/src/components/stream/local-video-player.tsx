@@ -248,16 +248,14 @@ export function LocalVideoPlayer() {
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 sm:flex-1">
       {/* biome-ignore lint/a11y/noStaticElementInteractions: el contenedor solo recibe drag&drop; el click/teclado van en el botón y el input internos. */}
-      {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: idem — solo drag&drop en el contenedor. */}
       <div
         className={cn(
-          // En móvil la relación de aspecto fija recortaba el panel (el ojo, el
-          // separador y la barra de URL no cabían en 16:9). Solo la aplicamos a
-          // partir de `sm`, donde hay altura suficiente; en móvil el alto lo
-          // marca el contenido.
-          "relative flex flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed bg-repeat px-4 py-6 text-center transition-colors sm:aspect-video sm:px-6 sm:py-8 [background-size:48px_48px]",
+          // En móvil el alto lo marca el contenido. A partir de `sm` el panel
+          // ocupa el alto disponible (`flex-1`) en vez de una relación 16:9
+          // fija, para que el modo local quepa en una sola pantalla sin scroll.
+          "relative flex flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed bg-repeat px-4 py-6 text-center transition-colors sm:flex-1 sm:px-6 sm:py-8 bg-size-[48px_48px]",
           dragging ? "border-primary bg-primary/5" : "border-border"
         )}
         style={{ backgroundImage: "url(/pattern-tile.svg)" }}
@@ -279,7 +277,7 @@ export function LocalVideoPlayer() {
           type="button"
         >
           <MysticEye
-            className="aspect-[3/2] w-28 sm:w-44"
+            className="aspect-3/2 w-28 sm:w-44"
             label="Reproductor místico"
           />
           <span className="flex flex-col gap-1">

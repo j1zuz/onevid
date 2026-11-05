@@ -14,12 +14,16 @@ export default function DetailLoading() {
           <div className="flex items-center gap-3">
             <Skeleton className="size-8 rounded-md" />
             <div className="flex items-center gap-1">
+              <Skeleton className="h-7 w-12 rounded-full" />
+              <Skeleton className="h-7 w-16 rounded-full" />
               <Skeleton className="h-7 w-14 rounded-full" />
-              <Skeleton className="h-7 w-20 rounded-full" />
             </div>
           </div>
           <div className="flex flex-1 items-center justify-end gap-2">
-            <Skeleton className="h-9 w-full max-w-xs rounded-md" />
+            {/* Móvil: el header real muestra solo el icono de búsqueda. */}
+            <Skeleton className="size-8 rounded-md md:hidden" />
+            {/* Escritorio: barra de búsqueda completa. */}
+            <Skeleton className="hidden h-9 w-full max-w-xs rounded-md md:block" />
             <Skeleton className="size-8 rounded-full" />
           </div>
         </header>
@@ -28,9 +32,9 @@ export default function DetailLoading() {
           <div className="-mt-4">
             {/* Mismo formato que el hero real: póster vertical en móvil y
                 backdrop 21:9 en escritorio, para que no salte al cargar. */}
-            <section className="relative mb-2 aspect-[4/5] w-full overflow-hidden rounded-(--radius) border border-border/70 bg-muted shadow-md shadow-zinc-950/30 md:aspect-[21/9] md:min-h-96">
+            <section className="relative mb-2 aspect-4/5 w-full overflow-hidden rounded-(--radius) border border-border/70 bg-muted shadow-md shadow-zinc-950/30 md:aspect-21/9 md:min-h-96">
               <Skeleton className="absolute inset-0 rounded-none" />
-              <div className="absolute inset-0 bg-gradient-to-t from-background via-background/10 to-transparent" />
+              <div className="absolute inset-0 bg-linear-to-t from-background via-background/10 to-transparent" />
               <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-3 p-5 pb-8 md:items-start md:p-10">
                 <div className="hidden flex-col items-center gap-3 md:flex md:items-start">
                   <Skeleton className="h-14 w-64 rounded-md md:h-20 md:w-96" />
