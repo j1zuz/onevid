@@ -5,9 +5,12 @@ import { auth } from "@/lib/auth";
 import { oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
 import { getTmdbReadToken } from "@/lib/onevid-tmdb";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { findImdbId } from "@/lib/tmdb";
 import type { StreamType } from "@/types/stream";
 import { safeFetch } from "@/utils/ssrf-guard";
+
+export const runtime = "nodejs";
 
 // Mismo presupuesto que stream/sources: cada addon puede tardar ~10s y se
 // consultan tras resolver el IMDb id.
@@ -77,8 +80,8 @@ function buildSubtitlesUrl(
 ): string {
   const streamId =
     ref.season !== undefined && ref.episode !== undefined
-      ? `${imdbId}:${ref.season}:${ref.episode}`
-      : imdbId;
+      ? `${encodeURIComponent(imdbId)}:${ref.season}:${ref.episode}`
+      : encodeURIComponent(imdbId);
   return `${baseUrl}/subtitles/${type}/${streamId}.json`;
 }
 
@@ -144,6 +147,13 @@ export async function POST(request: Request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const limited = checkRateLimit(
+      `stream-subtitles:${session.user.id}`,
+      60,
+      60_000
+    );
+    if (!limited.ok) return rateLimitResponse(limited.retryAfter);
+
     let body: RequestBody = {};
     try {
       body = (await request.json()) as RequestBody;
@@ -153,7 +163,7 @@ export async function POST(request: Request) {
 
     const id = typeof body.id === "string" ? body.id.trim() : "";
     const type: StreamType = body.type === "series" ? "series" : "movie";
-    if (!id) {
+    if (!id || id.length > 512) {
       return Response.json({ error: "Missing id parameter" }, { status: 400 });
     }
 
@@ -237,7 +247,11 @@ export async function POST(request: Request) {
 
     return Response.json({ subtitles });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
+    // Nunca devolver el mensaje crudo: puede incluir hosts o detalles internos.
+    console.error("Subtitle aggregation error:", error);
+    return Response.json(
+      { error: "No se pudieron cargar los subtítulos" },
+      { status: 500 }
+    );
   }
 }

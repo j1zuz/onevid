@@ -182,19 +182,38 @@ export async function resolveTorboxStream(params: {
 export { isTorboxRedirectUrl } from "@/utils/stream-codec";
 
 const MAX_REDIRECT_HOPS = 6;
+// Solo la API de TorBox puede ser el primer hop (o cualquier hop intermedio)
+// de un redirect que nosotros mismos fetchamos. El resto de hosts con
+// `/resolve/torbox/` solo se acepta si pertenece a un addon del usuario; sin
+// este limite, `POST /api/stream/resolve` seria un SSRF ciego generico.
+const TORBOX_API_HOSTS = new Set(["api.torbox.app"]);
+
+function isPermittedResolveHost(
+  url: string,
+  allowedHosts?: ReadonlySet<string>
+): boolean {
+  try {
+    const host = new URL(url).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    return TORBOX_API_HOSTS.has(host) || Boolean(allowedHosts?.has(host));
+  } catch {
+    return false;
+  }
+}
 
 export async function resolveTorboxRedirect(
-  rawUrl: string
+  rawUrl: string,
+  options: { allowedHosts?: ReadonlySet<string> } = {}
 ): Promise<string | null> {
   if (!isTorboxRedirectUrl(rawUrl)) {
     return null;
   }
 
+  const { allowedHosts } = options;
   let current = rawUrl;
   for (let i = 0; i < MAX_REDIRECT_HOPS; i++) {
     // Validamos cada hop contra el SSRF guard; no limitamos el host de destino
-    // porque los CDN de TorBox rotan (*.tb-cdn.io, etc.), pero sí rechazamos
-    // IPs privadas/loopback.
+    // del CDN (rotan: *.tb-cdn.io, etc.), pero sí rechazamos IPs
+    // privadas/loopback y hosts que no sean de confianza para resolver.
     const check = isSafeFetchUrl(current);
     if (!check.ok) {
       return null;
@@ -207,6 +226,10 @@ export async function resolveTorboxRedirect(
     // server.
     if (!isTorboxRedirectUrl(current)) {
       return current;
+    }
+
+    if (!isPermittedResolveHost(current, allowedHosts)) {
+      return null;
     }
 
     // Forzamos `redirect: "manual"` para leer el `Location` nosotros: así no

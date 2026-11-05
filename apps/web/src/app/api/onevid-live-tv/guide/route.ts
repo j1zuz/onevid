@@ -10,7 +10,8 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
-  return liveTvApi(async (userId) =>
-    loadLiveTvGuide(userId, await readLiveTvJson(request)),
+  return liveTvApi(
+    async (userId) => loadLiveTvGuide(userId, await readLiveTvJson(request)),
+    { scope: "live-tv-guide", limit: 30 }
   );
 }

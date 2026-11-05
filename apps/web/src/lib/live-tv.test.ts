@@ -24,6 +24,7 @@ import {
 } from "./live-tv";
 import {
   createLiveTvSource,
+  clearLiveTvChannelCache,
   fetchLiveTvPlaylist,
   fetchLiveTvResource,
   fetchXtreamChannels,
@@ -290,6 +291,7 @@ describe("pinned bounded HTTPS playlist transport", () => {
     });
 
   beforeEach(() => {
+    clearLiveTvChannelCache();
     selectSpy = undefined;
     updateSpy = undefined;
     ownership = undefined;
