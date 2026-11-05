@@ -46,7 +46,8 @@ export function isSafeFetchUrl(
  */
 export async function safeFetch(
   url: string,
-  init?: RequestInit
+  init?: RequestInit,
+  options?: { timeoutMs?: number }
 ): Promise<Response> {
   const check = isSafeFetchUrl(url);
   if (!check.ok) {
@@ -54,7 +55,10 @@ export async function safeFetch(
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    options?.timeoutMs ?? FETCH_TIMEOUT_MS
+  );
 
   // Merge caller signal (if any) with our own
   if (init?.signal) {

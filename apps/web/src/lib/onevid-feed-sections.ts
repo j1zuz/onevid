@@ -99,6 +99,7 @@ function resolveRow(
     }
     return fetchAddonCatalogResults({
       addonBaseUrl: addon.baseUrl,
+      addonId: row.addonId ?? "",
       catalogId: row.addonCatalogId ?? "",
       tmdbLocale,
       token,
@@ -224,6 +225,103 @@ export async function resolveHero({
  * primer pintado de /home. Un token muerto se reporta como dato (`authFailed`);
  * una fila caída por red desaparece.
  */
+export interface ResolveFeedSectionOptions
+  extends Omit<ResolveFeedOptions, "rows"> {
+  /** Lista global de tendencias, compartida por las filas que muestran Top 10. */
+  trendingPromise?: Promise<MediaMeta[]>;
+}
+
+/**
+ * Resuelve UNA fila a su sección (o null si no tiene items). Se usa para
+ * transmitir cada fila por separado y no bloquear las rápidas con un catálogo
+ * de addon lento.
+ */
+export async function resolveFeedSection(
+  row: OneVidFeedRow,
+  {
+    addonsById,
+    itemsPerRow,
+    liveSourcesById,
+    networksById,
+    t,
+    tmdbLocale,
+    tmdbRegion,
+    token,
+    trendingPromise,
+  }: ResolveFeedSectionOptions
+): Promise<FeedSection | null> {
+  if (row.type === "live") {
+    return {
+      href: buildFeedRowHref(row),
+      id: buildFeedRowId(row),
+      items: [],
+      kind: "live",
+      liveSourceId: row.liveSourceId,
+      liveGroup: row.liveGroup,
+      topTen: false,
+      topTenRanks: {},
+      title: getFeedRowTitle(
+        row,
+        t,
+        resolveRowSourceName(row, addonsById, networksById, liveSourcesById)
+      ),
+    };
+  }
+
+  let items: MediaMeta[];
+  try {
+    items = await resolveRow(
+      row,
+      addonsById,
+      networksById,
+      tmdbLocale,
+      tmdbRegion,
+      token
+    );
+  } catch {
+    return null;
+  }
+
+  const topTen = row.catalog === "trending" && row.networkId == null;
+  let allTrending: MediaMeta[] | undefined;
+  if (topTen && trendingPromise) {
+    allTrending = await trendingPromise.catch(() => [] as MediaMeta[]);
+    items = allTrending.filter((item) => item.type === row.type);
+  }
+
+  const limitedItems = itemsPerRow ? items.slice(0, itemsPerRow) : items;
+  if (limitedItems.length === 0) {
+    return null;
+  }
+
+  const topTenRanks: Record<string, number> = {};
+  if (topTen && allTrending) {
+    const ranks = new Map(
+      allTrending.map((item, index) => [`${item.type}-${item.id}`, index + 1])
+    );
+    for (const item of limitedItems) {
+      const key = `${item.type}-${item.id}`;
+      const rank = ranks.get(key);
+      if (rank != null && rank <= 10) {
+        topTenRanks[key] = rank;
+      }
+    }
+  }
+
+  return {
+    href: buildFeedRowHref(row),
+    id: buildFeedRowId(row),
+    items: limitedItems,
+    topTen,
+    topTenRanks,
+    title: getFeedRowTitle(
+      row,
+      t,
+      resolveRowSourceName(row, addonsById, networksById, liveSourcesById)
+    ),
+  };
+}
+
 export async function resolveFeedSections({
   addonsById,
   itemsPerRow,

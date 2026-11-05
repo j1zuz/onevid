@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
     }
 
     const [addon] = await db
-      .select({ baseUrl: oneVidAddon.baseUrl })
+      .select({ baseUrl: oneVidAddon.baseUrl, id: oneVidAddon.id })
       .from(oneVidAddon)
       .where(
         and(
@@ -110,7 +110,9 @@ export async function GET(request: NextRequest) {
     try {
       const results = await fetchAddonCatalogResults({
         addonBaseUrl: addon.baseUrl,
+        addonId: addon.id,
         catalogId: addonCatalogId,
+        hydrateTmdb: false,
         limit: limit || CATALOG_VIEW_ALL_ITEM_LIMIT,
         tmdbLocale,
         token,

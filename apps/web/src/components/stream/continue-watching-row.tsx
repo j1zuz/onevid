@@ -2,8 +2,8 @@
 
 import { buttonVariants } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
+import { TransitionLink } from "glimm/next";
 import { ChevronRightIcon } from "lucide-react";
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   POSTER_ROW_CLASS,
@@ -86,7 +86,7 @@ export function ContinueWatchingRow({
 
   if (items === null) {
     return (
-      <section className="container mx-auto flex flex-col gap-3 px-2">
+      <section className="flex flex-col gap-3 px-2">
         {!fullView && (
           <h2 className="px-1 font-semibold text-lg md:text-xl">
             {t("Continuar viendo")}
@@ -134,14 +134,14 @@ export function ContinueWatchingRow({
   const visibleItems = fullView || !hasOverflow ? items : items.slice(0, FEED_ROW_ITEM_LIMIT);
 
   return (
-    <section className="container mx-auto flex flex-col gap-3 px-2">
+    <section className="flex flex-col gap-3 px-2">
       {!fullView && (
         <div className="flex items-baseline justify-between gap-2 px-1">
           <h2 className="font-semibold text-lg md:text-xl">
             {t("Continuar viendo")}
           </h2>
           {hasOverflow && (
-            <Link
+            <TransitionLink
               className={cn(
                 buttonVariants({ size: "xs" }),
                 "btn-primary shrink-0"
@@ -151,7 +151,7 @@ export function ContinueWatchingRow({
             >
               <ChevronRightIcon data-icon="inline-start" />
               {t("Ver todo")}
-            </Link>
+            </TransitionLink>
           )}
         </div>
       )}

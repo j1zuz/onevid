@@ -162,6 +162,19 @@ Each hop resolves DNS once, rejects empty or mixed public/private answers and pi
 
 Playback/artwork are fetched directly by the browser, not by this backend; those returned URLs are HTTPS-only but are not public-IP filtered. Providers receive the browser's IP. Provider CORS and supported HLS codecs are required. Browser-side media redirects and nested HLS segment/key URLs are not inspected by this backend and must also be securely served by the provider.
 
+## Audio no soportado por el navegador
+
+Los codecs de audio de IPTV suelen ser AC-3/E-AC-3, DTS o TrueHD, que MSE no acepta en la mayoría de navegadores. hls.js no transcodifica: pinta el vídeo y deja el audio mudo ("se ve pero no se oye"). El player web lo corrige sin proxy de media:
+
+1. Antes de montar el player, `probeLiveTvAudio` (`apps/web/src/lib/live-tv-codec.ts`) lee solo los metadatos del HLS con MediaBunny (`Input` + `UrlSource` + `ALL_FORMATS`) y comprueba `MediaSource.isTypeSupported` para el mime de cada pista de audio. Es un sondeo barato (playlist maestra; como mucho el primer segmento de una playlist de medios), con plazo de 8 s y fallback a hls.js ante cualquier error.
+2. Si alguna pista ya es reproducible, se usa hls.js como siempre.
+3. Si ninguna lo es pero el codec es `ac3`, `eac3`, `dts` o `truehd`, `startLivePlayback` reutiliza el pipeline MSE de `runProgressivePlayback` en modo `live`: MediaBunny decodifica el audio con sus extensiones WASM, lo re-encodea a AAC-LC y muxea vídeo (passthrough) + audio en un único `SourceBuffer`. El navegador sincroniza A/V por sí solo.
+4. Si el pipeline falla en cualquier punto (mime de vídeo no soportado, red/CORS, proveedor), se vuelve a hls.js. Nunca se empeora el comportamiento previo.
+
+En modo `live` el pipeline no fija `mediaSource.duration` (un directo no tiene duración), no expone seek ni cambio de pista, no reporta progreso, no llama `endOfStream()` y lee HLS con `offsetTimestampsByDateTime: false` para que los timestamps no queden anclados al epoch. La conversión queda corriendo hasta cancelarla al desmontar o cambiar de canal.
+
+MP2 (MPEG-1 Layer II) no tiene decoder en MediaBunny y sigue sin audio en la web; se resuelve en móvil/TV con libVLC. La reproducción de vídeo HEVC sigue dependiendo del navegador: si no lo decodifica, el pipeline cae a hls.js y el canal se comporta como antes.
+
 ## Validation
 
 From `apps/web`:

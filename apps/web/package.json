@@ -25,6 +25,7 @@
     "better-auth": "1.7.15",
     "dotenv": "18.0.9",
     "drizzle-orm": "0.45.4",
+    "glimm": "^0.4.0",
     "i18next": "26.7.1",
     "input-otp": "^1.4.2",
     "lucide-react": "catalog:",

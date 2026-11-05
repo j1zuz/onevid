@@ -97,6 +97,7 @@ interface VideoJsStreamPlayerProps {
   mimeType?: MimeType;
   onEnded?: () => void;
   onError?: (error: Error) => void;
+  onCanPlay?: () => void;
   onLoadStart?: () => void;
   onPlaying?: () => void;
   onControlsVisibility?: (visible: boolean) => void;
@@ -182,6 +183,7 @@ export function VideoJsStreamPlayer({
   onError,
   onSourceInfo,
   onControlsVisibility,
+  onCanPlay,
   onLoadStart,
   onWaiting,
   onPlaying,
@@ -231,6 +233,38 @@ export function VideoJsStreamPlayer({
     (error: unknown) => {
       if (liveMode) {
         // HLS errors can embed provider URLs and credentials, including in their cause/data.
+        if (process.env.NODE_ENV === "development") {
+          const candidate = error as {
+            code?: unknown;
+            details?: unknown;
+            fatal?: unknown;
+            message?: unknown;
+            reason?: unknown;
+            response?: { code?: unknown };
+            target?: unknown;
+            type?: unknown;
+          };
+          const target =
+            typeof HTMLVideoElement !== "undefined" &&
+            candidate.target instanceof HTMLVideoElement
+              ? candidate.target
+              : null;
+          const detail =
+            error && typeof error === "object"
+              ? JSON.stringify({
+                  type: candidate.type,
+                  details: candidate.details,
+                  fatal: candidate.fatal,
+                  reason: candidate.reason,
+                  code: candidate.code ?? candidate.response?.code,
+                  mediaCode: target?.error?.code,
+                  readyState: target?.readyState,
+                  networkState: target?.networkState,
+                }).slice(0, 300)
+              : String(error).slice(0, 300);
+          // biome-ignore lint/suspicious/noConsole: diagnóstico temporal en desarrollo.
+          console.warn("[live-tv] playback error:", detail);
+        }
         onError?.(new Error("No se pudo reproducir este canal de Live TV."));
         return;
       }
@@ -254,6 +288,7 @@ export function VideoJsStreamPlayer({
     controls,
     onEnded,
     onError: handleError,
+    onCanPlay,
     onLoadStart,
     onPlaying,
     onTimeUpdate: handleTimeUpdate,
@@ -265,7 +300,21 @@ export function VideoJsStreamPlayer({
     source: {
       src,
       type: "application/vnd.apple.mpegurl",
-      ...(liveMode ? { engine: { hlsJs: { debug: false } } } : {}),
+      // Los proveedores de IPTV cortan peticiones con frecuencia. Damos algo
+      // más de margen que los valores por defecto de hls.js, pero sin dejar de
+      // fallar: el watchdog de LiveTvPlayer muestra el error si no arranca.
+      ...(liveMode
+        ? {
+            engine: {
+              hlsJs: {
+                debug: false,
+                manifestLoadingMaxRetry: 3,
+                levelLoadingMaxRetry: 6,
+                fragLoadingMaxRetry: 8,
+              },
+            },
+          }
+        : {}),
     },
     ...(liveMode
       ? {
@@ -304,6 +353,7 @@ export function VideoJsStreamPlayer({
               controls={controls}
               onEnded={onEnded}
               onError={handleError}
+              onCanPlay={onCanPlay}
               onLoadStart={onLoadStart}
               onPlaying={onPlaying}
               onTimeUpdate={handleTimeUpdate}

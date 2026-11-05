@@ -20,7 +20,7 @@ export function ExploreMovieGrid({
   topTenRanks = {},
 }: ExploreMovieGridProps) {
   return (
-    <div className="container mx-auto flex flex-col gap-8 px-2">
+    <div className="flex flex-col gap-8 px-2">
       <section className={VIEW_ALL_GRID_CLASS} data-dpad-poster-grid>
         {posters.map((item) => (
           <PosterCard

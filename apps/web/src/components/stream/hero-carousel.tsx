@@ -1,12 +1,12 @@
 "use client";
 
 import { cn } from "@workspace/ui/lib/utils";
+import { TransitionLink } from "glimm/next";
 import { PlayIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import { getTmdbLogo } from "@/lib/tmdb-logo-client";
 import { tmdbImage, type MediaMeta } from "@/lib/tmdb";
-import Link from "next/link";
 
 const AUTOPLAY_MS = 5000;
 // w1280 (no "original"): banners grandes pero sin bajar backdrops de varios MB.
@@ -91,7 +91,7 @@ export function HeroCarousel({ items }: { items: MediaMeta[] }) {
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
-      <Link
+      <TransitionLink
         className="group block"
         data-dpad-focusable
         data-dpad-no-hover
@@ -156,7 +156,7 @@ export function HeroCarousel({ items }: { items: MediaMeta[] }) {
             </span>
           </div>
         </div>
-      </Link>
+      </TransitionLink>
 
       {items.length > 1 && (
         <div className="absolute inset-x-0 bottom-3 z-10 flex justify-center gap-1.5">

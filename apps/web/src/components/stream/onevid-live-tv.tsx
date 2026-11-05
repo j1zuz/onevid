@@ -38,19 +38,25 @@ import {
   type LiveTvChannel,
   type LiveTvSourceSummary,
 } from "@/lib/live-tv";
+import { useTranslation } from "@/lib/onevid-i18n-context";
 import { LiveTvGuide } from "./live-tv-guide";
 import { useLiveTvSearch } from "./live-tv-search";
+
+function PlayerSkeleton() {
+  const { t: rawT } = useTranslation();
+  return (
+    <Skeleton
+      aria-label={rawT("Cargando reproductor" as never) as unknown as string}
+      className="aspect-video w-full rounded-none"
+    />
+  );
+}
 
 const LiveTvPlayer = dynamic(
   () => import("./live-tv-player").then((module) => module.LiveTvPlayer),
   {
     ssr: false,
-    loading: () => (
-      <Skeleton
-        aria-label="Cargando reproductor"
-        className="aspect-video w-full rounded-none"
-      />
-    ),
+    loading: () => <PlayerSkeleton />,
   },
 );
 
@@ -95,12 +101,14 @@ function useLiveTvRequest<T>(path: string) {
 }
 
 function RequestError({ onRetry }: { onRetry: () => void }) {
+  const { t: rawT } = useTranslation();
+  const t = (key: string) => rawT(key as never) as unknown as string;
   return (
     <Alert>
       <AlertCircleIcon aria-hidden="true" />
-      <AlertTitle>No se pudo cargar Live TV</AlertTitle>
+      <AlertTitle>{t("No se pudo cargar Live TV")}</AlertTitle>
       <AlertDescription className="space-y-3">
-        <p>Comprueba tu conexión y que la fuente siga disponible.</p>
+        <p>{t("Comprueba tu conexión y que la fuente siga disponible.")}</p>
         <Button
           data-dpad-focusable
           onClick={onRetry}
@@ -108,7 +116,7 @@ function RequestError({ onRetry }: { onRetry: () => void }) {
           variant="outline"
         >
           <RefreshCwIcon aria-hidden="true" className="size-3.5" />
-          Reintentar
+          {t("Reintentar")}
         </Button>
       </AlertDescription>
     </Alert>
@@ -116,9 +124,12 @@ function RequestError({ onRetry }: { onRetry: () => void }) {
 }
 
 function GuideSkeleton() {
+  const { t: rawT } = useTranslation();
   return (
     <div className="overflow-hidden rounded-xl border bg-card" role="status">
-      <span className="sr-only">Cargando canales de Live TV...</span>
+      <span className="sr-only">
+        {rawT("Cargando canales de Live TV..." as never) as unknown as string}
+      </span>
       <div aria-hidden="true" className="space-y-1 p-3">
         <Skeleton className="mb-4 h-8 w-1/3" />
         {Array.from({ length: 6 }, (_, index) => (
@@ -142,6 +153,8 @@ function ChannelBrowser({
   initialChannelId?: string | null;
   initialGroup?: string | null;
 }) {
+  const { t: rawT } = useTranslation();
+  const t = (key: string) => rawT(key as never) as unknown as string;
   const request = useLiveTvRequest<{ channels: LiveTvChannel[] }>(
     `/api/onevid-live-tv/channels?sourceId=${encodeURIComponent(source.id)}`,
   );
@@ -192,7 +205,7 @@ function ChannelBrowser({
     <div className="min-w-0 space-y-4">
       {selected ? (
         <section
-          aria-label="Canal en reproducción"
+          aria-label={t("Canal en reproducción")}
           className="relative min-w-0 overflow-hidden rounded-xl border border-border bg-black"
         >
           <div className="min-w-0">
@@ -211,10 +224,11 @@ function ChannelBrowser({
             <EmptyMedia variant="icon">
               <TvIcon />
             </EmptyMedia>
-            <EmptyTitle>No hay canales disponibles</EmptyTitle>
+            <EmptyTitle>{t("No hay canales disponibles")}</EmptyTitle>
             <EmptyDescription>
-              Esta fuente no devolvió canales compatibles. Comprueba su
-              configuración o actualiza la lista.
+              {t(
+                "Esta fuente no devolvió canales compatibles. Comprueba su configuración o actualiza la lista.",
+              )}
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
@@ -224,7 +238,7 @@ function ChannelBrowser({
               size="sm"
               variant="outline"
             >
-              Actualizar canales
+              {t("Actualizar canales")}
             </Button>
           </EmptyContent>
         </Empty>
@@ -249,6 +263,8 @@ function ChannelBrowser({
 }
 
 export function OneVidLiveTv() {
+  const { t: rawT } = useTranslation();
+  const t = (key: string) => rawT(key as never) as unknown as string;
   const request = useLiveTvRequest<{ sources: LiveTvSourceSummary[] }>(
     "/api/onevid-live-tv",
   );
@@ -275,14 +291,14 @@ export function OneVidLiveTv() {
   }, []);
   return (
     <section
-      aria-label="Live TV"
+      aria-label={t("Live TV")}
       className="min-w-0 space-y-4 pb-4 text-foreground"
     >
       {sources.length > 1 && source ? (
         <div className="flex justify-end">
           <div className="min-w-0 w-full sm:w-52">
             <Label className="sr-only" htmlFor={selectorId}>
-              Fuente de Live TV
+              {t("Fuente de Live TV")}
             </Label>
             <Select
               items={sources.map((item) => ({
@@ -326,7 +342,7 @@ export function OneVidLiveTv() {
                 className="size-4 text-primary"
               />
             </EmptyMedia>
-            <EmptyTitle>Live TV</EmptyTitle>
+            <EmptyTitle>{t("Live TV")}</EmptyTitle>
           </EmptyHeader>
           <EmptyContent>
             <Button
@@ -337,7 +353,7 @@ export function OneVidLiveTv() {
               variant="outline"
             >
               <Settings2Icon aria-hidden="true" className="size-3.5" />
-              Configurar Live TV
+              {t("Configurar Live TV")}
             </Button>
           </EmptyContent>
         </Empty>

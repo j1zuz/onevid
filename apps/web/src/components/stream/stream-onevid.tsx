@@ -8,8 +8,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
-import { ArrowLeftIcon } from "lucide-react";
-import Link from "next/link";
+import { TransitionLink } from "glimm/next";
+import { ArrowLeftIcon, Loader } from "lucide-react";
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -35,36 +35,11 @@ import {
 } from "@/hooks/use-mediabunny";
 import { useNextEpisode } from "@/hooks/use-next-episode";
 import { useWatchProgress } from "@/hooks/use-video-progress";
+import { useTranslation } from "@/lib/onevid-i18n-context";
 import { tmdbImage } from "@/lib/tmdb";
 import { getTmdbLogo } from "@/lib/tmdb-logo-client";
 import type { MimeType, StreamWithAddon } from "@/types/stream";
 import { getMimeType, needsMediaBunny } from "@/utils/stream-codec";
-
-function renderLogoCenter({
-  logo,
-  contentTitle,
-}: {
-  logo: string | undefined;
-  contentTitle: string;
-}) {
-  if (logo) {
-    return (
-      // biome-ignore lint/performance/noImgElement: external CDN logo
-      <img
-        alt={contentTitle}
-        className="h-auto max-h-[20vh] w-auto max-w-[60vw] animate-pulse object-contain drop-shadow-2xl"
-        height={0}
-        src={logo}
-        width={0}
-      />
-    );
-  }
-  return (
-    <h2 className="max-w-[80vw] animate-pulse text-center font-semibold text-3xl text-white drop-shadow-2xl md:text-5xl">
-      {contentTitle}
-    </h2>
-  );
-}
 
 // Isolated so the back button/title don't re-render on every mediabunny
 // transcoding progress tick (StreamOnevid re-renders hundreds of times during
@@ -114,14 +89,14 @@ const PlayerTopBar = memo(function PlayerTopBar({
         <Tooltip>
           <TooltipTrigger
             render={
-              <Link
+              <TransitionLink
                 className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
                 href={backHref}
                 onClick={handleBack}
                 aria-label="Volver"
               >
                 <ArrowLeftIcon className="size-5" />
-              </Link>
+              </TransitionLink>
             }
           />
           <TooltipContent>Volver</TooltipContent>
@@ -145,6 +120,27 @@ const PlayerTopBar = memo(function PlayerTopBar({
 // fracción de su duración real.
 const NEXT_EPISODE_LEAD_SEC = 75;
 const MAX_PLAYBACK_RETRIES = 2;
+/**
+ * Plazos del watchdog del player VOD. Antes no había límite: si la fuente no
+ * arrancaba (p. ej. un enlace HTTP bloqueado por mixed content) el spinner se
+ * quedaba para siempre porque no llegaba ningún evento de error.
+ */
+const VOD_STARTUP_TIMEOUT_MS = 45_000;
+/**
+ * Un corte normal del proveedor: le damos margen para que MediaBunny reanude
+ * los rangos truncados (el IPTV corta respuestas con frecuencia) antes de dar
+ * la reproducción por detenida.
+ */
+const VOD_BUFFERING_TIMEOUT_MS = 60_000;
+/**
+ * Un seek en un MKV de IPTV puede reiniciar la transcodificación progresiva de
+ * MediaBunny y tardar bastante (se re-descarga desde el nuevo offset). Le damos
+ * mucho más margen que a un stall normal para no mostrar un falso error justo
+ * cuando el usuario adelanta.
+ */
+const VOD_SEEK_TIMEOUT_MS = 120_000;
+/** Máximo que esperamos a que /api/stream/sources devuelva una fuente. */
+const SOURCE_RESOLUTION_TIMEOUT_MS = 30_000;
 
 function nextEpisodeLead(durationSec: number): number {
   return Math.min(NEXT_EPISODE_LEAD_SEC, durationSec * 0.15);
@@ -164,6 +160,8 @@ interface StreamOnevidProps {
    * "modo directo pero sin fuente" (se pinta el error nativo del player).
    */
   directSource?: StreamWithAddon | null;
+  /** Item de un catálogo de addon con id propio: sin TMDB, logo ni siguiente episodio. */
+  isAddon?: boolean;
   rawId: string;
 }
 
@@ -175,6 +173,7 @@ export function StreamOnevid({
   contentBackground,
   contentLogo,
   directSource,
+  isAddon = false,
   rawId,
 }: StreamOnevidProps) {
   const isDirect = directSource !== undefined;
@@ -183,10 +182,15 @@ export function StreamOnevid({
   const season = rawParts.length >= 3 ? Number(rawParts[1]) || 0 : 0;
   const episode = rawParts.length >= 3 ? Number(rawParts[2]) || 0 : 0;
   const router = useRouter();
+  const { t: rawT } = useTranslation();
+  const t = useCallback(
+    (key: string) => rawT(key as never) as unknown as string,
+    [rawT],
+  );
   // Volver al título reproducido, no al Inicio. En series usamos el id base sin
   // temporada/episodio, pero pasamos la temporada actual para que el detalle
   // abra la misma que se estaba viendo (antes volvía siempre a la 1).
-  const backHref = isDirect
+  const backHref = isDirect || isAddon
     ? "/home"
     : contentType === "series" && season > 0
       ? `/home/detail/series/${encodeURIComponent(contentId)}?season=${season}`
@@ -203,7 +207,12 @@ export function StreamOnevid({
   );
   const [selectedMimeType, setSelectedMimeType] =
     useState<MimeType>("video/mp4");
-  const triedSessionStorage = useRef(false);
+  const [autoTried, setAutoTried] = useState(false);
+  // Motivos que devolvió el endpoint cuando no hay fuentes (p. ej. un addon
+  // caído o bloqueado por el guard anti-SSRF). Se muestran en la pantalla de
+  // error para no dejar al usuario sin pistas.
+  const [sourceErrors, setSourceErrors] = useState<string[]>([]);
+  const [sourcesAttempt, setSourcesAttempt] = useState(0);
 
   // Logo: start from server prop, fetch client-side as fallback
   const [logo, setLogo] = useState<string | undefined>(contentLogo);
@@ -212,9 +221,14 @@ export function StreamOnevid({
   // montar. Antes arrancaba en true y el loader se veía siempre de primero,
   // aunque el medio fuera nativo y arrancara al instante.
   const [isBuffering, setIsBuffering] = useState(false);
+  const [isSeeking, setIsSeeking] = useState(false);
   const [hasPlayed, setHasPlayed] = useState(false);
   const [playbackRetry, setPlaybackRetry] = useState(0);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  // Una fuente http:// dentro de una página https:// la bloquea el navegador
+  // (mixed content): sin esto, el player se quedaba con el spinner para
+  // siempre porque no llega ningún evento de error.
+  const [mixedContentBlocked, setMixedContentBlocked] = useState(false);
   const [mediaBunnyRetry, setMediaBunnyRetry] = useState(0);
   const [offlineMediaUrl, setOfflineMediaUrl] = useState<string | null>(null);
   const offlineKey = offlineStorageKey(contentType, rawId);
@@ -301,7 +315,63 @@ export function StreamOnevid({
   // arranca por primera vez. Después de eso el player ya tiene su propio
   // loader para buffering y seeks, así que no tapamos el video.
   const showLoadingOverlay =
-    !hasPlayed && (isBuffering || mediaBunny.status === "processing");
+    isBuffering || mediaBunny.status === "processing";
+
+  // Un enlace http:// no se puede cargar desde una página https://: el
+  // navegador lo bloquea y hls.js/el <video> no emiten error, así que el
+  // spinner se quedaba eternamente. Lo detectamos antes de montar el player.
+  useEffect(() => {
+    const blocked =
+      typeof window !== "undefined" &&
+      window.location.protocol === "https:" &&
+      !offlineMediaUrl &&
+      Boolean(sourceUrl && sourceUrl.toLowerCase().startsWith("http://"));
+    setMixedContentBlocked(blocked);
+    if (blocked) {
+      setIsBuffering(false);
+      setPlaybackError(null);
+    }
+  }, [offlineMediaUrl, sourceUrl]);
+
+  // Watchdog: si el medio no arranca (o deja de avanzar) no dejamos el loader
+  // indefinidamente; pasado el plazo mostramos el error con reintento.
+  useEffect(() => {
+    if (!isBuffering || mixedContentBlocked || playbackError) {
+      return;
+    }
+    const timeout = window.setTimeout(
+      () => {
+        setIsBuffering(false);
+        setPlaybackError(
+          hasPlayed
+            ? t("La reproducción se detuvo. Puedes reintentar.")
+            : t(
+                "No se pudo iniciar la reproducción. La fuente puede estar caída o bloqueada.",
+              ),
+        );
+      },
+      isSeeking
+        ? VOD_SEEK_TIMEOUT_MS
+        : hasPlayed
+          ? VOD_BUFFERING_TIMEOUT_MS
+          : VOD_STARTUP_TIMEOUT_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [hasPlayed, isBuffering, isSeeking, mixedContentBlocked, playbackError, t]);
+
+  const retryPlayback = useCallback(() => {
+    setPlaybackError(null);
+    setHasPlayed(false);
+    setIsBuffering(true);
+    setPlaybackRetry((current) => current + 1);
+  }, []);
+
+  const retrySources = useCallback(() => {
+    setSelectedSource(null);
+    setAutoTried(false);
+    setSourceErrors([]);
+    setSourcesAttempt((current) => current + 1);
+  }, []);
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset retry state whenever the source changes; these values are triggers, not reads.
   useEffect(() => {
     setPlaybackRetry(0);
@@ -474,6 +544,10 @@ export function StreamOnevid({
   // guardado (tarjetas de Continuar viendo), que no necesita tanta resolución.
   const backgroundArt =
     tmdbImage(contentBackground, "original") ?? contentBackground;
+  // Para títulos de addon no hay backdrop de TMDB: usamos el póster que viene
+  // en la URL como fondo de las pantallas de carga para no dejar negro.
+  const loadingArt =
+    backgroundArt ?? tmdbImage(_contentPoster, "w1280") ?? _contentPoster;
 
   const { onTimeUpdate, onEnded, initialResume } = useWatchProgress({
     // Un magnet no pertenece al catálogo: no guardamos progreso ni lo metemos
@@ -488,7 +562,12 @@ export function StreamOnevid({
   });
 
   const isSeries = contentType === "series";
-  const nextEpisode = useNextEpisode(contentId, season, episode, isSeries);
+  const nextEpisode = useNextEpisode(
+    contentId,
+    season,
+    episode,
+    isSeries && !isAddon
+  );
   // Booleano y no el tiempo restante: el `timeupdate` llega ~4 veces por
   // segundo y guardar los segundos aquí re-renderizaría el player entero en
   // cada tick. Así solo hay render al cruzar el umbral.
@@ -575,6 +654,24 @@ export function StreamOnevid({
     hasResumed.current = true;
   }, [hasPlayed, initialResume]);
 
+  // Un seek (adelantar/atrasar) deja el video en buffering mientras se
+  // reposiciona la fuente. Lo marcamos para que el watchdog no confunda esa
+  // espera normal con un corte del proveedor.
+  useEffect(() => {
+    const video = playerRefs.video;
+    if (!video) {
+      return;
+    }
+    const onSeeking = () => setIsSeeking(true);
+    const onSettled = () => setIsSeeking(false);
+    video.addEventListener("seeking", onSeeking);
+    video.addEventListener("playing", onSettled);
+    return () => {
+      video.removeEventListener("seeking", onSeeking);
+      video.removeEventListener("playing", onSettled);
+    };
+  }, [playerRefs.video]);
+
   // Seek en la ruta MSE: mediabunny transcodifica de forma secuencial, así que el
   // <video> no puede saltar más allá de lo ya transcodificado (se quedaría
   // esperando para siempre). Cuando el usuario salta FUERA del buffer, se reinicia
@@ -604,7 +701,7 @@ export function StreamOnevid({
   }, [playerRefs.video, shouldUseMediaBunny, mediaBunny.seekTo]);
   // Fetch logo client-side if not provided by server
   useEffect(() => {
-    if (isDirect || logo) {
+    if (isDirect || isAddon || logo) {
       return;
     }
 
@@ -617,34 +714,85 @@ export function StreamOnevid({
       .catch(() => {
         /* logo fetch failed, fall back to title */
       });
-  }, [isDirect, logo, contentId, contentType]);
+  }, [isAddon, isDirect, logo, contentId, contentType]);
 
-  // On mount, try to read from sessionStorage
+  // On mount, usa la fuente preseleccionada (sessionStorage) o, si se entró
+  // directo al player, pide las fuentes y abre la primera. `sourcesAttempt`
+  // permite reintentar sin recargar la página.
+  //
+  // Ojo con StrictMode: en desarrollo los efectos se montan, desmontan y
+  // vuelven a montar. Antes este efecto usaba un ref "solo una vez" + cleanup
+  // que cancelaba el fetch; la segunda pasada salía por el ref y la respuesta
+  // de la primera se descartaba por `cancelled`. Resultado: /api/stream/sources
+  // devolvía 200 pero el player nunca recibía la fuente. Por eso el ref ya no
+  // existe y cada pasada puede completar la carga.
   useEffect(() => {
-    if (triedSessionStorage.current) {
-      return;
-    }
-    triedSessionStorage.current = true;
-
     if (isDirect || selectedSource) {
+      setAutoTried(true);
       return;
     }
 
-    try {
-      const key = `stream-source-${contentType}-${rawId}`;
-      const raw = sessionStorage.getItem(key);
-      if (raw) {
-        sessionStorage.removeItem(key);
-        const source = JSON.parse(raw) as StreamWithAddon;
-        setSelectedSource(source);
-        setSelectedMimeType(
-          getMimeType(typeof source.url === "string" ? source.url : "")
-        );
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const key = `stream-source-${contentType}-${rawId}`;
+        const raw = sessionStorage.getItem(key);
+        if (raw) {
+          sessionStorage.removeItem(key);
+          const source = JSON.parse(raw) as StreamWithAddon;
+          if (!cancelled) {
+            setSelectedSource(source);
+            setSelectedMimeType(
+              getMimeType(typeof source.url === "string" ? source.url : "")
+            );
+            setAutoTried(true);
+          }
+          return;
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
-    }
-  }, [contentType, isDirect, rawId, selectedSource]);
+
+      try {
+        const res = await fetch("/api/stream/sources", {
+          body: JSON.stringify({ id: rawId, type: contentType }),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        });
+        if (!res.ok) throw new Error("sources unavailable");
+        const data = (await res.json()) as {
+          addonErrors?: Array<{ error?: string }>;
+          sources?: StreamWithAddon[];
+        };
+        const first = data.sources?.[0];
+        if (!cancelled) {
+          setSourceErrors(
+            (data.addonErrors ?? [])
+              .map((entry) =>
+                typeof entry?.error === "string" ? entry.error : "",
+              )
+              .filter(Boolean),
+          );
+          if (first) {
+            setSelectedSource(first);
+            setSelectedMimeType(
+              getMimeType(typeof first.url === "string" ? first.url : "")
+            );
+          }
+          setAutoTried(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setSourceErrors([]);
+          setAutoTried(true);
+        }
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [contentType, isDirect, rawId, selectedSource, sourcesAttempt]);
 
   // Sync mimeType when selectedSource changes
   useEffect(() => {
@@ -657,27 +805,70 @@ export function StreamOnevid({
     }
   }, [selectedSource]);
 
+  // Si la resolución de fuentes se cuelga, no dejamos el loader para siempre:
+  // pasado el plazo caemos en la pantalla de "sin fuente", que permite volver.
+  useEffect(() => {
+    if (selectedSource || autoTried) {
+      return;
+    }
+    const timeout = window.setTimeout(
+      () => setAutoTried(true),
+      SOURCE_RESOLUTION_TIMEOUT_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [autoTried, selectedSource]);
+
+  // Resolviendo las fuentes del addon/medio.
+  if (!selectedSource && !autoTried) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-center bg-cover bg-no-repeat"
+        style={
+          loadingArt
+            ? { backgroundImage: `url(${loadingArt})` }
+            : { backgroundColor: "#000" }
+        }
+      >
+        <div aria-hidden className="absolute inset-0 bg-black/45" />
+        <Loader
+          aria-label={t("Cargando fuente")}
+          className="relative size-6 animate-spin text-white"
+        />
+      </div>
+    );
+  }
+
   // No source found
   if (!selectedSource) {
     return (
       <div
         className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-center bg-cover bg-no-repeat"
         style={
-          backgroundArt
-            ? { backgroundImage: `url(${backgroundArt})` }
+          loadingArt
+            ? { backgroundImage: `url(${loadingArt})` }
             : { backgroundColor: "#000" }
         }
       >
         <div className="flex flex-col items-center gap-4 rounded-lg bg-black/60 p-6 backdrop-blur-sm">
           <p className="text-sm text-white">
-            No se pudo cargar la fuente de reproduccion.
+            {t("No se pudo cargar la fuente de reproducción.")}
           </p>
-          <Link href={backHref} onClick={handleBack}>
-            <Button size="sm" variant="outline">
-              <ArrowLeftIcon className="mr-2 size-4" />
-              Volver al catalogo
+          {sourceErrors.length > 0 ? (
+            <p className="max-w-sm text-center text-xs text-white/60">
+              {sourceErrors.join(" · ")}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Button data-dpad-focusable onClick={retrySources} size="sm">
+              {t("Reintentar")}
             </Button>
-          </Link>
+            <TransitionLink href={backHref} onClick={handleBack}>
+              <Button data-dpad-focusable size="sm" variant="outline">
+                <ArrowLeftIcon className="mr-2 size-4" />
+                {t("Volver al catálogo")}
+              </Button>
+            </TransitionLink>
+          </div>
         </div>
       </div>
     );
@@ -740,32 +931,39 @@ export function StreamOnevid({
             transcodificación en curso o buffering activo — no al montar el
             player (si el medio es nativo y arranca al instante, no se muestra). */}
         {showLoadingOverlay && (
-          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/30">
-            {backgroundArt && (
-              // biome-ignore lint/performance/noImgElement: external CDN background
-              <img
-                alt=""
-                className="absolute inset-0 size-full object-cover opacity-40"
-                height={1080}
-                src={backgroundArt}
-                width={1920}
-              />
-            )}
-            <div className="relative z-10 flex items-center gap-4">
-              {renderLogoCenter({ logo, contentTitle })}
-            </div>
+          <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/40">
+            <Loader
+              aria-label={t("Cargando video")}
+              className="size-8 animate-spin text-white"
+            />
+            {mediaBunny.status === "processing" && mediaBunny.progress > 0 ? (
+              <span className="text-white/80 text-xs tabular-nums">
+                {Math.round(mediaBunny.progress)}%
+              </span>
+            ) : null}
           </div>
         )}
 
-        {(mediaBunny.status === "error" || playbackError) && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80">
-            <p className="px-6 text-center text-destructive text-sm">
-              {playbackError ??
-                (mediaBunny.status === "error" ? mediaBunny.message : "")}
+        {(mediaBunny.status === "error" ||
+          playbackError ||
+          mixedContentBlocked) && (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/80 px-6 text-center">
+            <p className="text-destructive text-sm">
+              {mixedContentBlocked
+                ? t(
+                    "Esta fuente usa HTTP y el navegador la bloquea en una página HTTPS. Pide una fuente HTTPS al proveedor.",
+                  )
+                : (playbackError ??
+                  (mediaBunny.status === "error" ? mediaBunny.message : ""))}
             </p>
+            {!mixedContentBlocked && (
+              <Button onClick={retryPlayback} size="sm" variant="outline">
+                {t("Reintentar")}
+              </Button>
+            )}
           </div>
         )}
-        {activeSrc && (
+        {activeSrc && !mixedContentBlocked && (
           <VideoJsStreamPlayer
             // Al cambiar de medio el <video> debe desmontarse y volver a
             // montarse: sin `key` React reutiliza el elemento y el arranque
@@ -781,8 +979,13 @@ export function StreamOnevid({
             onLoadStart={() => setIsBuffering(true)}
             onMediaRef={handleMediaRef}
             onError={handlePlaybackError}
+            onCanPlay={() => {
+              setIsBuffering(false);
+              setIsSeeking(false);
+            }}
             onPlaying={() => {
               setIsBuffering(false);
+              setIsSeeking(false);
               setHasPlayed(true);
               if (pendingSeekSec.current !== null) {
                 const vid = document.querySelector<HTMLVideoElement>(
@@ -801,6 +1004,22 @@ export function StreamOnevid({
             subtitles={subtitles}
           />
         )}
+        {/* Va DESPUÉS del player a propósito: el <video> de MSE pinta negro
+            hasta el primer fotograma y, al ser un hermano posterior, tapaba
+            este backdrop si lo pintábamos antes. `pointer-events-none` deja
+            pasar los clics (autoplay bloqueado, gesto para reproducir). */}
+        {!hasPlayed && loadingArt ? (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 z-10"
+          >
+            <div
+              className="absolute inset-0 bg-center bg-cover bg-no-repeat"
+              style={{ backgroundImage: `url(${loadingArt})` }}
+            />
+            <div className="absolute inset-0 bg-black/45" />
+          </div>
+        ) : null}
         {nearEnd && nextEpisode && (
           <StreamNextEpisode next={nextEpisode} onPlay={handlePlayNext} />
         )}

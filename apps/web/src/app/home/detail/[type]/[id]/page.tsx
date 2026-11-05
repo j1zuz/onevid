@@ -12,6 +12,7 @@ import {
   OneVidProfileProvider,
   VERIFIED_PROFILE_COOKIE,
 } from "@/components/stream/onevid-profile-context";
+import { parseAddonMediaId } from "@/lib/addon-media";
 import { auth } from "@/lib/auth";
 import { oneVidProfile } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
@@ -77,6 +78,12 @@ async function StreamDetailContent({
   const tmdbLocale = getTmdbLocale(appLocale);
 
   const contentType: CatalogType = typeParam === "series" ? "series" : "movie";
+
+  // Los items de catálogos de addons con ids propios no tienen metadatos TMDB: se
+  // reproducen directamente, sin pasar por la página de detalle.
+  if (parseAddonMediaId(contentType === "series" ? id.split(":")[0] : id)) {
+    redirect(`/home/player/${contentType}/${encodeURIComponent(id)}`);
+  }
 
   const profileRows = await db
     .select({

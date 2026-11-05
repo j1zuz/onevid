@@ -23,9 +23,27 @@ mock.module("@workspace/ui/components/tooltip", () => ({
   TooltipContent: passthrough,
 }));
 mock.module("./stream-track-picker", () => ({ StreamTrackPicker: () => null }));
-const { getLiveEdge, isLiveTvPlaybackUrl, LiveTvPlayer, returnToLive } =
-  await import("./live-tv-player");
+const {
+  getLiveEdge,
+  isLiveTvPlaybackUrl,
+  LIVE_TV_BUFFERING_TIMEOUT_MS,
+  LIVE_TV_STARTUP_TIMEOUT_MS,
+  LiveTvPlayer,
+  returnToLive,
+} = await import("./live-tv-player");
 const { VideoJsStreamPlayer } = await import("./video-js-stream-player");
+const { OnevidI18nProvider } = await import("../../lib/onevid-i18n-context");
+
+function renderPlayer(
+  channel: Parameters<typeof LiveTvPlayer>[0]["channel"],
+): string {
+  return renderToStaticMarkup(
+    createElement(OnevidI18nProvider, {
+      initialLocale: "es-419",
+      children: createElement(LiveTvPlayer, { channel }),
+    }),
+  );
+}
 
 function seekable(ranges: [number, number][]): TimeRanges {
   return {
@@ -100,6 +118,13 @@ describe("shared Live TV player", () => {
     assert.equal(video.currentTime, 10);
   });
 
+  it("fails a channel that never starts instead of loading forever", () => {
+    assert.equal(LIVE_TV_STARTUP_TIMEOUT_MS, 60_000);
+    // A channel that already played gets a shorter grace period when it stalls.
+    assert.equal(LIVE_TV_BUFFERING_TIMEOUT_MS, 30_000);
+    assert.ok(LIVE_TV_BUFFERING_TIMEOUT_MS < LIVE_TV_STARTUP_TIMEOUT_MS);
+  });
+
   it("keeps movie mode as the shared renderer default and opts in to a fullscreen-contained live toolbar", () => {
     const props = {
       src: "https://provider.example/live.m3u8",
@@ -125,17 +150,36 @@ describe("shared Live TV player", () => {
     );
   });
 
+  it("shows the channel logo as the pre-playback loader and falls back to the initial", () => {
+    const html = renderPlayer({
+      id: "channel",
+      name: "News",
+      group: "News",
+      url: "https://provider.example/live.m3u8",
+      logo: "https://provider.example/logo.png",
+    });
+    assert.match(html, /role="status"/);
+    assert.match(html, /Cargando News/);
+    assert.match(html, /provider\.example\/logo\.png/);
+
+    const fallback = renderPlayer({
+      id: "channel",
+      name: "News",
+      group: "News",
+      url: "https://provider.example/live.m3u8",
+      logo: "http://provider.example/insecure.png",
+    });
+    assert.doesNotMatch(fallback, /insecure\.png/);
+    assert.match(fallback, />N</);
+  });
+
   it("rejects unsafe sources with shared Alert UI and never prints their credentials", () => {
-    const html = renderToStaticMarkup(
-      createElement(LiveTvPlayer, {
-        channel: {
-          id: "channel",
-          name: "News",
-          group: "News",
-          url: "https://private-user:private-password@provider.example/live.m3u8",
-        },
-      }),
-    );
+    const html = renderPlayer({
+      id: "channel",
+      name: "News",
+      group: "News",
+      url: "https://private-user:private-password@provider.example/live.m3u8",
+    });
     assert.match(html, /data-slot="alert"/);
     assert.match(html, /HTTPS/);
     assert.doesNotMatch(

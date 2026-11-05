@@ -144,7 +144,7 @@ function requestPinnedPlaylist(
         "accept-encoding": "identity",
       },
     };
-    const request = https.request(target, options, (incoming) => {
+    const onResponse = (incoming: IncomingMessage) => {
       if (settled) {
         incoming.destroy();
         return;
@@ -195,7 +195,8 @@ function requestPinnedPlaylist(
           text: text + decoder.decode(),
         }),
       );
-    });
+    };
+    const request = https.request(target, options, onResponse);
     request.once("error", (error) => finish(error));
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();

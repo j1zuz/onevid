@@ -1,8 +1,8 @@
 "use client";
 
 import { cn } from "@workspace/ui/lib/utils";
+import { TransitionLink } from "glimm/next";
 import { CircleCheckIcon, Play } from "lucide-react";
-import Link from "next/link";
 import { useWatchState } from "@/hooks/use-watch-state";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { MediaMeta } from "@/lib/tmdb";
@@ -29,12 +29,10 @@ export const VIEW_ALL_GRID_CLASS =
  * Fila horizontal del inicio (estilo carrusel): las tarjetas van una al lado de
  * otra y se deslizan hacia los lados, en vez de apilarse hacia abajo.
  */
-export const POSTER_ROW_CLASS =
-  "no-scrollbar -mx-2 flex snap-x snap-mandatory gap-4 overflow-x-auto px-2 pb-1";
-
-/** Ancho fijo de cada tarjeta dentro de la fila horizontal. */
-export const POSTER_ROW_ITEM_CLASS =
-  "w-64 shrink-0 snap-start sm:w-72";
+export {
+  POSTER_ROW_CLASS,
+  POSTER_ROW_ITEM_CLASS,
+} from "@/lib/poster-row-classes";
 
 /**
  * Tarjeta de póster con overlay de play. La comparten la grilla de "Ver todo"
@@ -56,12 +54,13 @@ export function PosterCard({
   const watched = watchState.isWatched(item.type, item.id);
   const horizontal = orientation === "horizontal";
   const detailHref = `/home/detail/${item.type}/${encodeURIComponent(item.id)}`;
+  const href = item.playHref ?? detailHref;
   // En horizontal preferimos el backdrop (16:9); si no hay, caemos al póster
   // para no dejar la tarjeta vacía.
   const art = horizontal ? (item.background ?? item.poster) : item.poster;
 
   return (
-    <Link data-dpad-focusable href={detailHref}>
+    <TransitionLink data-dpad-focusable href={href}>
       <article className="group block h-full">
         <div
           className={cn(
@@ -148,6 +147,6 @@ export function PosterCard({
           </p>
         </div>
       </article>
-    </Link>
+    </TransitionLink>
   );
 }

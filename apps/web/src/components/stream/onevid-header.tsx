@@ -4,8 +4,8 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
+import { TransitionLink } from "glimm/next";
 import { MagnetIcon, ScanSearchIcon, XIcon } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OneVidAddonSummary } from "@/components/stepper-onevid";
@@ -40,11 +40,12 @@ interface SearchMeta {
 const SURFACE_TABS: Array<{
   href: string;
   label: string;
-  surface: FeedSurface | "live";
+  surface: FeedSurface | "live" | "library";
 }> = [
   { href: "/home", label: "Inicio", surface: "home" },
   { href: "/home?surface=discover", label: "Descubrir", surface: "discover" },
   { href: "/home?surface=live", label: "Live TV", surface: "live" },
+  { href: "/home?surface=library", label: "Biblioteca", surface: "library" },
 ];
 
 // El endpoint ya recorta a 20; en el dropdown solo caben unos pocos.
@@ -78,7 +79,7 @@ interface OneVidHeaderProps {
   onMovieSelect?: (movie: MediaMeta) => void;
   setupCompleted: boolean;
   /** Pestaña activa; la elige `?surface=` en /home. */
-  surface?: FeedSurface | "live";
+  surface?: FeedSurface | "live" | "library";
 }
 
 export function OneVidHeader({
@@ -235,7 +236,7 @@ export function OneVidHeader({
       return (
         <ul className="p-1">
           <li>
-            <Link
+            <TransitionLink
               className="flex w-full items-center gap-3 rounded-md border border-transparent px-3 py-2 text-left transition-colors"
               data-dpad-focusable
               href={buildMagnetPlayerHref(magnetQuery)}
@@ -252,7 +253,7 @@ export function OneVidHeader({
                   {magnetDisplayName(magnetQuery)}
                 </p>
               </div>
-            </Link>
+            </TransitionLink>
           </li>
         </ul>
       );
@@ -295,7 +296,7 @@ export function OneVidHeader({
           // son por colección, así que una película y una serie pueden
           // compartir el mismo número y colisionar como key.
           <li key={`${item.type ?? "movie"}:${item.id}`}>
-            <Link
+            <TransitionLink
               className="flex w-full items-center gap-3 rounded-md border border-transparent px-3 py-2 text-left transition-colors"
               data-dpad-focusable
               href={`/home/detail/${item.type === "series" ? "series" : "movie"}/${encodeURIComponent(item.id)}`}
@@ -329,7 +330,7 @@ export function OneVidHeader({
                   )}
                 </p>
               </div>
-            </Link>
+            </TransitionLink>
           </li>
         ))}
       </ul>
@@ -338,11 +339,11 @@ export function OneVidHeader({
 
   return (
     <section
-      className="sticky top-0 z-20 -mx-4 mb-6 flex items-center gap-3 border-border border-b border-dashed bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:-mx-6 md:px-6"
+      className="sticky top-0 z-20 -mx-4 mb-6 flex flex-wrap items-center gap-3 border-border border-b border-dashed bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 sm:flex-nowrap md:-mx-6 md:px-6"
       data-dpad-focus-subtle
     >
       {/* Logo: lleva de vuelta a /home. */}
-      <Link
+      <TransitionLink
         className="flex shrink-0 items-center rounded-md border border-border/70 transition-colors hover:border-border"
         data-dpad-focusable
         data-dpad-primary
@@ -356,11 +357,21 @@ export function OneVidHeader({
           src="/onevid-pwa-512.png"
           width={32}
         />
-      </Link>
+      </TransitionLink>
 
-      <nav aria-label="Navegación principal" className="flex min-w-0 items-center gap-0.5 overflow-x-auto sm:gap-1">
+      <nav
+        aria-label="Navegación principal"
+        className={cn(
+          "flex min-w-0 items-center gap-0.5 overflow-x-auto",
+          // Móvil: las pestañas pasan a una segunda línea a todo el ancho, así
+          // "Biblioteca" no queda cortada detrás del avatar. En sm+ vuelven a
+          // compartir la fila con el logo y los controles.
+          "max-sm:order-3 max-sm:w-full max-sm:justify-between max-sm:border-border/60 max-sm:border-t max-sm:pt-2",
+          "sm:w-auto sm:justify-start sm:gap-1 sm:border-0 sm:pt-0",
+        )}
+      >
         {SURFACE_TABS.map((tab) => (
-          <Link
+          <TransitionLink
             aria-current={surface === tab.surface ? "page" : undefined}
             className={cn(
               "shrink-0 whitespace-nowrap rounded-full border border-transparent px-2 py-1 font-medium text-xs transition-colors sm:px-3 sm:text-sm",
@@ -374,7 +385,7 @@ export function OneVidHeader({
             key={tab.surface}
           >
             {t(tab.label)}
-          </Link>
+          </TransitionLink>
         ))}
       </nav>
 
@@ -429,7 +440,7 @@ export function OneVidHeader({
                     }
                   }}
                   placeholder={
-                    liveSearch ? "Buscar canal..." : `${t("Buscar")}...`
+                    liveSearch ? t("Buscar canal...") : `${t("Buscar")}...`
                   }
                   ref={searchInputRef}
                   type="text"

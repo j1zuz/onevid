@@ -2,8 +2,8 @@
 
 import { buttonVariants } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
+import { TransitionLink } from "glimm/next";
 import { ChevronRightIcon } from "lucide-react";
-import Link from "next/link";
 import {
   POSTER_ROW_CLASS,
   POSTER_ROW_ITEM_CLASS,
@@ -37,7 +37,7 @@ export function FeedRow({ section }: { section: FeedSection }) {
   }
 
   return (
-    <section className="container mx-auto flex flex-col gap-3 px-2">
+    <section className="flex flex-col gap-3 px-2">
       <div className="flex items-baseline justify-between gap-2 px-1">
         <h2 className="font-semibold text-lg md:text-xl">{section.title}</h2>
         {/* Las filas de addon no tienen vista "Ver todo" (ver buildFeedRowHref). */}
@@ -46,14 +46,14 @@ export function FeedRow({ section }: { section: FeedSection }) {
           // UI le exige semántica de botón nativo); se estilan las clases del
           // botón directamente sobre el Link, como ya hace el trigger del
           // engranaje en onevid-header.tsx.
-          <Link
+          <TransitionLink
             className={cn(buttonVariants({ size: "xs" }), "btn-primary shrink-0")}
             data-dpad-focusable
             href={section.href}
           >
             <ChevronRightIcon data-icon="inline-start" />
             {t("Ver todo")}
-          </Link>
+          </TransitionLink>
         )}
       </div>
       <div className={POSTER_ROW_CLASS}>

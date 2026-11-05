@@ -11,15 +11,20 @@ const { outputFiles } = buildSync({
     contents: `
       import { createElement } from "react";
       import { renderToStaticMarkup } from "react-dom/server";
+      import { OnevidI18nProvider } from "../../lib/onevid-i18n-context";
       import { LiveTvGuide } from "./live-tv-guide";
       export function render(props) {
-        return renderToStaticMarkup(createElement(LiveTvGuide, {
-          group: "",
-          groups: [],
-          onGroupChange: () => {},
-          ...props,
-          onChannelSelect: () => {},
-        }));
+        return renderToStaticMarkup(createElement(
+          OnevidI18nProvider,
+          { initialLocale: "es-419" },
+          createElement(LiveTvGuide, {
+            group: "",
+            groups: [],
+            onGroupChange: () => {},
+            ...props,
+            onChannelSelect: () => {},
+          }),
+        ));
       }
     `,
     resolveDir: fileURLToPath(new URL(".", import.meta.url)),

@@ -14,12 +14,16 @@ export default function DetailLoading() {
           <div className="flex items-center gap-3">
             <Skeleton className="size-8 rounded-md" />
             <div className="flex items-center gap-1">
+              <Skeleton className="h-7 w-12 rounded-full" />
+              <Skeleton className="h-7 w-16 rounded-full" />
               <Skeleton className="h-7 w-14 rounded-full" />
-              <Skeleton className="h-7 w-20 rounded-full" />
             </div>
           </div>
           <div className="flex flex-1 items-center justify-end gap-2">
-            <Skeleton className="h-9 w-full max-w-xs rounded-md" />
+            {/* Móvil: el header real muestra solo el icono de búsqueda. */}
+            <Skeleton className="size-8 rounded-md md:hidden" />
+            {/* Escritorio: barra de búsqueda completa. */}
+            <Skeleton className="hidden h-9 w-full max-w-xs rounded-md md:block" />
             <Skeleton className="size-8 rounded-full" />
           </div>
         </header>

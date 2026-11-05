@@ -1,5 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
+import { parseAddonStreamId } from "@/lib/addon-media";
 import { auth } from "@/lib/auth";
 import { oneVid, oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
@@ -49,6 +50,7 @@ interface OneVlpStreamResponse {
 
 interface StremioStreamResponse {
   streams?: Array<{
+    externalUrl?: unknown;
     name?: unknown;
     title?: unknown;
     url?: unknown;
@@ -221,25 +223,64 @@ async function fetchAddonStremioStreams(
     }
 
     const data = (await res.json()) as StremioStreamResponse;
-    const rawStreams = Array.isArray(data.streams) ? data.streams : [];
+    return { success: true, streams: parseStremioStreams(data, hasTorboxKey) };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : String(error || "Unknown error");
+    return { success: false, streams: [], error: message };
+  }
+}
 
-    const streams: StreamSource[] = [];
-    for (const item of rawStreams) {
-      if (!item || typeof item !== "object") {
-        continue;
-      }
-      const rawUrl = typeof item.url === "string" ? item.url.trim() : "";
-      if (!rawUrl) {
-        continue;
-      }
-      const finalUrl = rewriteMagnetUrl(rawUrl, hasTorboxKey);
-      const name = typeof item.name === "string" ? item.name : "";
-      const title = typeof item.title === "string" ? item.title : name;
-
-      streams.push({ title, url: finalUrl, name: name || undefined });
+function parseStremioStreams(
+  data: StremioStreamResponse,
+  hasTorboxKey: boolean
+): StreamSource[] {
+  const rawStreams = Array.isArray(data.streams) ? data.streams : [];
+  const streams: StreamSource[] = [];
+  for (const item of rawStreams) {
+    if (!item || typeof item !== "object") {
+      continue;
     }
+    const rawUrl =
+      typeof item.url === "string"
+        ? item.url.trim()
+        : typeof item.externalUrl === "string"
+          ? item.externalUrl.trim()
+          : "";
+    if (!rawUrl) {
+      continue;
+    }
+    const finalUrl = rewriteMagnetUrl(rawUrl, hasTorboxKey);
+    const name = typeof item.name === "string" ? item.name : "";
+    const title = typeof item.title === "string" ? item.title : name;
+    streams.push({ title, url: finalUrl, name: name || undefined });
+  }
+  return streams;
+}
 
-    return { success: true, streams };
+/** Variante para ids propios de un addon: no hay IMDb que resolver. */
+async function fetchAddonStremioStreamsByRawId(
+  baseUrl: string,
+  type: StreamType,
+  rawId: string,
+  season: number | undefined,
+  episode: number | undefined,
+  hasTorboxKey: boolean
+): Promise<{ success: boolean; streams: StreamSource[]; error?: string }> {
+  const streamId =
+    type === "series" && season != null && episode != null
+      ? `${rawId}:${season}:${episode}`
+      : rawId;
+  try {
+    const res = await safeFetch(
+      `${baseUrl}/stream/${type}/${streamId}.json`,
+      { method: "GET", headers: { accept: "application/json" } }
+    );
+    if (!res.ok) {
+      return { success: false, streams: [], error: `HTTP ${res.status}` };
+    }
+    const data = (await res.json()) as StremioStreamResponse;
+    return { success: true, streams: parseStremioStreams(data, hasTorboxKey) };
   } catch (error) {
     const message =
       error instanceof Error ? error.message : String(error || "Unknown error");
@@ -302,6 +343,63 @@ export async function POST(request: Request) {
         { error: "Missing or invalid id parameter" },
         { status: 400 }
       );
+    }
+
+    // IDs de catálogos de addons con ids propios: no hay TMDB/IMDb, se consulta solo
+    // el addon dueño con su id propio.
+    const addonRef = parseAddonStreamId(id);
+    if (addonRef) {
+      const [addon] = await db
+        .select({
+          id: oneVidAddon.id,
+          manifestName: oneVidAddon.manifestName,
+          baseUrl: oneVidAddon.baseUrl,
+        })
+        .from(oneVidAddon)
+        .where(
+          and(
+            eq(oneVidAddon.id, addonRef.addonId),
+            eq(oneVidAddon.userId, session.user.id)
+          )
+        )
+        .limit(1);
+      if (!addon) {
+        return Response.json(
+          { error: "Addon not found for this media" },
+          { status: 404 }
+        );
+      }
+      const ctx = await loadUserContext(session.user.id);
+      const result = await fetchAddonStremioStreamsByRawId(
+        addon.baseUrl,
+        type,
+        addonRef.rawId,
+        addonRef.season,
+        addonRef.episode,
+        Boolean(ctx.torboxKey)
+      );
+      const sources: StreamWithAddon[] = result.streams.map(
+        (stream, index) => ({
+          ...stream,
+          addonId: addon.id,
+          addonName: addon.manifestName,
+          quality: parseQualityTier(stream),
+          sourceIndex: index,
+        })
+      );
+      return Response.json({
+        sources: sortSourcesByQuality(sources, ctx.qualityPref),
+        totalAddonsTried: 1,
+        addonErrors: result.success
+          ? []
+          : [
+              {
+                addonId: addon.id,
+                addonName: addon.manifestName,
+                error: result.error ?? "Unknown error",
+              },
+            ],
+      } as AggregatedStreamResponse);
     }
 
     const ref = parseStreamId(id, type);

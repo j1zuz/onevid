@@ -10,6 +10,7 @@ import {
 import { OnevidI18nProvider } from "@/lib/onevid-i18n-context";
 import { Toaster } from "@workspace/ui/components/sonner";
 import "@workspace/ui/globals.css";
+import { GlimmProvider, InterceptLinks } from "glimm/next";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
@@ -77,15 +78,23 @@ export default async function RootLayout({
     >
       <body className="antialiased">
         {process.env.NODE_ENV === "development" && <ReactScan />}
-        <DpadNavigation />
-        <OnevidI18nProvider initialLocale={initialLocale}>
-          <NuqsAdapter>
-            {children}
-            <CookieConsent />
-          </NuqsAdapter>
-        </OnevidI18nProvider>
-        <SearchRestoreScript />
-        <Toaster />
+        <GlimmProvider
+          brightness={0.9}
+          palette="azure"
+          sweepMs={1000}
+          waveAmount={0.8}
+        >
+          <InterceptLinks />
+          <DpadNavigation />
+          <OnevidI18nProvider initialLocale={initialLocale}>
+            <NuqsAdapter>
+              {children}
+              <CookieConsent />
+            </NuqsAdapter>
+          </OnevidI18nProvider>
+          <SearchRestoreScript />
+          <Toaster />
+        </GlimmProvider>
       </body>
     </html>
   );

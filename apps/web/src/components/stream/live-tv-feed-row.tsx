@@ -3,11 +3,16 @@
 import { buttonVariants } from "@workspace/ui/components/button";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
+import { TransitionLink } from "glimm/next";
 import { TvIcon } from "lucide-react";
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { LiveTvChannel } from "@/lib/live-tv";
+import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { FeedSection } from "@/lib/onevid-feed-sections";
+import {
+  POSTER_ROW_CLASS,
+  POSTER_ROW_ITEM_CLASS,
+} from "@/lib/poster-row-classes";
 
 const LIVE_ROW_CHANNEL_LIMIT = 4;
 
@@ -38,7 +43,7 @@ function ChannelCard({
   if (channel.group) query.set("group", channel.group);
   const href = `/home?${query.toString()}`;
   return (
-    <Link
+    <TransitionLink
       className="group/channel block w-full text-left outline-none"
       data-dpad-focusable
       href={href}
@@ -66,16 +71,15 @@ function ChannelCard({
         <span className="line-clamp-2 font-medium text-sm leading-tight md:text-base">
           {channel.name}
         </span>
-        <span className="block truncate text-[10px] text-muted-foreground">
-          {channel.group}
-        </span>
       </span>
-    </Link>
+    </TransitionLink>
   );
 }
 
 /** Carrusel de canales de Live TV para las filas del feed de Inicio/Descubrir. */
 export function LiveTvFeedRow({ section }: { section: FeedSection }) {
+  const { t: rawT } = useTranslation();
+  const t = (key: string) => rawT(key as never) as unknown as string;
   const [channels, setChannels] = useState<LiveTvChannel[] | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -120,11 +124,11 @@ export function LiveTvFeedRow({ section }: { section: FeedSection }) {
   }, [section.liveGroup, section.liveSourceId]);
 
   return (
-    <section className="container mx-auto flex flex-col gap-3 px-2">
+    <section className="flex flex-col gap-3 px-2">
       <div className="flex items-baseline justify-between gap-2 px-1">
         <h2 className="font-semibold text-lg md:text-xl">{section.title}</h2>
         {section.href ? (
-          <Link
+          <TransitionLink
             className={cn(
               buttonVariants({ size: "xs" }),
               "btn-primary shrink-0",
@@ -132,36 +136,39 @@ export function LiveTvFeedRow({ section }: { section: FeedSection }) {
             data-dpad-focusable
             href={section.href}
           >
-            Ver todo
-          </Link>
+            {t("Ver todo")}
+          </TransitionLink>
         ) : null}
       </div>
 
       {failed ? (
         <p className="px-1 text-muted-foreground text-sm">
-          No se pudieron cargar los canales de Live TV.
+          {t("No se pudieron cargar los canales de Live TV.")}
         </p>
       ) : channels === null ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
+        <div className={POSTER_ROW_CLASS}>
           {Array.from({ length: 4 }, (_, index) => (
-            <div className="space-y-1.5" key={index}>
-              <Skeleton className="aspect-video w-full rounded-lg" />
-              <Skeleton className="h-3 w-3/4" />
+            <div className={POSTER_ROW_ITEM_CLASS} key={index}>
+              <div className="space-y-1.5">
+                <Skeleton className="aspect-video w-full rounded-(--radius)" />
+                <Skeleton className="mx-auto h-4 w-3/4 rounded-md" />
+              </div>
             </div>
           ))}
         </div>
       ) : channels.length === 0 ? (
         <p className="px-1 text-muted-foreground text-sm">
-          Esta fuente no tiene canales.
+          {t("Esta fuente no tiene canales.")}
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
+        <div className={POSTER_ROW_CLASS}>
           {channels.map((channel) => (
-            <ChannelCard
-              channel={channel}
-              key={channel.id}
-              sourceId={section.liveSourceId}
-            />
+            <div className={POSTER_ROW_ITEM_CLASS} key={channel.id}>
+              <ChannelCard
+                channel={channel}
+                sourceId={section.liveSourceId}
+              />
+            </div>
           ))}
         </div>
       )}
