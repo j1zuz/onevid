@@ -83,11 +83,3 @@
 .stream-video-player-root.live-mode .video-controls-primary {
   flex: 1;
 }
-
-/* Both players render their own loading state (Live TV: channel logo, VOD: the
-   app's Spinner overlay). The skin's spinner duplicates it and can sit above
-   our overlay, so drop it entirely. */
-.stream-video-player-root .media-buffering-indicator {
-  /* biome-ignore lint/complexity/noImportantStyles: the skin enables it with `display: grid` on `[data-visible]`. */
-  display: none !important;
-}

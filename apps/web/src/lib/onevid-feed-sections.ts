@@ -116,6 +116,51 @@ function resolveRow(
   });
 }
 
+/**
+ * Reescribe las filas de Live TV que apuntan a una fuente borrada con la
+ * fuente más reciente (`fallbackId`). Devuelve `null` si no hay nada que
+ * corregir, para no escribir en la BD en cada carga.
+ */
+export function repairLiveRowSources(
+  rows: OneVidFeedRow[],
+  sourceIds: readonly string[],
+  fallbackId?: string
+): OneVidFeedRow[] | null {
+  if (!fallbackId || !rows.some((row) => row.type === "live")) {
+    return null;
+  }
+  const known = new Set(sourceIds);
+  let changed = false;
+  const next = rows.map((row) => {
+    if (row.type !== "live") return row;
+    if (row.liveSourceId && known.has(row.liveSourceId)) return row;
+    changed = true;
+    return { ...row, liveSourceId: fallbackId };
+  });
+  return changed ? next : null;
+}
+
+/**
+ * Si la fila apunta a una fuente que ya no existe (se borró y se volvió a
+ * agregar, generando otro id), usamos la fuente MÁS RECIENTE: es la que el
+ * usuario acaba de configurar cuando reemplazó la anterior. `liveSourcesById`
+ * se construye en orden de creación ascendente (ver `listLiveTvSources`), así
+ * que la última clave es la más nueva.
+ */
+function resolveLiveSourceId(
+  row: OneVidFeedRow,
+  liveSourcesById?: Map<string, string>
+): string | undefined {
+  if (!liveSourcesById || liveSourcesById.size === 0) {
+    return row.liveSourceId;
+  }
+  if (row.liveSourceId && liveSourcesById.has(row.liveSourceId)) {
+    return row.liveSourceId;
+  }
+  const sourceIds = [...liveSourcesById.keys()];
+  return sourceIds[sourceIds.length - 1];
+}
+
 /** Nombre a mostrar junto al tipo en el título de la fila (ver `getFeedRowTitle`). */
 function resolveRowSourceName(
   row: OneVidFeedRow,
@@ -251,19 +296,21 @@ export async function resolveFeedSection(
   }: ResolveFeedSectionOptions
 ): Promise<FeedSection | null> {
   if (row.type === "live") {
+    const liveSourceId = resolveLiveSourceId(row, liveSourcesById);
+    const liveRow = liveSourceId ? { ...row, liveSourceId } : row;
     return {
-      href: buildFeedRowHref(row),
-      id: buildFeedRowId(row),
+      href: buildFeedRowHref(liveRow),
+      id: buildFeedRowId(liveRow),
       items: [],
       kind: "live",
-      liveSourceId: row.liveSourceId,
+      liveSourceId,
       liveGroup: row.liveGroup,
       topTen: false,
       topTenRanks: {},
       title: getFeedRowTitle(
-        row,
+        liveRow,
         t,
-        resolveRowSourceName(row, addonsById, networksById, liveSourcesById)
+        resolveRowSourceName(liveRow, addonsById, networksById, liveSourcesById)
       ),
     };
   }
@@ -375,21 +422,23 @@ export async function resolveFeedSections({
       return [];
     }
     if (row.type === "live") {
+      const liveSourceId = resolveLiveSourceId(row, liveSourcesById);
+      const liveRow = liveSourceId ? { ...row, liveSourceId } : row;
       return [
         {
-          href: buildFeedRowHref(row),
-          id: buildFeedRowId(row),
+          href: buildFeedRowHref(liveRow),
+          id: buildFeedRowId(liveRow),
           items: [],
           kind: "live" as const,
-          liveSourceId: row.liveSourceId,
+          liveSourceId,
           liveGroup: row.liveGroup,
           topTen: false,
           topTenRanks: {},
           title: getFeedRowTitle(
-            row,
+            liveRow,
             t,
             resolveRowSourceName(
-              row,
+              liveRow,
               addonsById,
               networksById,
               liveSourcesById

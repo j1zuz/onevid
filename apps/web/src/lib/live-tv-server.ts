@@ -33,6 +33,19 @@ import {
 
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 3;
+
+/**
+ * El catálogo de canales de un Xtream grande (miles de canales) puede tardar
+ * bastante más de 10 s desde el servidor de producción, así que esos fetch
+ * usan este plazo. Se cachea en memoria un rato para que la fila del feed y
+ * la guía no vuelvan a descargarlo entero.
+ */
+const LIVE_TV_CHANNELS_TIMEOUT_MS = 30_000;
+const LIVE_CHANNELS_CACHE_TTL_MS = 60_000;
+const liveChannelsCache = new Map<
+  string,
+  { expiresAt: number; channels: LiveTvChannel[] }
+>();
 const blocked = new BlockList();
 for (const [address, prefix] of [
   ["0.0.0.0", 8],
@@ -243,6 +256,7 @@ export async function fetchLiveTvResource(
     maxBytes?: number;
     accept?: string;
     sameOriginOnly?: boolean;
+    timeoutMs?: number;
   } = {},
 ): Promise<{ text: string; url: string }> {
   const initialUrl = normalizeLiveTvUrl(input);
@@ -266,7 +280,7 @@ export async function fetchLiveTvResource(
       );
       reject(error);
       controller.abort(error);
-    }, FETCH_TIMEOUT_MS);
+    }, options.timeoutMs ?? FETCH_TIMEOUT_MS);
   });
   const load = async () => {
     let url = initialUrl;
@@ -320,8 +334,11 @@ export async function fetchLiveTvResource(
 
 export async function fetchLiveTvPlaylist(
   input: string,
+  options: { timeoutMs?: number } = {},
 ): Promise<LiveTvChannel[]> {
-  const response = await fetchLiveTvResource(input);
+  const response = await fetchLiveTvResource(input, {
+    timeoutMs: options.timeoutMs,
+  });
   return parseLiveTvPlaylist(response.text, response.url);
 }
 
@@ -330,6 +347,7 @@ async function fetchXtreamJson(url: string): Promise<unknown> {
     maxBytes: XTREAM_MAX_JSON_BYTES,
     accept: "application/json",
     sameOriginOnly: true,
+    timeoutMs: LIVE_TV_CHANNELS_TIMEOUT_MS,
   });
   try {
     return JSON.parse(response.text);
@@ -437,7 +455,7 @@ export async function createLiveTvSource(
   const channels =
     sourceType === "xtream"
       ? await fetchXtreamChannels(url)
-      : await fetchLiveTvPlaylist(url);
+      : await fetchLiveTvPlaylist(url, { timeoutMs: LIVE_TV_CHANNELS_TIMEOUT_MS });
   // Lock the account row so concurrent inserts cannot exceed the per-user limit.
   // Network I/O stays outside the transaction; recheck after acquiring the lock.
   return db.transaction(async (tx) => {
@@ -567,7 +585,17 @@ export async function deleteLiveTvSource(
 export async function loadLiveTvChannels(
   userId: string,
   id: string,
+  options: { refresh?: boolean } = {},
 ): Promise<LiveTvChannel[]> {
+  const cacheKey = `${userId}:${id}`;
+  if (options.refresh) {
+    liveChannelsCache.delete(cacheKey);
+  }
+  const cached = liveChannelsCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.channels;
+  }
+
   const owned = and(
     eq(oneVidLiveTvSource.id, id),
     eq(oneVidLiveTvSource.userId, userId),
@@ -584,13 +612,17 @@ export async function loadLiveTvChannels(
   const channels =
     source.sourceType === "xtream"
       ? await fetchXtreamChannels(source.url)
-      : await fetchLiveTvPlaylist(source.url);
+      : await fetchLiveTvPlaylist(source.url, { timeoutMs: LIVE_TV_CHANNELS_TIMEOUT_MS });
   const updated = await db
     .update(oneVidLiveTvSource)
     .set({ channelCount: channels.length, updatedAt: new Date() })
     .where(owned)
     .returning({ id: oneVidLiveTvSource.id });
   if (!updated.length) throw new LiveTvError("Fuente no encontrada.", 404);
+  liveChannelsCache.set(cacheKey, {
+    expiresAt: Date.now() + LIVE_CHANNELS_CACHE_TTL_MS,
+    channels,
+  });
   return channels;
 }
 
@@ -617,7 +649,7 @@ export async function loadLiveTvEpg(
   const channels =
     source.sourceType === "xtream"
       ? await fetchXtreamChannels(source.url)
-      : await fetchLiveTvPlaylist(source.url);
+      : await fetchLiveTvPlaylist(source.url, { timeoutMs: LIVE_TV_CHANNELS_TIMEOUT_MS });
   const channel = channels.find((entry) => entry.id === channelId);
   if (!channel) throw new LiveTvError("Canal de Live TV no encontrado.", 404);
   if (source.epgUrl) {
@@ -670,7 +702,7 @@ export async function loadLiveTvGuide(
   const catalog =
     source.sourceType === "xtream"
       ? await fetchXtreamChannels(source.url)
-      : await fetchLiveTvPlaylist(source.url);
+      : await fetchLiveTvPlaylist(source.url, { timeoutMs: LIVE_TV_CHANNELS_TIMEOUT_MS });
   const byId = new Map(catalog.map((channel) => [channel.id, channel]));
   if (request.channelIds.some((id) => !byId.has(id)))
     throw new LiveTvError("Canal de Live TV no encontrado.", 404);

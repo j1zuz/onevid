@@ -43,6 +43,7 @@ import {
   type OneVidFeedRow,
 } from "@/lib/onevid-feed";
 import {
+  repairLiveRowSources,
   type ResolveFeedSectionOptions,
   resolveFeedSection,
   resolveHero,
@@ -459,10 +460,42 @@ async function OneVidContent({
     // (stream) por debajo del carrusel: el cliente las envuelve en <Suspense>,
     // así el primer pintado no espera a las N filas de TMDB. Cualquier fallo
     // deja el feed vacío en vez de propagar al cliente.
-    const liveSourcesById = surfaceRows.some((row) => row.type === "live")
-      ? new Map((await listLiveTvSources(userId)).map((s) => [s.id, s.name]))
-      : undefined;
-    const needsTopTen = surfaceRows.some(
+    const liveSourceList = surfaceRows.some((row) => row.type === "live")
+      ? await listLiveTvSources(userId)
+      : [];
+    const liveSourcesById =
+      liveSourceList.length > 0
+        ? new Map(liveSourceList.map((s) => [s.id, s.name]))
+        : undefined;
+    // Autorreparación: si borraste y volviste a crear la fuente, las filas
+    // guardadas siguen con el id viejo. Las reescribimos con la más reciente y
+    // así también queda bien el "Ver todo" y la próxima carga.
+    const liveSourceIds = liveSourceList.map((s) => s.id);
+    const newestLiveSourceId = liveSourceIds[liveSourceIds.length - 1];
+    const repairedFeed = repairLiveRowSources(
+      feedRows,
+      liveSourceIds,
+      newestLiveSourceId,
+    );
+    const repairedDiscover = repairLiveRowSources(
+      discoverRows,
+      liveSourceIds,
+      newestLiveSourceId,
+    );
+    if (repairedFeed || repairedDiscover) {
+      await db
+        .update(oneVid)
+        .set({
+          ...(repairedFeed ? { feedRows: repairedFeed } : {}),
+          ...(repairedDiscover ? { discoverRows: repairedDiscover } : {}),
+        })
+        .where(eq(oneVid.userId, userId));
+    }
+    const renderRows =
+      surface === "discover"
+        ? (repairedDiscover ?? surfaceRows)
+        : (repairedFeed ?? surfaceRows);
+    const needsTopTen = renderRows.some(
       (row) =>
         row.type !== "live" &&
         row.catalog === "trending" &&
@@ -484,7 +517,7 @@ async function OneVidContent({
     };
     const rowsContent = (
       <>
-        {surfaceRows.map((row, index) => (
+        {renderRows.map((row, index) => (
           <Suspense fallback={<FeedRowSkeleton />} key={`feed-row-${index}`}>
             <FeedRowServer deps={rowDeps} row={row} />
           </Suspense>
