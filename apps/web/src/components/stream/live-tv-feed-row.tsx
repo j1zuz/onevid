@@ -92,6 +92,9 @@ export function LiveTvFeedRow({ section }: { section: FeedSection }) {
     const group = section.liveGroup;
     const controller = new AbortController();
     let active = true;
+    // El catálogo de canales de un Xtream grande puede tardar: no dejamos la
+    // fila en skeleton para siempre si el servidor no responde.
+    const timeout = window.setTimeout(() => controller.abort(), 45_000);
     setChannels(null);
     setFailed(false);
     const query = new URLSearchParams({ sourceId });
@@ -115,10 +118,14 @@ export function LiveTvFeedRow({ section }: { section: FeedSection }) {
         setChannels(data.channels.slice(0, LIVE_ROW_CHANNEL_LIMIT));
       })
       .catch(() => {
-        if (active && !controller.signal.aborted) setFailed(true);
-      });
+        // `active` es false solo cuando el efecto se limpió (unmount/cambio de
+        // fila): eso no es un fallo visible. Timeout o error real sí.
+        if (active) setFailed(true);
+      })
+      .finally(() => window.clearTimeout(timeout));
     return () => {
       active = false;
+      window.clearTimeout(timeout);
       controller.abort();
     };
   }, [section.liveGroup, section.liveSourceId]);

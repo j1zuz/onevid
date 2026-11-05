@@ -9,7 +9,7 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
 import { TransitionLink } from "glimm/next";
-import { ArrowLeftIcon, Loader } from "lucide-react";
+import { ArrowLeftIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -144,6 +144,38 @@ const SOURCE_RESOLUTION_TIMEOUT_MS = 30_000;
 
 function nextEpisodeLead(durationSec: number): number {
   return Math.min(NEXT_EPISODE_LEAD_SEC, durationSec * 0.15);
+}
+
+/**
+ * Loader de la app para VOD: el logo del título suelto (sin marco) con pulso.
+ * Si el contenido no tiene logo (p. ej. addons), muestra la inicial dentro de
+ * la tarjeta. Se usa solo antes del primer fotograma; después el player pinta
+ * su propio buffering.
+ */
+function LoadingArt({ logo, name }: { logo?: string; name: string }) {
+  if (logo) {
+    return (
+      <span
+        aria-hidden="true"
+        className="flex h-24 w-60 animate-pulse items-center justify-center motion-reduce:animate-none"
+      >
+        {/* biome-ignore lint/performance/noImgElement: logo externo de TMDB */}
+        <img
+          alt=""
+          className="max-h-full max-w-full object-contain drop-shadow-lg"
+          src={logo}
+        />
+      </span>
+    );
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className="flex size-24 animate-pulse items-center justify-center rounded-2xl border border-white/15 bg-white/5 font-semibold text-3xl text-white/80 uppercase motion-reduce:animate-none"
+    >
+      {name.trim().charAt(0) || "?"}
+    </span>
+  );
 }
 
 interface StreamOnevidProps {
@@ -315,7 +347,7 @@ export function StreamOnevid({
   // arranca por primera vez. Después de eso el player ya tiene su propio
   // loader para buffering y seeks, así que no tapamos el video.
   const showLoadingOverlay =
-    isBuffering || mediaBunny.status === "processing";
+    !hasPlayed && (isBuffering || mediaBunny.status === "processing");
 
   // Un enlace http:// no se puede cargar desde una página https://: el
   // navegador lo bloquea y hls.js/el <video> no emiten error, así que el
@@ -548,6 +580,7 @@ export function StreamOnevid({
   // en la URL como fondo de las pantallas de carga para no dejar negro.
   const loadingArt =
     backgroundArt ?? tmdbImage(_contentPoster, "w1280") ?? _contentPoster;
+  // Loader con pulso: el logo del título si existe; si no, su inicial.
 
   const { onTimeUpdate, onEnded, initialResume } = useWatchProgress({
     // Un magnet no pertenece al catálogo: no guardamos progreso ni lo metemos
@@ -830,10 +863,8 @@ export function StreamOnevid({
         }
       >
         <div aria-hidden className="absolute inset-0 bg-black/45" />
-        <Loader
-          aria-label={t("Cargando fuente")}
-          className="relative size-6 animate-spin text-white"
-        />
+        <LoadingArt logo={logo} name={contentTitle} />
+        <span className="sr-only">{t("Cargando fuente")}</span>
       </div>
     );
   }
@@ -932,10 +963,8 @@ export function StreamOnevid({
             player (si el medio es nativo y arranca al instante, no se muestra). */}
         {showLoadingOverlay && (
           <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/40">
-            <Loader
-              aria-label={t("Cargando video")}
-              className="size-8 animate-spin text-white"
-            />
+            <LoadingArt logo={logo} name={contentTitle} />
+            <span className="sr-only">{t("Cargando video")}</span>
             {mediaBunny.status === "processing" && mediaBunny.progress > 0 ? (
               <span className="text-white/80 text-xs tabular-nums">
                 {Math.round(mediaBunny.progress)}%
