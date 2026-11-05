@@ -22,6 +22,7 @@ import {
   parseFeedRows,
 } from "@/lib/onevid-feed";
 import {
+  repairLiveRowSources,
   resolveFeed,
   resolveFeedSections,
   resolveHero,
@@ -96,6 +97,34 @@ export async function GET(request: NextRequest) {
   );
   const rows = parsed?.length ? parsed : getDefaultRows(surface);
 
+  // Autorreparación de filas de Live TV con una fuente borrada: se reescriben
+  // con la fuente más reciente y se persisten para que el cliente no siga
+  // pidiendo el id viejo (que devuelve 404).
+  const liveSourceList = rows.some((entry) => entry.type === "live")
+    ? await listLiveTvSources(session.user.id)
+    : [];
+  const liveSourceIds = liveSourceList.map((source) => source.id);
+  const repairedRows = repairLiveRowSources(
+    rows,
+    liveSourceIds,
+    liveSourceIds[liveSourceIds.length - 1]
+  );
+  if (repairedRows) {
+    await db
+      .update(oneVid)
+      .set(
+        surface === "discover"
+          ? { discoverRows: repairedRows }
+          : { feedRows: repairedRows }
+      )
+      .where(eq(oneVid.userId, session.user.id));
+  }
+  const effectiveRows = repairedRows ?? rows;
+  const liveSourcesById =
+    liveSourceList.length > 0
+      ? new Map(liveSourceList.map((source) => [source.id, source.name]))
+      : undefined;
+
   const requestedLimit = Number(
     request.nextUrl.searchParams.get("limit") ?? Number.NaN
   );
@@ -133,20 +162,12 @@ export async function GET(request: NextRequest) {
     }
 
     if (only === "sections") {
-      const liveSourcesById = rows.some((row) => row.type === "live")
-        ? new Map(
-            (await listLiveTvSources(session.user.id)).map((source) => [
-              source.id,
-              source.name,
-            ])
-          )
-        : undefined;
       const sectionsResult = await resolveFeedSections({
         addonsById,
         itemsPerRow,
         liveSourcesById,
         networksById: new Map(getNetworkOptions().map((n) => [n.id, n])),
-        rows,
+        rows: effectiveRows,
         t,
         tmdbLocale: getTmdbLocale(appLocale),
         tmdbRegion: getTmdbRegion(appLocale),
@@ -181,8 +202,9 @@ export async function GET(request: NextRequest) {
     const feed = await resolveFeed({
       addonsById,
       itemsPerRow,
+      liveSourcesById,
       networksById: new Map(getNetworkOptions().map((n) => [n.id, n])),
-      rows,
+      rows: effectiveRows,
       t,
       tmdbLocale: getTmdbLocale(appLocale),
       tmdbRegion: getTmdbRegion(appLocale),

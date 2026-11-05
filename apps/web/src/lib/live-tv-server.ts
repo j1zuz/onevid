@@ -21,6 +21,7 @@ import {
   type LiveTvProgramme,
 } from "./live-tv";
 import { isSafeFetchUrl, SAFE_FETCH_MAX_BODY_BYTES } from "../utils/ssrf-guard";
+import { checkRateLimit, rateLimitResponse } from "./rate-limit";
 import { parseXmltv, parseXmltvChannels } from "./xmltv";
 import {
   buildXtreamEndpoint,
@@ -33,6 +34,19 @@ import {
 
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 3;
+
+/**
+ * El catálogo de canales de un Xtream grande (miles de canales) puede tardar
+ * bastante más de 10 s desde el servidor de producción, así que esos fetch
+ * usan este plazo. Se cachea en memoria un rato para que la fila del feed y
+ * la guía no vuelvan a descargarlo entero.
+ */
+const LIVE_TV_CHANNELS_TIMEOUT_MS = 30_000;
+const LIVE_CHANNELS_CACHE_TTL_MS = 60_000;
+const liveChannelsCache = new Map<
+  string,
+  { expiresAt: number; channels: LiveTvChannel[] }
+>();
 const blocked = new BlockList();
 for (const [address, prefix] of [
   ["0.0.0.0", 8],
@@ -243,6 +257,7 @@ export async function fetchLiveTvResource(
     maxBytes?: number;
     accept?: string;
     sameOriginOnly?: boolean;
+    timeoutMs?: number;
   } = {},
 ): Promise<{ text: string; url: string }> {
   const initialUrl = normalizeLiveTvUrl(input);
@@ -266,7 +281,7 @@ export async function fetchLiveTvResource(
       );
       reject(error);
       controller.abort(error);
-    }, FETCH_TIMEOUT_MS);
+    }, options.timeoutMs ?? FETCH_TIMEOUT_MS);
   });
   const load = async () => {
     let url = initialUrl;
@@ -320,8 +335,11 @@ export async function fetchLiveTvResource(
 
 export async function fetchLiveTvPlaylist(
   input: string,
+  options: { timeoutMs?: number } = {},
 ): Promise<LiveTvChannel[]> {
-  const response = await fetchLiveTvResource(input);
+  const response = await fetchLiveTvResource(input, {
+    timeoutMs: options.timeoutMs,
+  });
   return parseLiveTvPlaylist(response.text, response.url);
 }
 
@@ -330,6 +348,7 @@ async function fetchXtreamJson(url: string): Promise<unknown> {
     maxBytes: XTREAM_MAX_JSON_BYTES,
     accept: "application/json",
     sameOriginOnly: true,
+    timeoutMs: LIVE_TV_CHANNELS_TIMEOUT_MS,
   });
   try {
     return JSON.parse(response.text);
@@ -437,7 +456,7 @@ export async function createLiveTvSource(
   const channels =
     sourceType === "xtream"
       ? await fetchXtreamChannels(url)
-      : await fetchLiveTvPlaylist(url);
+      : await fetchLiveTvPlaylist(url, { timeoutMs: LIVE_TV_CHANNELS_TIMEOUT_MS });
   // Lock the account row so concurrent inserts cannot exceed the per-user limit.
   // Network I/O stays outside the transaction; recheck after acquiring the lock.
   return db.transaction(async (tx) => {
@@ -567,31 +586,79 @@ export async function deleteLiveTvSource(
 export async function loadLiveTvChannels(
   userId: string,
   id: string,
+  options: { refresh?: boolean } = {},
 ): Promise<LiveTvChannel[]> {
-  const owned = and(
-    eq(oneVidLiveTvSource.id, id),
-    eq(oneVidLiveTvSource.userId, userId),
-  );
   const [source] = await db
     .select({
       url: oneVidLiveTvSource.url,
       sourceType: oneVidLiveTvSource.sourceType,
     })
     .from(oneVidLiveTvSource)
-    .where(owned)
+    .where(
+      and(
+        eq(oneVidLiveTvSource.id, id),
+        eq(oneVidLiveTvSource.userId, userId),
+      ),
+    )
     .limit(1);
   if (!source) throw new LiveTvError("Fuente no encontrada.", 404);
+  return loadCachedChannels(userId, id, source, {
+    refresh: options.refresh,
+    updateCount: true,
+  });
+}
+
+/**
+ * Catalogo de canales con cache en memoria por usuario+fuente. Lo comparten la
+ * fila del feed, el EPG y la guia para no volver a descargar el catalogo
+ * completo (miles de canales en Xtream) en cada peticion.
+ */
+async function loadCachedChannels(
+  userId: string,
+  sourceId: string,
+  source: { url: string; sourceType: string },
+  options: { refresh?: boolean; updateCount?: boolean } = {},
+): Promise<LiveTvChannel[]> {
+  const cacheKey = `${userId}:${sourceId}`;
+  if (options.refresh) {
+    liveChannelsCache.delete(cacheKey);
+  }
+  const cached = liveChannelsCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.channels;
+  }
+
   const channels =
     source.sourceType === "xtream"
       ? await fetchXtreamChannels(source.url)
-      : await fetchLiveTvPlaylist(source.url);
-  const updated = await db
-    .update(oneVidLiveTvSource)
-    .set({ channelCount: channels.length, updatedAt: new Date() })
-    .where(owned)
-    .returning({ id: oneVidLiveTvSource.id });
-  if (!updated.length) throw new LiveTvError("Fuente no encontrada.", 404);
+      : await fetchLiveTvPlaylist(source.url, {
+          timeoutMs: LIVE_TV_CHANNELS_TIMEOUT_MS,
+        });
+
+  if (options.updateCount) {
+    const updated = await db
+      .update(oneVidLiveTvSource)
+      .set({ channelCount: channels.length, updatedAt: new Date() })
+      .where(
+        and(
+          eq(oneVidLiveTvSource.id, sourceId),
+          eq(oneVidLiveTvSource.userId, userId),
+        ),
+      )
+      .returning({ id: oneVidLiveTvSource.id });
+    if (!updated.length) throw new LiveTvError("Fuente no encontrada.", 404);
+  }
+
+  liveChannelsCache.set(cacheKey, {
+    expiresAt: Date.now() + LIVE_CHANNELS_CACHE_TTL_MS,
+    channels,
+  });
   return channels;
+}
+
+/** Solo para pruebas: vacia la cache en memoria de catalogos de Live TV. */
+export function clearLiveTvChannelCache(): void {
+  liveChannelsCache.clear();
 }
 
 export async function loadLiveTvEpg(
@@ -614,10 +681,7 @@ export async function loadLiveTvEpg(
     )
     .limit(1);
   if (!source) throw new LiveTvError("Fuente de Live TV no encontrada.", 404);
-  const channels =
-    source.sourceType === "xtream"
-      ? await fetchXtreamChannels(source.url)
-      : await fetchLiveTvPlaylist(source.url);
+  const channels = await loadCachedChannels(userId, sourceId, source);
   const channel = channels.find((entry) => entry.id === channelId);
   if (!channel) throw new LiveTvError("Canal de Live TV no encontrado.", 404);
   if (source.epgUrl) {
@@ -667,10 +731,7 @@ export async function loadLiveTvGuide(
   if (!source) throw new LiveTvError("Fuente de Live TV no encontrada.", 404);
 
   // Authentication and catalog/category loading happen once for the entire page.
-  const catalog =
-    source.sourceType === "xtream"
-      ? await fetchXtreamChannels(source.url)
-      : await fetchLiveTvPlaylist(source.url);
+  const catalog = await loadCachedChannels(userId, request.sourceId, source);
   const byId = new Map(catalog.map((channel) => [channel.id, channel]));
   if (request.channelIds.some((id) => !byId.has(id)))
     throw new LiveTvError("Canal de Live TV no encontrado.", 404);
@@ -751,12 +812,21 @@ export async function readLiveTvJson(request: Request): Promise<unknown> {
 
 export async function liveTvApi(
   action: (userId: string) => Promise<unknown>,
+  options: { limit: number; scope: string; windowMs?: number },
 ): Promise<Response> {
   const responseHeaders = { "Cache-Control": "private, no-store" };
   try {
     const { auth } = await import("./auth");
     const session = await auth.api.getSession({ headers: await headers() });
     if (!session?.user?.id) throw new LiveTvError("No autorizado.", 401);
+
+    const limited = checkRateLimit(
+      `${options.scope}:${session.user.id}`,
+      options.limit,
+      options.windowMs ?? 60_000,
+    );
+    if (!limited.ok) return rateLimitResponse(limited.retryAfter);
+
     return Response.json(await action(session.user.id), {
       headers: responseHeaders,
     });

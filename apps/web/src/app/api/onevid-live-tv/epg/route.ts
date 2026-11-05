@@ -6,19 +6,25 @@ import {
 } from "@/lib/live-tv-server";
 
 export const runtime = "nodejs";
+// El catálogo Xtream (miles de canales), la guía y el EPG pueden tardar
+// más que el límite por defecto de la plataforma en producción.
+export const maxDuration = 60;
 
 export async function GET(request: Request) {
-  return liveTvApi(async (userId) => {
-    const params = new URL(request.url).searchParams;
-    const sourceId = validateLiveTvSourceId(params.get("sourceId"));
-    const channelId = params.get("channelId");
-    if (!channelId || channelId.length > 200 || !channelId.trim()) {
-      throw new LiveTvError(
-        "Se requiere el identificador del canal de Live TV.",
-      );
-    }
-    return {
-      programmes: await loadLiveTvEpg(userId, sourceId, channelId.trim()),
-    };
-  });
+  return liveTvApi(
+    async (userId) => {
+      const params = new URL(request.url).searchParams;
+      const sourceId = validateLiveTvSourceId(params.get("sourceId"));
+      const channelId = params.get("channelId");
+      if (!channelId || channelId.length > 200 || !channelId.trim()) {
+        throw new LiveTvError(
+          "Se requiere el identificador del canal de Live TV.",
+        );
+      }
+      return {
+        programmes: await loadLiveTvEpg(userId, sourceId, channelId.trim()),
+      };
+    },
+    { scope: "live-tv-epg", limit: 120 }
+  );
 }

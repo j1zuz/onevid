@@ -54,6 +54,14 @@
 }
 
 
+/* Live TV usa su loader con el logo del canal (antes y durante cortes); el
+   spinner genérico del skin duplicaría el indicador. En VOD sí se usa el del
+   skin para buffering/seeks después del primer fotograma. */
+.onevid-live-player .media-buffering-indicator {
+  /* biome-ignore lint/complexity/noImportantStyles: el skin lo activa con `display: grid` en `[data-visible]`. */
+  display: none !important;
+}
+
 /* Keep provider error details out of the skin; the player renders safe Spanish copy. */
 .onevid-live-player .media-dialog-popup,
 .onevid-live-player .media-dialog-backdrop {

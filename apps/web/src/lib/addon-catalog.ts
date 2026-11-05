@@ -201,7 +201,7 @@ export async function fetchAddonCatalogResults(opts: {
       const res = await safeFetch(
         `${addonBaseUrl}/catalog/${type}/${encodeURIComponent(catalogId)}.json`,
         { method: "GET", headers: { accept: "application/json" } },
-        { timeoutMs: CATALOG_FETCH_TIMEOUT_MS },
+        { timeoutMs: CATALOG_FETCH_TIMEOUT_MS, maxBodyBytes: 8 * 1024 * 1024 },
       );
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);

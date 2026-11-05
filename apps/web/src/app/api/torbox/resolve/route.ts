@@ -3,7 +3,11 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { oneVid } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { readTorboxKey } from "@/lib/secret-box";
 import { resolveTorboxRedirect, resolveTorboxStream } from "@/lib/torbox";
+
+export const runtime = "nodejs";
 
 const FINAL_URL_TTL_MS = 5 * 60 * 1000;
 const FINAL_URL_CACHE_LIMIT = 100;
@@ -50,6 +54,18 @@ export async function GET(request: Request) {
     return Response.json({ error: "No autorizado" }, { status: 401 });
   }
 
+  // Esta ruta crea torrents en la cuenta de debrid del usuario, asi que no debe
+  // dispararse desde un enlace de otro sitio. Los reproductores propios y las
+  // apps nativas no mandan `Sec-Fetch-Site` (se permiten); una navegacion
+  // cross-site si lo manda y se rechaza.
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite === "cross-site") {
+    return Response.json({ error: "Origen no permitido" }, { status: 403 });
+  }
+
+  const limited = checkRateLimit(`torbox-resolve:${session.user.id}`, 30, 60_000);
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
+
   const url = new URL(request.url);
   const hash = url.searchParams.get("hash")?.trim() ?? "";
   const magnetParam = url.searchParams.get("magnet")?.trim() ?? "";
@@ -59,6 +75,9 @@ export async function GET(request: Request) {
 
   if (!(hash || magnetParam)) {
     return Response.json({ error: "hash o magnet requerido" }, { status: 400 });
+  }
+  if (magnetParam.length > 8192) {
+    return Response.json({ error: "magnet inválido" }, { status: 400 });
   }
 
   const magnet =
@@ -79,7 +98,8 @@ export async function GET(request: Request) {
     .where(eq(oneVid.userId, session.user.id))
     .limit(1);
 
-  const apiKey = row?.torboxApiKey ?? null;
+  // La key se guarda cifrada; `readTorboxKey` tambien acepta filas legacy en claro.
+  const apiKey = readTorboxKey(row?.torboxApiKey);
   if (!apiKey) {
     return Response.json({ error: "Falta API key de TorBox" }, { status: 400 });
   }
@@ -108,5 +128,12 @@ export async function GET(request: Request) {
     }
     return Response.redirect(resolved.url, 302);
   }
-  return Response.json({ url: resolved.url, fileName: resolved.fileName });
+
+  // Modo JSON (apps nativas): si la URL sigue siendo un redirect de TorBox,
+  // se resuelve aqui para no devolver al cliente el `requestdl` con `token=`.
+  // Si no se puede resolver, se conserva la original para no romper el play.
+  const directUrl =
+    (await resolveTorboxRedirect(resolved.url).catch(() => null)) ??
+    resolved.url;
+  return Response.json({ url: directUrl, fileName: resolved.fileName });
 }

@@ -3,6 +3,10 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { oneVid } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { encryptSecret } from "@/lib/secret-box";
+
+const MAX_TORBOX_KEY_LENGTH = 512;
 
 function buildOneVidId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -33,6 +37,9 @@ export async function POST(request: Request) {
     return Response.json({ error: "No autorizado" }, { status: 401 });
   }
 
+  const limited = checkRateLimit(`torbox-key:${session.user.id}`, 10, 60_000);
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
+
   let key: string;
   try {
     const body = (await request.json()) as { key?: unknown };
@@ -44,9 +51,15 @@ export async function POST(request: Request) {
   if (!key) {
     return Response.json({ error: "API key requerida" }, { status: 400 });
   }
-  if (key.length < 16) {
+  if (key.length < 16 || key.length > MAX_TORBOX_KEY_LENGTH) {
     return Response.json({ error: "API key inválida" }, { status: 400 });
   }
+  if (/[\u0000-\u001f\u007f]/.test(key)) {
+    return Response.json({ error: "API key inválida" }, { status: 400 });
+  }
+
+  // Nunca se guarda en claro: el valor en BD lleva version + AES-256-GCM.
+  const storedKey = encryptSecret(key);
 
   const [existing] = await db
     .select({ id: oneVid.id })
@@ -59,13 +72,13 @@ export async function POST(request: Request) {
   if (existing) {
     await db
       .update(oneVid)
-      .set({ torboxApiKey: key, updatedAt: now })
+      .set({ torboxApiKey: storedKey, updatedAt: now })
       .where(eq(oneVid.id, existing.id));
   } else {
     await db.insert(oneVid).values({
       id: buildOneVidId(),
       userId: session.user.id,
-      torboxApiKey: key,
+      torboxApiKey: storedKey,
       createdAt: now,
       updatedAt: now,
     });
