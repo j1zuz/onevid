@@ -48,6 +48,7 @@ async function resolveRedirect(url: string): Promise<RedirectResolution> {
       url,
       { method: 'GET', headers: { Range: 'bytes=0-1', 'User-Agent': STREAM_UA } },
       STREAM_REDIRECT_TIMEOUT_MS,
+      true,
     );
     const tookMs = Date.now() - started;
     if (res.ok && res.url && res.url !== url) {
@@ -81,15 +82,27 @@ export function sanitizeUrlForVlc(url: string): string {
 // `fetch` con tope de tiempo (AbortController). Imprescindible para que una
 // sonda/redirección/resolución contra un host muerto o colgado no deje el flujo
 // esperando: al vencer aborta y el caller hace fallback a otra fuente.
+//
+// `discardBody`: los callers que solo leen cabeceras/estado/URL (resolveRedirect
+// y las sondas de rango) nunca consumen el cuerpo. En Expo SDK 56 el `fetch`
+// global lo sirve `expo.modules.fetch`, y un cuerpo sin consumir mantiene vivo
+// un `NativeResponse` nativo hasta el GC; Expo entonces cancela un objeto
+// compartido que ya liberó (crash `NativeResponse.cancelStreaming`). Cancelamos
+// el cuerpo aquí para soltar la conexión nativa en el acto. El caller de JSON
+// (/api/) deja `discardBody` en false porque él sí lee `res.json()`.
 export async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number,
+  discardBody = false,
 ): Promise<Response> {
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const res = await fetch(url, { ...init, signal: controller.signal });
+    // Best-effort: si el cuerpo ya se cerró, ignoramos el fallo.
+    if (discardBody) void res.body?.cancel().catch(() => {});
+    return res;
   } finally {
     clearTimeout(t);
   }
