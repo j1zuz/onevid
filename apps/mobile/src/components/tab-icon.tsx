@@ -1,10 +1,11 @@
 import { GlassIcon, type GlassIconName } from '@/components/glass-icon';
 
-export type TabIconName = 'home' | 'discover' | 'library' | 'settings';
+export type TabIconName = 'home' | 'discover' | 'live' | 'library' | 'settings';
 
 const MAP: Record<TabIconName, GlassIconName> = {
   home: 'house',
   discover: 'magnifier',
+  live: 'sparkle',
   library: 'doc-folder',
   settings: 'user',
 };

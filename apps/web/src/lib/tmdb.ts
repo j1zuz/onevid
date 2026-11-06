@@ -112,6 +112,8 @@ export interface MediaMeta {
   networks?: NetworkRef[];
   /** Si existe, la tarjeta abre el reproductor en vez de la página de detalle. */
   playHref?: string;
+  /** Canal de Live TV guardado: la tarjeta usa el logo con contain. */
+  savedLive?: boolean;
   popularity?: number;
   poster?: string;
   related?: MediaMeta[];

@@ -77,7 +77,10 @@ export function PosterCard({
               // biome-ignore lint/performance/noImgElement: external CDN art
               <img
                 alt={item.name}
-                className="h-full w-full object-cover transition-[filter] duration-200 group-hover:brightness-125"
+                className={cn(
+                  "h-full w-full transition-[filter] duration-200 group-hover:brightness-125",
+                  item.savedLive ? "object-contain p-4" : "object-cover"
+                )}
                 height={0}
                 loading="lazy"
                 src={art}

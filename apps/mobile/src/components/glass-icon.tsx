@@ -7,6 +7,7 @@ import {
   houseSvg,
   inboxSvg,
   magnifierSvg,
+  sparkleSvg,
   userSvg,
 } from '@/lib/glass-icons-data';
 
@@ -18,7 +19,8 @@ export type GlassIconName =
   | 'badge-sparkle'
   | 'inbox'
   | 'circle-arrow-right'
-  | 'heart';
+  | 'heart'
+  | 'sparkle';
 
 const SVGS: Record<GlassIconName, string> = {
   house: houseSvg,
@@ -29,6 +31,7 @@ const SVGS: Record<GlassIconName, string> = {
   inbox: inboxSvg,
   'circle-arrow-right': circleArrowRightSvg,
   heart: heartSvg,
+  sparkle: sparkleSvg,
 };
 
 export function GlassIcon({

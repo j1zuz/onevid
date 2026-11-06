@@ -12,7 +12,7 @@ import { COLORS } from '@/lib/theme';
 const CLOSED_WIDTH = 24;
 const OPEN_WIDTH = 210;
 
-type TabHref = '/home' | '/discover' | '/library' | '/settings';
+type TabHref = '/home' | '/discover' | '/live' | '/library' | '/settings';
 
 /**
  * Rail de navegación para Android TV como **overlay** sobre el contenido (no
@@ -34,6 +34,7 @@ export function TvSidebar() {
     () => [
       { href: '/home', name: 'home', label: t('Inicio') },
       { href: '/discover', name: 'discover', label: t('Descubrir') },
+      { href: '/live', name: 'live', label: t('Live TV') },
       { href: '/library', name: 'library', label: t('Biblioteca') },
       { href: '/settings', name: 'settings', label: t('Configuración') },
     ],

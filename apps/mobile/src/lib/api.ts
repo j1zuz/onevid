@@ -56,6 +56,10 @@ export interface MediaMeta {
   episodeRunTime?: number;
   releaseDate?: string;
   related?: MediaMeta[];
+  /** Canal de Live TV guardado en la Biblioteca (no es media de TMDB). */
+  savedLive?: boolean;
+  sourceId?: string;
+  channelId?: string;
 }
 
 /**
@@ -68,6 +72,11 @@ export interface FeedSection {
   href: string;
   id: string;
   items: MediaMeta[];
+  /** "live" = fila de canales de Live TV (sin `items`; ver liveSourceId). */
+  kind?: 'live';
+  /** Solo para filas Live TV: fuente y categoría configuradas en la web. */
+  liveSourceId?: string;
+  liveGroup?: string;
   /** Solo las filas generales de tendencias de películas/series. */
   topTen: boolean;
   /** Posición TMDB dentro del Top 10 combinado de tendencias. */
@@ -94,9 +103,46 @@ export interface FeedSectionsResponse {
 // permite que el retry/estado de error de React Query actúen con normalidad.
 const API_TIMEOUT_MS = 15_000;
 
+function apiText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/**
+ * Los errores del backend no siempre son `{ error: "texto" }`: Cloudflare,
+ * Vercel o un proxy pueden devolver `{ error: { message: "..." } }`. Si
+ * pintábamos el objeto tal cual, React Native mostraba "[object Object]" en
+ * vez de un mensaje útil.
+ */
+function apiErrorMessage(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return null;
+  }
+  const record = payload as Record<string, unknown>;
+  for (const candidate of [
+    record.error,
+    record.message,
+    record.error_description,
+  ]) {
+    const direct = apiText(candidate);
+    if (direct) return direct;
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      const nested = candidate as Record<string, unknown>;
+      const nestedMessage =
+        apiText(nested.message) ??
+        apiText(nested.error) ??
+        apiText(nested.error_description);
+      if (nestedMessage) return nestedMessage;
+    }
+  }
+  return null;
+}
+
 export async function apiFetch<T = unknown>(
   path: string,
   init?: RequestInit,
+  // Algunos endpoints (Live TV) cargan catálogos de miles de canales y tardan
+  // más que el límite general; permiten pedir un presupuesto mayor.
+  timeoutMs = API_TIMEOUT_MS,
 ): Promise<T> {
   const token = await getAccessToken();
   const headers = new Headers(init?.headers);
@@ -129,7 +175,7 @@ export async function apiFetch<T = unknown>(
   const timeoutController = new AbortController();
   const timeoutTimer = setTimeout(
     () => timeoutController.abort(),
-    API_TIMEOUT_MS,
+    timeoutMs,
   );
   let res: Response;
   try {
@@ -175,8 +221,9 @@ export async function apiFetch<T = unknown>(
   if (!res.ok) {
     let message = `${path} HTTP ${res.status}`;
     try {
-      const parsed = JSON.parse(text) as { error?: string };
-      if (parsed?.error) message = parsed.error;
+      const parsed: unknown = JSON.parse(text);
+      const fromPayload = apiErrorMessage(parsed);
+      if (fromPayload) message = fromPayload;
     } catch {
       /* keep default */
     }

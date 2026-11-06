@@ -28,13 +28,15 @@ import {
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { GlimmScope, type GlimmScopeHandle } from "glimm/next";
 import {
+  BookmarkIcon,
   CalendarDaysIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  HeartIcon,
   Loader,
   RefreshCcwDotIcon,
 } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type {
   LiveTvChannel,
   LiveTvGuideResponse,
@@ -42,7 +44,9 @@ import type {
   LiveTvProgramme,
   LiveTvSourceSummary,
 } from "@/lib/live-tv";
+import { buildLiveSavedId } from "@/lib/live-tv-saved";
 import { useTranslation } from "@/lib/onevid-i18n-context";
+import { useOneVidProfiles } from "./onevid-profile-context";
 import {
   getGuidePage,
   getGuideWindowStart,
@@ -96,7 +100,7 @@ export interface LiveTvGuideProps {
   onChannelSelect: (channel: LiveTvChannel) => void;
 }
 
-function ChannelLogo({ channel }: { channel: LiveTvChannel }) {
+function ChannelIdentity({ channel }: { channel: LiveTvChannel }) {
   const [failed, setFailed] = useState(false);
   let logo: string | undefined;
   try {
@@ -106,20 +110,29 @@ function ChannelLogo({ channel }: { channel: LiveTvChannel }) {
   } catch {
     /* Channels without a valid logo use their name, not invented artwork. */
   }
-  return logo && !failed ? (
-    // Provider logos are remote and must not pass through the image optimizer.
-    // biome-ignore lint/performance/noImgElement: provider logos are remote and bypass the Next.js image optimizer.
-    <img
-      alt=""
-      className="h-9 w-16 shrink-0 rounded-md object-contain"
-      height={36}
-      width={64}
-      loading="lazy"
-      onError={() => setFailed(true)}
-      referrerPolicy="no-referrer"
-      src={logo}
-    />
-  ) : null;
+  if (logo && !failed) {
+    return (
+      <span className="flex h-full w-full items-center justify-center">
+        {/* Provider logos are remote and must not pass through the image optimizer. */}
+        {/* biome-ignore lint/performance/noImgElement: provider logos are remote and bypass the Next.js image optimizer. */}
+        <img
+          alt=""
+          className="h-9 w-16 shrink-0 rounded-md object-contain"
+          height={36}
+          width={64}
+          loading="lazy"
+          onError={() => setFailed(true)}
+          referrerPolicy="no-referrer"
+          src={logo}
+        />
+      </span>
+    );
+  }
+  return (
+    <span className="line-clamp-2 min-w-0 flex-1 wrap-break-word text-sm leading-tight font-medium">
+      {channel.name}
+    </span>
+  );
 }
 
 function ProgrammeDetails({
@@ -202,10 +215,101 @@ export function LiveTvGuide({
   const scope = useRef<GlimmScopeHandle>(null);
   const scopeBox = useRef<HTMLDivElement>(null);
   const visible = useMemo(() => getGuidePage(channels, page), [channels, page]);
+  const { activeProfileId } = useOneVidProfiles();
+  const [savedStatuses, setSavedStatuses] = useState<
+    Record<string, { favorite: boolean; watchlist: boolean }>
+  >({});
+  const visibleSavedIds = useMemo(
+    () =>
+      visible.channels.map((channel) =>
+        buildLiveSavedId(source.id, channel.id)
+      ),
+    [visible.channels, source.id]
+  );
+  const visibleSavedKey = visibleSavedIds.join("|");
   const [formatters, setFormatters] = useState<{
     time: Intl.DateTimeFormat;
     date: Intl.DateTimeFormat;
   } | null>(null);
+
+  useEffect(() => {
+    if (!activeProfileId || visibleSavedIds.length === 0) return;
+    const controller = new AbortController();
+    fetch("/api/onevid-saved-statuses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Profile-Id": activeProfileId,
+      },
+      body: JSON.stringify({ mediaType: "live", ids: visibleSavedIds }),
+      signal: controller.signal,
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then(
+        (
+          data: {
+            statuses?: Record<
+              string,
+              { favorite: boolean; watchlist: boolean }
+            >;
+          } | null
+        ) => {
+          if (data?.statuses) {
+            setSavedStatuses((previous) => ({
+              ...previous,
+              ...data.statuses,
+            }));
+          }
+        }
+      )
+      .catch(() => {
+        // Sin perfil o sin red: los botones quedan apagados, no rompen la guía.
+      });
+    return () => controller.abort();
+  }, [activeProfileId, visibleSavedIds, visibleSavedKey]);
+
+  const toggleSaved = useCallback(
+    async (channel: LiveTvChannel, kind: "favorite" | "watchlist") => {
+      if (!activeProfileId) return;
+      const mediaId = buildLiveSavedId(source.id, channel.id);
+      const current = savedStatuses[mediaId] ?? {
+        favorite: false,
+        watchlist: false,
+      };
+      const next = !current[kind];
+      setSavedStatuses((previous) => ({
+        ...previous,
+        [mediaId]: { ...current, [kind]: next },
+      }));
+      try {
+        const response = await fetch(
+          kind === "favorite" ? "/api/onevid-favorite" : "/api/onevid-watchlist",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Profile-Id": activeProfileId,
+            },
+            body: JSON.stringify({
+              mediaId,
+              mediaType: "live",
+              value: next,
+              name: channel.name,
+              poster: channel.logo,
+              background: channel.logo,
+            }),
+          }
+        );
+        if (!response.ok) throw new Error("save failed");
+      } catch {
+        setSavedStatuses((previous) => ({
+          ...previous,
+          [mediaId]: current,
+        }));
+      }
+    },
+    [activeProfileId, savedStatuses, source.id]
+  );
 
   useEffect(() => {
     // The server's timezone/clock may differ from the viewer's. Initialize local
@@ -354,9 +458,9 @@ export function LiveTvGuide({
       aria-labelledby={titleId}
       className="min-w-0 max-w-full overflow-hidden rounded-xl border border-border bg-card text-card-foreground"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-3">
+      <div className="flex flex-col gap-2 border-b border-border p-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:p-3">
         <h2
-          className="flex items-center gap-2 text-sm font-semibold"
+          className="flex shrink-0 items-center gap-2 text-sm font-semibold"
           id={titleId}
         >
           <CalendarDaysIcon
@@ -365,7 +469,7 @@ export function LiveTvGuide({
           />
           {t("Guía de Live TV")}
         </h2>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           {groups.length > 0 ? (
             <Select
               items={[
@@ -379,7 +483,7 @@ export function LiveTvGuide({
             >
               <SelectTrigger
                 aria-label={t("Categoría")}
-                className="h-8 w-auto min-w-0 rounded-lg px-2.5 text-xs"
+                className="h-8 min-w-0 flex-1 justify-between rounded-lg px-2.5 text-xs [&>span]:truncate sm:flex-none"
                 data-dpad-focusable
                 id={categoryId}
                 size="sm"
@@ -406,7 +510,7 @@ export function LiveTvGuide({
           {/* biome-ignore lint/a11y/useSemanticElements: toolbar group; a fieldset would add unwanted form semantics. */}
           <div
             aria-label={t("Ventana de programación")}
-            className="flex flex-wrap items-center gap-1"
+            className="flex shrink-0 items-center gap-1"
             role="group"
           >
           <Button
@@ -539,7 +643,7 @@ export function LiveTvGuide({
                 aria-label={t(
                   "Canales y horarios de Live TV. Usa las flechas para desplazarte.",
                 )}
-                className="h-full w-full min-w-0 overflow-hidden bg-card [--channel-width:132px] sm:[--channel-width:164px] **:data-[slot=scroll-area-viewport]:scroll-pt-12 **:data-[slot=scroll-area-viewport]:scroll-pl-(--channel-width)"
+                className="h-full w-full min-w-0 overflow-hidden bg-card [--channel-width:170px] sm:[--channel-width:210px] **:data-[slot=scroll-area-viewport]:scroll-pt-12 **:data-[slot=scroll-area-viewport]:scroll-pl-(--channel-width)"
                 data-dpad-focusable
                 role="region"
                 tabIndex={0}
@@ -608,11 +712,16 @@ export function LiveTvGuide({
                         ? getProgrammeLayout(row.programmes, windowStart, windowEnd)
                         : [];
                     const height = Math.max(
-                      76,
+                      84,
                       (Math.max(0, ...layout.map((item) => item.lane)) + 1) * 64 +
                         8,
                     );
                     const selected = selectedChannelId === channel.id;
+                    const mediaId = buildLiveSavedId(source.id, channel.id);
+                    const status = savedStatuses[mediaId] ?? {
+                      favorite: false,
+                      watchlist: false,
+                    };
                     return (
                       <div
                         className="flex border-b border-border"
@@ -620,22 +729,58 @@ export function LiveTvGuide({
                         key={channel.id}
                         style={{ height }}
                       >
-                        <div className="sticky left-0 z-20 w-(--channel-width) shrink-0 border-r border-border bg-card">
+                        <div className="sticky left-0 z-20 flex w-(--channel-width) shrink-0 items-center border-r border-border bg-card">
                           <Button
                             aria-label={t("Ver {{name}} en vivo", {
                               name: channel.name,
                             })}
                             aria-pressed={selected}
                             data-dpad-focusable
-                            className={`h-full w-full justify-start gap-2 rounded-none px-2 text-left whitespace-normal ${selected ? "border-l-2 border-l-primary bg-primary/10 text-primary" : "text-card-foreground"}`}
+                            className={`h-full min-w-0 flex-1 justify-start gap-2 rounded-none px-2 text-left whitespace-normal ${selected ? "border-l-2 border-l-primary bg-primary/10 text-primary" : "text-card-foreground"}`}
                             onClick={() => onChannelSelect(channel)}
                             variant="ghost"
                           >
-                            <ChannelLogo key={channel.logo} channel={channel} />
-                            <span className="line-clamp-3 min-w-0 wrap-break-word text-xs font-medium">
-                              {channel.name}
-                            </span>
+                            <ChannelIdentity
+                              channel={channel}
+                              key={`${channel.logo ?? ""}:${channel.name}`}
+                            />
                           </Button>
+                          <div className="flex w-8 shrink-0 flex-col items-center justify-center gap-0.5">
+                            <Button
+                              aria-label={t("Favoritos")}
+                              aria-pressed={status.favorite}
+                              className="size-7"
+                              data-dpad-focusable
+                              onClick={() => void toggleSaved(channel, "favorite")}
+                              size="icon-xs"
+                              variant="ghost"
+                            >
+                              <HeartIcon
+                                className={
+                                  status.favorite
+                                    ? "size-3.5 fill-current text-primary"
+                                    : "size-3.5 text-muted-foreground"
+                                }
+                              />
+                            </Button>
+                            <Button
+                              aria-label={t("Ver después")}
+                              aria-pressed={status.watchlist}
+                              className="size-7"
+                              data-dpad-focusable
+                              onClick={() => void toggleSaved(channel, "watchlist")}
+                              size="icon-xs"
+                              variant="ghost"
+                            >
+                              <BookmarkIcon
+                                className={
+                                  status.watchlist
+                                    ? "size-3.5 fill-current text-primary"
+                                    : "size-3.5 text-muted-foreground"
+                                }
+                              />
+                            </Button>
+                          </div>
                         </div>
                         <div className="relative min-w-0 flex-1 bg-muted/20">
                           <div

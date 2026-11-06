@@ -298,7 +298,7 @@ async function OneVidContent({
   // Live TV is independent of the TMDB catalog and streaming addons.
   if (params.surface === "live") {
     return (
-      <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
+      <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-0 md:px-6">
         <LiveTvSurface headerProps={headerProps} />
       </main>
     );
@@ -307,7 +307,7 @@ async function OneVidContent({
   // Biblioteca: favoritos y "Ver después" del perfil activo, sin catálogo.
   if (params.surface === "library") {
     return (
-      <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
+      <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-0 md:px-6">
         <LibrarySurface headerProps={headerProps} />
       </main>
     );
@@ -585,7 +585,7 @@ async function OneVidContent({
   }
 
   return (
-    <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
+    <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-0 md:px-6">
       <OneVidPageClient
         addons={addons}
         discoverRows={discoverRows}

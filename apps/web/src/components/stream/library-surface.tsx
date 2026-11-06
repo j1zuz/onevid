@@ -20,6 +20,7 @@ import { PosterCard, VIEW_ALL_GRID_CLASS } from "./poster-card";
 import { ScrollTopFade } from "./scroll-top-fade";
 import { FEED_ROW_ITEM_LIMIT } from "@/lib/onevid-feed";
 import { useTranslation } from "@/lib/onevid-i18n-context";
+import { parseLiveSavedId } from "@/lib/live-tv-saved";
 import type { MediaMeta } from "@/lib/tmdb";
 
 type HeaderProps = Omit<ComponentProps<typeof OneVidHeader>, "surface">;
@@ -43,15 +44,15 @@ interface LibraryData {
   watchlist: MediaMeta[];
 }
 
-/** Intercala películas y series para que la fila no quede agrupada por tipo. */
-function interleave<T>(movies: T[], series: T[]): T[] {
+/** Intercala las listas para que la fila no quede agrupada por tipo. */
+function interleaveMany<T>(lists: T[][]): T[] {
   const result: T[] = [];
-  const length = Math.max(movies.length, series.length);
+  const length = Math.max(0, ...lists.map((list) => list.length));
   for (let index = 0; index < length; index += 1) {
-    const movie = movies[index];
-    const show = series[index];
-    if (movie) result.push(movie);
-    if (show) result.push(show);
+    for (const list of lists) {
+      const item = list[index];
+      if (item) result.push(item);
+    }
   }
   return result;
 }
@@ -76,16 +77,62 @@ async function fetchSaved(
   return Array.isArray(data.results) ? data.results : [];
 }
 
+/** Canales de Live TV guardados: se abren en la superficie de Live TV. */
+async function fetchLiveSaved(
+  kind: SavedKind,
+  profileId: string,
+  signal: AbortSignal,
+): Promise<MediaMeta[]> {
+  const endpoint =
+    kind === "favorites"
+      ? "/api/onevid-favorites"
+      : "/api/onevid-watchlist-items";
+  const response = await fetch(`${endpoint}?type=live`, {
+    cache: "no-store",
+    headers: { Accept: "application/json", "X-Profile-Id": profileId },
+    signal,
+  });
+  if (!response.ok) throw new Error("Library unavailable");
+  const data = (await response.json()) as {
+    results?: Array<{
+      background?: string;
+      id: string;
+      name: string;
+      poster?: string;
+    }>;
+  };
+  return (data.results ?? []).flatMap((item) => {
+    const parsed = parseLiveSavedId(item.id);
+    if (!parsed) return [];
+    return [
+      {
+        // La tarjeta solo necesita un id único y el playHref para abrir el canal;
+        // no es una media de TMDB, por eso no pasa por el detalle.
+        id: item.id,
+        type: "movie" as const,
+        name: item.name,
+        poster: item.poster,
+        background: item.background ?? item.poster,
+        savedLive: true,
+        playHref: `/home?surface=live&source=${encodeURIComponent(
+          parsed.sourceId
+        )}&channel=${encodeURIComponent(parsed.channelId)}`,
+      },
+    ];
+  });
+}
+
 async function fetchKind(
   kind: SavedKind,
   profileId: string,
   signal: AbortSignal,
 ): Promise<MediaMeta[]> {
-  const [movies, series] = await Promise.all([
+  const [movies, series, live] = await Promise.all([
     fetchSaved(kind, "movie", profileId, signal),
     fetchSaved(kind, "series", profileId, signal),
+    fetchLiveSaved(kind, profileId, signal),
   ]);
-  return interleave(movies, series);
+  return interleaveMany([movies, series, live]);
 }
 
 function RowSkeleton() {
@@ -324,7 +371,7 @@ export function LibrarySurface({ headerProps }: { headerProps: HeaderProps }) {
         {/* `data-dpad-poster-grid` en el contenedor de todas las filas para que
             el mando de TV pueda bajar de una fila a la siguiente. */}
         <div
-          className="no-scrollbar flex h-full flex-col gap-8 overflow-y-auto py-4"
+          className="no-scrollbar flex h-full flex-col gap-8 overflow-y-auto pt-4"
           data-dpad-poster-grid
           ref={scrollAreaRef}
         >

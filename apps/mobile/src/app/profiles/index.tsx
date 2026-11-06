@@ -73,7 +73,12 @@ export default function ProfilesScreen() {
       setProfiles(data.profiles ?? []);
       setMax(data.max ?? 5);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudieron cargar.');
+      const message = e instanceof Error ? e.message.trim() : '';
+      setError(
+        message && message !== '[object Object]'
+          ? message
+          : 'No se pudieron cargar los perfiles. Revisa tu conexión.',
+      );
     } finally {
       setLoading(false);
     }

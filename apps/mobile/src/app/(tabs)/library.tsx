@@ -13,6 +13,7 @@ import { useAppSurface } from '@/hooks/use-app-surface';
 import type { MediaMeta } from '@/lib/api';
 import { navigateToDetail } from '@/lib/detail-nav';
 import { libraryQuery as libraryQueryOptions } from '@/lib/library';
+import { playSavedLiveChannel } from '@/lib/live-tv';
 import { COLORS } from '@/lib/theme';
 
 export default function LibraryTab() {
@@ -43,6 +44,12 @@ export default function LibraryTab() {
 
   const handlePressItem = useCallback(
     (item: MediaMeta) => {
+      if (item.savedLive && item.sourceId && item.channelId) {
+        void playSavedLiveChannel(item.sourceId, item.channelId).catch(
+          () => undefined,
+        );
+        return;
+      }
       navigateToDetail(queryClient, item, lang);
     },
     [queryClient, lang],

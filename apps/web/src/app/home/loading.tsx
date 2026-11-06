@@ -76,7 +76,7 @@ export async function LiveTvSkeleton() {
     <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
       <HeaderSkeleton />
       <div className="relative min-h-0 flex-1">
-        <div className="no-scrollbar flex h-full flex-col gap-8 overflow-y-auto py-4">
+        <div className="no-scrollbar flex h-full flex-col gap-8 overflow-y-auto pt-4">
           <section
             aria-label={t("Live TV")}
             className="min-w-0 space-y-4 pb-4 text-foreground"
@@ -117,7 +117,7 @@ export async function LibrarySkeleton() {
     <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
       <HeaderSkeleton />
       <div className="relative min-h-0 flex-1">
-        <div className="no-scrollbar flex h-full flex-col gap-8 overflow-y-auto py-4">
+        <div className="no-scrollbar flex h-full flex-col gap-8 overflow-y-auto pt-4">
           <section
             className="flex flex-col gap-6 px-2"
             role="status"

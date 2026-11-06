@@ -113,7 +113,7 @@ export function PosterCard({
               // al volver del reproductor (bitmap liberado por la GPU en Android).
               recyclingKey={`${imgGen}:${item.type}:${item.id}`}
               source={imageSource}
-              contentFit="cover"
+              contentFit={item.savedLive ? 'contain' : 'cover'}
               transition={150}
               cachePolicy="memory-disk"
               // 1 px de más por cada lado: al mantener pulsada la tarjeta,

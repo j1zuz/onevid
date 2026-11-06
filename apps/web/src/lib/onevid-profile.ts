@@ -1,5 +1,5 @@
 import { hashPassword, verifyPassword } from "better-auth/crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   oneVidProfile,
   oneVidProfileProgress,
@@ -239,14 +239,25 @@ export async function resolveActiveProfile(
 
 export type SavedKind = "favorite" | "watchlist";
 export type SavedMediaType = "movie" | "series";
+/** Live TV se guarda como un tipo más ("live"), con un id compuesto source::channel. */
+export type SavedMediaKind = SavedMediaType | "live";
 
 export interface SavedInput {
   background?: string;
   mediaId: string;
-  mediaType: SavedMediaType;
+  mediaType: SavedMediaKind;
   name?: string;
   poster?: string;
   year?: string;
+}
+
+/** Canal de Live TV guardado en la biblioteca (sin resolver la URL aún). */
+export interface SavedLiveChannel {
+  background?: string;
+  id: string;
+  name: string;
+  poster?: string;
+  type: "live";
 }
 
 /** Upsert (value=true) or remove (value=false) a saved item for a profile. */
@@ -334,10 +345,41 @@ export async function listProfileSaved(
   }));
 }
 
+/** Lista canales de Live TV guardados (tipo "live"). */
+export async function listProfileSavedLive(
+  profileId: string,
+  kind: SavedKind
+): Promise<SavedLiveChannel[]> {
+  const rows = await db
+    .select({
+      mediaId: oneVidProfileSaved.mediaId,
+      name: oneVidProfileSaved.name,
+      poster: oneVidProfileSaved.poster,
+      background: oneVidProfileSaved.background,
+    })
+    .from(oneVidProfileSaved)
+    .where(
+      and(
+        eq(oneVidProfileSaved.profileId, profileId),
+        eq(oneVidProfileSaved.kind, kind),
+        eq(oneVidProfileSaved.mediaType, "live")
+      )
+    )
+    .orderBy(desc(oneVidProfileSaved.createdAt));
+
+  return rows.map((row) => ({
+    id: row.mediaId,
+    type: "live",
+    name: row.name ?? "",
+    poster: row.poster ?? undefined,
+    background: row.background ?? undefined,
+  }));
+}
+
 /** Favorite/watchlist flags for a single title within a profile. */
 export async function getProfileSavedStatus(
   profileId: string,
-  mediaType: SavedMediaType,
+  mediaType: SavedMediaKind,
   mediaId: string
 ): Promise<{ favorite: boolean; watchlist: boolean }> {
   const rows = await db
@@ -354,6 +396,42 @@ export async function getProfileSavedStatus(
     favorite: rows.some((r) => r.kind === "favorite"),
     watchlist: rows.some((r) => r.kind === "watchlist"),
   };
+}
+
+/** Favorite/watchlist flags para varios ids a la vez (guía de Live TV). */
+export async function listProfileSavedStatuses(
+  profileId: string,
+  mediaType: SavedMediaKind,
+  mediaIds: string[]
+): Promise<Record<string, { favorite: boolean; watchlist: boolean }>> {
+  const statuses: Record<string, { favorite: boolean; watchlist: boolean }> =
+    {};
+  for (const id of mediaIds) {
+    statuses[id] = { favorite: false, watchlist: false };
+  }
+  if (mediaIds.length === 0) return statuses;
+
+  const rows = await db
+    .select({
+      mediaId: oneVidProfileSaved.mediaId,
+      kind: oneVidProfileSaved.kind,
+    })
+    .from(oneVidProfileSaved)
+    .where(
+      and(
+        eq(oneVidProfileSaved.profileId, profileId),
+        eq(oneVidProfileSaved.mediaType, mediaType),
+        inArray(oneVidProfileSaved.mediaId, mediaIds)
+      )
+    );
+
+  for (const row of rows) {
+    const status = statuses[row.mediaId];
+    if (!status) continue;
+    if (row.kind === "favorite") status.favorite = true;
+    if (row.kind === "watchlist") status.watchlist = true;
+  }
+  return statuses;
 }
 
 // ─── Per-profile watch progress ("Continue watching") ────────────────

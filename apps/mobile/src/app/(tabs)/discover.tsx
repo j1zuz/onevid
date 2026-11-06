@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
 import { LocalVideoImport } from '@/components/local-video-import';
 import { PosterCard } from '@/components/poster-card';
+import { LiveTvRow } from '@/components/home/live-tv-row';
 import { PosterRow } from '@/components/home/poster-row';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { useResponsive } from '@/hooks/use-responsive';
@@ -169,7 +170,10 @@ export default function DiscoverTab() {
             <SearchField value={query} onChange={setQuery}>
               <SearchField.Group>
                 <SearchField.SearchIcon />
-                <SearchField.Input placeholder={t('Buscar películas, series…')} />
+                <SearchField.Input
+                  className="h-9 min-h-9 text-sm"
+                  placeholder={t('Buscar películas, series…')}
+                />
                 <SearchField.ClearButton />
               </SearchField.Group>
             </SearchField>
@@ -230,17 +234,27 @@ export default function DiscoverTab() {
                       title=""
                     />
                   ))
-                : sections.map((section) => (
-                    <PosterRow
-                      items={section.items}
-                      href={section.href}
-                      key={section.id}
-                      onPressItem={handlePressItem}
-                      topTen={section.topTen}
-                      topTenRanks={section.topTenRanks}
-                      title={section.title}
-                    />
-                  ))}
+                : sections.map((section) =>
+                    section.kind === 'live' ? (
+                      <LiveTvRow
+                        enabled={catalogEnabled}
+                        group={section.liveGroup}
+                        key={section.id}
+                        sourceId={section.liveSourceId}
+                        title={section.title}
+                      />
+                    ) : (
+                      <PosterRow
+                        items={section.items}
+                        href={section.href}
+                        key={section.id}
+                        onPressItem={handlePressItem}
+                        topTen={section.topTen}
+                        topTenRanks={section.topTenRanks}
+                        title={section.title}
+                      />
+                    ),
+                  )}
 
               {!catalogLoading && sections.length === 0 ? (
                 <Typography
