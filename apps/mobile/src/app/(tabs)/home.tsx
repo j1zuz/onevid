@@ -15,6 +15,7 @@ import {
   type ContinueWatchingItem,
 } from '@/components/home/continue-watching-row';
 import { HeroCarousel } from '@/components/home/hero-carousel';
+import { LiveTvRow } from '@/components/home/live-tv-row';
 import { PosterRow } from '@/components/home/poster-row';
 import { LocalVideoPicker } from '@/components/local-video-picker';
 import { StreamLoginScreen } from '@/components/stream-login-screen';
@@ -195,17 +196,27 @@ export default function HomeTab() {
                 title=""
               />
             ))
-          : sections.map((section) => (
-              <PosterRow
-                items={section.items}
-                href={section.href}
-                key={section.id}
-                onPressItem={handlePressItem}
-                topTen={section.topTen}
-                topTenRanks={section.topTenRanks}
-                title={section.title}
-              />
-            ))}
+          : sections.map((section) =>
+              section.kind === 'live' ? (
+                <LiveTvRow
+                  enabled={catalogEnabled}
+                  group={section.liveGroup}
+                  key={section.id}
+                  sourceId={section.liveSourceId}
+                  title={section.title}
+                />
+              ) : (
+                <PosterRow
+                  items={section.items}
+                  href={section.href}
+                  key={section.id}
+                  onPressItem={handlePressItem}
+                  topTen={section.topTen}
+                  topTenRanks={section.topTenRanks}
+                  title={section.title}
+                />
+              ),
+            )}
 
         {error && !rowsLoading ? (
           <Typography

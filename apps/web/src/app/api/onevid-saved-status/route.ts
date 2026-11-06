@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { parseLiveSavedId } from "@/lib/live-tv-saved";
 import {
   getProfileSavedStatus,
   resolveActiveProfile,
@@ -18,10 +19,21 @@ export async function GET(request: NextRequest) {
   const mediaType = searchParams.get("mediaType")?.trim().toLowerCase();
   const mediaId = searchParams.get("mediaId")?.trim();
 
-  if (mediaType !== "movie" && mediaType !== "series") {
+  if (
+    mediaType !== "movie" &&
+    mediaType !== "series" &&
+    mediaType !== "live"
+  ) {
     return NextResponse.json({ error: "mediaType inválido" }, { status: 400 });
   }
-  if (!(mediaId && NUMERIC_ID_RE.test(mediaId))) {
+  if (mediaType === "live") {
+    if (!parseLiveSavedId(mediaId)) {
+      return NextResponse.json({ error: "mediaId inválido" }, { status: 400 });
+    }
+  } else if (!(mediaId && NUMERIC_ID_RE.test(mediaId))) {
+    return NextResponse.json({ error: "mediaId inválido" }, { status: 400 });
+  }
+  if (!mediaId) {
     return NextResponse.json({ error: "mediaId inválido" }, { status: 400 });
   }
 

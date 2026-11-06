@@ -593,6 +593,7 @@ export default function DetailPage() {
             <View style={{ gap: 10 }}>
               <Button
                 variant="primary"
+                size="sm"
                 onPress={handlePlay}
                 {...playFocus.focusProps}
                 style={[
@@ -625,6 +626,7 @@ export default function DetailPage() {
               >
                 <Button
                   variant="secondary"
+                  size="sm"
                   onPress={() => toggleSaved('watchlist')}
                   isDisabled={savingWatch}
                   {...watchFocus.focusProps}
@@ -646,6 +648,7 @@ export default function DetailPage() {
                 </Button>
                 <Button
                   variant="secondary"
+                  size="sm"
                   onPress={() => toggleSaved('favorite')}
                   isDisabled={savingFav}
                   {...favFocus.focusProps}
@@ -668,6 +671,7 @@ export default function DetailPage() {
                 {trailerKey ? (
                   <Button
                     variant="secondary"
+                    size="sm"
                     onPress={handleTrailer}
                     {...trailerFocus.focusProps}
                     style={[
@@ -870,10 +874,10 @@ function DetailSkeleton({
   type: DetailType;
   rowCardWidth: number;
 }) {
-  // En TV los botones fuerzan height:56 inline; en móvil no hay override y
-  // caen al tamaño "md" por defecto de HeroUI Button (h-12 = 48px) — el
-  // skeleton debe coincidir para no saltar al aparecer el contenido real.
-  const btnH = isTV ? 56 : 48;
+  // En TV los botones fuerzan height:56 inline; en móvil usan size="sm"
+  // (h-10 = 40px) — el skeleton debe coincidir para no saltar al aparecer el
+  // contenido real.
+  const btnH = isTV ? 56 : 40;
   const sideW = isTV ? 120 : sideBtnW;
   // Mismo ancho (16:9) que las demás filas de catálogo (Tendencias, Populares,
   // Continuar viendo), para que "Relacionados" no se vea más angosto.

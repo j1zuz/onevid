@@ -415,7 +415,7 @@ export function OneVidHeader({
           className={cn(
             "relative w-full max-w-xs max-md:hidden",
             mobileSearchOpen &&
-              "max-md:absolute max-md:inset-0 max-md:z-40 max-md:flex max-md:max-w-none max-md:items-center max-md:gap-2 max-md:bg-background/95 max-md:px-4 max-md:backdrop-blur"
+              "max-md:absolute max-md:inset-x-0 max-md:top-0 max-md:bottom-auto max-md:z-40 max-md:flex max-md:h-14 max-md:max-w-none max-md:items-center max-md:gap-2 max-md:bg-background/95 max-md:px-4 max-md:backdrop-blur"
           )}
           ref={searchRef}
         >

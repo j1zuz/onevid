@@ -150,7 +150,7 @@ export function OneVidPageClient({
             candidato dentro del mismo grid, así que con un grid por fila el
             mando no podría bajar de una fila a la siguiente. */}
         <div
-          className="no-scrollbar flex h-full flex-col gap-8 overflow-y-auto py-4"
+          className="no-scrollbar flex h-full flex-col gap-8 overflow-y-auto pt-4"
           data-dpad-poster-grid
           ref={scrollAreaRef}
         >

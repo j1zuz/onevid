@@ -112,6 +112,10 @@ export default function TabsLayout() {
           options={{ title: t('Descubrir'), tabBarIcon: icon('discover') }}
         />
         <Tabs.Screen
+          name="live"
+          options={{ title: t('Live TV'), tabBarIcon: icon('live') }}
+        />
+        <Tabs.Screen
           name="library"
           options={{ title: t('Biblioteca'), tabBarIcon: icon('library') }}
         />

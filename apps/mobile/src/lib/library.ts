@@ -1,26 +1,64 @@
 import type { QueryClient } from '@tanstack/react-query';
-import { getFavorites, getWatchlistItems } from './saved';
+import type { MediaMeta } from './api';
+import { parseLiveSavedId } from './live-tv';
+import {
+  getFavorites,
+  getSavedLive,
+  getWatchlistItems,
+  type SavedLiveChannel,
+} from './saved';
 
 /**
- * Favoritos + "Ver después" del perfil activo, intercalando películas y series.
- * Vive aquí (y no dentro de la pantalla) para poder precargarla desde el
- * selector de perfiles con exactamente la misma queryKey.
+ * Favoritos + "Ver después" del perfil activo, intercalando películas, series y
+ * canales de Live TV guardados. Vive aquí (y no dentro de la pantalla) para
+ * poder precargarla desde el selector de perfiles con la misma queryKey.
  */
 export const libraryQuery = () => ({
   queryKey: ['library'] as const,
   queryFn: async () => {
-    const [favM, favS, watM, watS] = await Promise.all([
+    const [favM, favS, favL, watM, watS, watL] = await Promise.all([
       getFavorites('movie').catch(() => []),
       getFavorites('series').catch(() => []),
+      getSavedLive('favorite').catch(() => []),
       getWatchlistItems('movie').catch(() => []),
       getWatchlistItems('series').catch(() => []),
+      getSavedLive('watchlist').catch(() => []),
     ]);
     return {
-      favorites: interleave(favM, favS),
-      watchlist: interleave(watM, watS),
+      favorites: interleaveMany([
+        favM,
+        favS,
+        liveToMedia(favL),
+      ]),
+      watchlist: interleaveMany([
+        watM,
+        watS,
+        liveToMedia(watL),
+      ]),
     };
   },
 });
+
+function liveToMedia(items: SavedLiveChannel[]): MediaMeta[] {
+  return items.flatMap((item) => {
+    const parsed = parseLiveSavedId(item.id);
+    if (!parsed) return [];
+    return [
+      {
+        // No es una media de TMDB: `savedLive` hace que la Biblioteca
+        // reproduzca el canal en vez de abrir el detalle.
+        id: item.id,
+        type: 'movie' as const,
+        name: item.name,
+        poster: item.poster,
+        background: item.background ?? item.poster,
+        savedLive: true,
+        sourceId: parsed.sourceId,
+        channelId: parsed.channelId,
+      },
+    ];
+  });
+}
 
 /**
  * Precalienta la Biblioteca para que al abrir la pestaña no aparezca el
@@ -31,12 +69,13 @@ export function prefetchLibrary(qc: QueryClient): void {
   void qc.prefetchQuery(libraryQuery()).catch(() => undefined);
 }
 
-function interleave<T>(a: T[], b: T[]): T[] {
+function interleaveMany<T>(lists: T[][]): T[] {
   const out: T[] = [];
-  const len = Math.max(a.length, b.length);
+  const len = Math.max(0, ...lists.map((list) => list.length));
   for (let i = 0; i < len; i += 1) {
-    if (a[i]) out.push(a[i]);
-    if (b[i]) out.push(b[i]);
+    for (const list of lists) {
+      if (list[i]) out.push(list[i]);
+    }
   }
   return out;
 }

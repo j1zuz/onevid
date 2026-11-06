@@ -352,8 +352,13 @@ export default function PlayerScreen() {
     season?: string;
     episode?: string;
     episodeTitle?: string;
+    /** '1' = canal de Live TV: sin progreso/seek ni descarga offline. */
+    live?: string;
   }>();
   const title = params.title;
+  // Un canal en directo no tiene duración: ocultamos la barra de progreso, los
+  // saltos de 10 s y la descarga offline (no aplica a un stream continuo).
+  const isLive = params.live === '1';
   const background = params.background || undefined;
   const poster = params.poster || undefined;
   const logo = params.logo || undefined;
@@ -853,6 +858,7 @@ export default function PlayerScreen() {
           subtitle={subtitle}
           mediaId={mediaId}
           mediaType={mediaType}
+          live={isLive}
           // Cuando ya se vio vídeo, la carga de la nueva fuente se pinta dentro
           // del player (chrome + spinner) en vez de la carátula externa.
           loadingInline={playedBefore}
@@ -876,7 +882,7 @@ export default function PlayerScreen() {
           offlineDownloading={offlineDownloading}
           offlineDownloadProgress={offlineDownloadProgress}
           onDownloadOffline={
-            state.url.startsWith('file://')
+            isLive || state.url.startsWith('file://')
               ? undefined
               : async () => {
                   offlineDownloadControlRef.current.cancelled = false;
@@ -1081,6 +1087,7 @@ function Player({
   subtitle,
   mediaId,
   mediaType,
+  live = false,
   loadingInline,
   startTimeoutMs = PLAYBACK_START_TIMEOUT_MS,
   resumeMs,
@@ -1106,6 +1113,8 @@ function Player({
   /** Contexto de contenido para telemetría de rendimiento del reproductor. */
   mediaId?: string;
   mediaType?: string;
+  /** Canal de Live TV: sin barra de progreso, seek ni descarga offline. */
+  live?: boolean;
   /** Carga "dentro del player" (chrome + spinner) en vez de la carátula externa:
    *  true al cambiar de fuente o re-entrar a algo ya visto. */
   loadingInline?: boolean;
@@ -2032,14 +2041,16 @@ function Player({
             </View>
           ) : (
             <View style={styles.centerRow} pointerEvents="box-none">
-              <Pressable
-                style={withRing(styles.ctrlBtn)}
-                onPressIn={() => startSeekHold(-1)}
-                onPressOut={() => stopSeekHold(-1)}
-                hitSlop={8}
-              >
-                <RotateCcw size={26} color="#fff" />
-              </Pressable>
+              {live ? null : (
+                <Pressable
+                  style={withRing(styles.ctrlBtn)}
+                  onPressIn={() => startSeekHold(-1)}
+                  onPressOut={() => stopSeekHold(-1)}
+                  hitSlop={8}
+                >
+                  <RotateCcw size={26} color="#fff" />
+                </Pressable>
+              )}
               <Pressable
                 style={withRing(styles.playBtn)}
                 onPress={togglePlay}
@@ -2057,48 +2068,52 @@ function Player({
                   </View>
                 ) : null}
               </Pressable>
-              <Pressable
-                style={withRing(styles.ctrlBtn)}
-                onPressIn={() => startSeekHold(1)}
-                onPressOut={() => stopSeekHold(1)}
-                hitSlop={8}
-              >
-                <RotateCw size={26} color="#fff" />
-              </Pressable>
+              {live ? null : (
+                <Pressable
+                  style={withRing(styles.ctrlBtn)}
+                  onPressIn={() => startSeekHold(1)}
+                  onPressOut={() => stopSeekHold(1)}
+                  hitSlop={8}
+                >
+                  <RotateCw size={26} color="#fff" />
+                </Pressable>
+              )}
             </View>
           )}
 
           {/* Barra inferior tipo "pill" */}
-          <View
-            style={[
-              styles.pill,
-              {
-                left: insets.left + 16,
-                right: insets.right + 16,
-                bottom: insets.bottom + 14,
-              },
-            ]}
-          >
-            <Text style={styles.timeText}>{formatTime(progress)}</Text>
+          {!live ? (
+            <View
+              style={[
+                styles.pill,
+                {
+                  left: insets.left + 16,
+                  right: insets.right + 16,
+                  bottom: insets.bottom + 14,
+                },
+              ]}
+            >
+              <Text style={styles.timeText}>{formatTime(progress)}</Text>
 
-            <View style={{ flex: 1, marginHorizontal: 4 }}>
-              <Slider
-                value={Math.min(progress, duration || 1)}
-                minValue={0}
-                maxValue={duration || 1}
-                isDisabled={!duration}
-                onChange={onSlide}
-                onChangeEnd={onSlideEnd}
-              >
-                <Slider.Track>
-                  <Slider.Fill />
-                  <Slider.Thumb />
-                </Slider.Track>
-              </Slider>
+              <View style={{ flex: 1, marginHorizontal: 4 }}>
+                <Slider
+                  value={Math.min(progress, duration || 1)}
+                  minValue={0}
+                  maxValue={duration || 1}
+                  isDisabled={!duration}
+                  onChange={onSlide}
+                  onChangeEnd={onSlideEnd}
+                >
+                  <Slider.Track>
+                    <Slider.Fill />
+                    <Slider.Thumb />
+                  </Slider.Track>
+                </Slider>
+              </View>
+
+              <Text style={styles.timeText}>{formatTime(duration)}</Text>
             </View>
-
-            <Text style={styles.timeText}>{formatTime(duration)}</Text>
-          </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -2235,6 +2250,8 @@ function PulsingLogo({
   title?: string;
   status?: string;
 }) {
+  // Si el logo del canal no carga (URL caída), caemos al nombre.
+  const [logoFailed, setLogoFailed] = useState(false);
   const pulse = useSharedValue(0.55);
   useEffect(() => {
     pulse.value = withRepeat(
@@ -2248,10 +2265,11 @@ function PulsingLogo({
 
   return (
     <Animated.View style={[styles.artCenter, pulseStyle]} pointerEvents="none">
-      {logo ? (
+      {logo && !logoFailed ? (
         <Image
           source={logo}
           contentFit="contain"
+          onError={() => setLogoFailed(true)}
           style={{ width: '60%', height: 120 }}
         />
       ) : (

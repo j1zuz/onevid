@@ -249,6 +249,7 @@ function HeroSlide({
         ) : null}
         <Button
           variant="primary"
+          size={isTV ? 'md' : 'sm'}
           onPress={onPressPlay}
           {...playFocus.focusProps}
           style={[

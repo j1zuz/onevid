@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
+import { parseLiveSavedId } from "@/lib/live-tv-saved";
 import {
   resolveActiveProfile,
   type SavedInput,
@@ -47,11 +48,19 @@ export async function POST(request: Request) {
     return Response.json({ error: "Body JSON inválido" }, { status: 400 });
   }
 
-  if (!NUMERIC_ID_RE.test(mediaId)) {
-    return Response.json({ error: "mediaId inválido" }, { status: 400 });
-  }
-  if (mediaType !== "movie" && mediaType !== "series") {
+  if (
+    mediaType !== "movie" &&
+    mediaType !== "series" &&
+    mediaType !== "live"
+  ) {
     return Response.json({ error: "mediaType inválido" }, { status: 400 });
+  }
+  if (mediaType === "live") {
+    if (!parseLiveSavedId(mediaId)) {
+      return Response.json({ error: "mediaId inválido" }, { status: 400 });
+    }
+  } else if (!NUMERIC_ID_RE.test(mediaId)) {
+    return Response.json({ error: "mediaId inválido" }, { status: 400 });
   }
 
   const profileId = request.headers.get("x-profile-id");

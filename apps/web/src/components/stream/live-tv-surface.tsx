@@ -18,7 +18,7 @@ export function LiveTvSurface({ headerProps }: { headerProps: HeaderProps }) {
         <div className="relative min-h-0 flex-1">
           <ScrollTopFade scrollAreaRef={scrollAreaRef} />
           <div
-            className="no-scrollbar flex h-full flex-col gap-8 overflow-y-auto py-4"
+            className="no-scrollbar flex h-full flex-col gap-8 overflow-y-auto pt-4"
             ref={scrollAreaRef}
           >
             <OneVidLiveTv />

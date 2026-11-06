@@ -1,7 +1,11 @@
 import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { listProfileSaved, resolveActiveProfile } from "@/lib/onevid-profile";
+import {
+  listProfileSaved,
+  listProfileSavedLive,
+  resolveActiveProfile,
+} from "@/lib/onevid-profile";
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -10,7 +14,7 @@ export async function GET(request: NextRequest) {
   }
 
   const type = request.nextUrl.searchParams.get("type")?.trim().toLowerCase();
-  if (type !== "movie" && type !== "series") {
+  if (type !== "movie" && type !== "series" && type !== "live") {
     return NextResponse.json({ error: "type inválido" }, { status: 400 });
   }
 
@@ -23,6 +27,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "invalid_profile" }, { status: 400 });
   }
 
-  const results = await listProfileSaved(resolved.profile.id, "favorite", type);
+  const results =
+    type === "live"
+      ? await listProfileSavedLive(resolved.profile.id, "favorite")
+      : await listProfileSaved(resolved.profile.id, "favorite", type);
   return NextResponse.json({ results });
 }
