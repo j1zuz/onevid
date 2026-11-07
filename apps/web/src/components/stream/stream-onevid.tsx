@@ -914,6 +914,9 @@ export function StreamOnevid({
         downloadButton={
           !isTv && sourceUrl ? (
             <PlayerDownloadButton
+              audioTrackIndex={
+                usesMediaBunnyAudio ? mediaBunny.activeAudioTrack : undefined
+              }
               codecHint={sourceCodecHint}
               filename={sourceFilename}
               onSaved={loadOfflineMedia}

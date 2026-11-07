@@ -148,14 +148,59 @@ export function liveTvGuideQueryOptions(
   };
 }
 
-/** Hora local en formato 24 h (sin depender de Intl en Hermes). */
+/**
+ * Formateador de horas del EPG. Se cachea porque la guía lo llama por cada
+ * celda de la cabecera y por cada programa. Con `hour: 'numeric'` +
+ * `minute: '2-digit'` y sin forzar `hour12`, respeta lo que tenga configurado
+ * el dispositivo: 12 h con a. m./p. m. (es-CO, en-US…) o 24 h (es-ES…). Antes
+ * se pintaba siempre "HH:mm" (formato militar) incluso en móviles en 12 h.
+ */
+let guideTimeFormatter: Intl.DateTimeFormat | null = null;
+try {
+  guideTimeFormatter = new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+} catch {
+  // Hermes sin Intl: se usa el formateador manual de abajo.
+  guideTimeFormatter = null;
+}
+
+/** Hora local según el formato del dispositivo (12 h o 24 h). */
 export function formatGuideTime(ms: number): string {
+  if (guideTimeFormatter) {
+    try {
+      return guideTimeFormatter.format(new Date(ms));
+    } catch {
+      /* cae al manual */
+    }
+  }
   const date = new Date(ms);
-  return `${String(date.getHours()).padStart(2, '0')}:${String(
-    date.getMinutes(),
-  ).padStart(2, '0')}`;
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const hours = date.getHours();
+  const hour12 = hours % 12 || 12;
+  return `${hour12}:${minutes} ${hours < 12 ? 'a. m.' : 'p. m.'}`;
 }
 
 export function formatGuideRange(start: number, end: number): string {
-  return `${formatGuideTime(start)} – ${formatGuideTime(end)}`;
+  const from = formatGuideTime(start);
+  const to = formatGuideTime(end);
+  // En 12 h el sufijo se repite ("7:30 p. m. – 10:00 p. m.") y no cabe en los
+  // bloques de programa: si coincide, se pinta una sola vez al final.
+  const split = (value: string) => {
+    const match = /^(.*?)\s*(a\.?\s?m\.?|p\.?\s?m\.?)$/i.exec(value);
+    return match
+      ? { time: match[1], suffix: match[2] }
+      : { time: value, suffix: '' };
+  };
+  const fromParts = split(from);
+  const toParts = split(to);
+  if (
+    fromParts.suffix &&
+    toParts.suffix &&
+    fromParts.suffix.toLowerCase() === toParts.suffix.toLowerCase()
+  ) {
+    return `${fromParts.time} – ${toParts.time} ${toParts.suffix}`;
+  }
+  return `${from} – ${to}`;
 }

@@ -6,7 +6,7 @@ import {
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { ScrollShadow, Skeleton, Typography } from 'heroui-native';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ScrollView, useWindowDimensions, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
@@ -15,6 +15,7 @@ import {
   type ContinueWatchingItem,
 } from '@/components/home/continue-watching-row';
 import { HeroCarousel } from '@/components/home/hero-carousel';
+import { sourcesQueryOptions } from '@/components/sources-list';
 import { LiveTvRow } from '@/components/home/live-tv-row';
 import { PosterRow } from '@/components/home/poster-row';
 import { LocalVideoPicker } from '@/components/local-video-picker';
@@ -27,6 +28,7 @@ import {
   feedSectionsQuery,
 } from '@/lib/home-feed';
 import { navigateToDetail } from '@/lib/detail-nav';
+import { prewarmStreamUrl } from '@/lib/stream-url';
 import { COLORS } from '@/lib/theme';
 
 // Filas de skeleton mientras llega el feed: no sabemos cuántas tiene el usuario
@@ -64,6 +66,27 @@ export default function HomeTab() {
     placeholderData: keepPreviousData,
   });
   const continueItems = continueQuery.data ?? [];
+
+  // Precalienta las 2 primeras de "Continuar viendo": ese camino entra DIRECTO
+  // al reproductor (sin pasar por el detalle), así que sin esto paga la petición
+  // de fuentes + la resolución de la URL del CDN al abrir. Se piden mientras el
+  // usuario decide y el player arranca caliente.
+  useEffect(() => {
+    if (!catalogEnabled) return;
+    for (const item of (continueQuery.data ?? []).slice(0, 2)) {
+      const season = item.season > 0 ? String(item.season) : undefined;
+      const episode = item.episode > 0 ? String(item.episode) : undefined;
+      void queryClient
+        .ensureQueryData(sourcesQueryOptions(item.type, item.id, season, episode))
+        .then((data) => {
+          const first = data?.sources?.[0];
+          if (first) prewarmStreamUrl(first.url);
+        })
+        .catch(() => {
+          /* pre-calentar es best-effort */
+        });
+    }
+  }, [catalogEnabled, continueQuery.data, queryClient]);
   // Al volver al Inicio (p. ej. tras salir del reproductor) refrescamos las
   // posiciones para que "Continuar viendo" refleje lo recién visto.
   useFocusEffect(

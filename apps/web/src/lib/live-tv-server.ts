@@ -22,7 +22,7 @@ import {
 } from "./live-tv";
 import { isSafeFetchUrl, SAFE_FETCH_MAX_BODY_BYTES } from "../utils/ssrf-guard";
 import { checkRateLimit, rateLimitResponse } from "./rate-limit";
-import { parseXmltv, parseXmltvChannels } from "./xmltv";
+import { parseXmltvAll, selectProgrammes } from "./xmltv";
 import {
   buildXtreamEndpoint,
   validateXtreamAuth,
@@ -42,10 +42,23 @@ const MAX_REDIRECTS = 3;
  * la guía no vuelvan a descargarlo entero.
  */
 const LIVE_TV_CHANNELS_TIMEOUT_MS = 30_000;
-const LIVE_CHANNELS_CACHE_TTL_MS = 60_000;
+// El catálogo cambia poco: 10 minutos evitan re-descargar y re-parsear miles de
+// canales en cada navegación; la acción "actualizar" sigue forzando refresh.
+const LIVE_CHANNELS_CACHE_TTL_MS = 10 * 60_000;
 const liveChannelsCache = new Map<
   string,
   { expiresAt: number; channels: LiveTvChannel[] }
+>();
+// Guía XMLTV parseada. Sin esto, cada página/ventana de la guía vuelve a bajar
+// y parsear el XMLTV completo (hasta 8 MiB), que es lo que dispara el CPU.
+const XMLTV_CACHE_TTL_MS = 5 * 60_000;
+const XMLTV_CACHE_MAX_SOURCES = 4;
+const xmltvCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    programmes: Map<string, LiveTvProgramme[]>;
+  }
 >();
 const blocked = new BlockList();
 for (const [address, prefix] of [
@@ -659,6 +672,35 @@ async function loadCachedChannels(
 /** Solo para pruebas: vacia la cache en memoria de catalogos de Live TV. */
 export function clearLiveTvChannelCache(): void {
   liveChannelsCache.clear();
+  xmltvCache.clear();
+}
+
+/**
+ * Descarga una sola vez el XMLTV y cachea los programas ya parseados. La guía
+ * cambia de página/ventana muchas veces; sin esto se parseaban 8 MiB de XML en
+ * cada una.
+ */
+async function loadParsedXmltv(
+  epgUrl: string,
+): Promise<Map<string, LiveTvProgramme[]>> {
+  const cached = xmltvCache.get(epgUrl);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.programmes;
+  }
+  const resource = await fetchLiveTvResource(epgUrl, {
+    maxBytes: LIVE_TV_MAX_XMLTV_BYTES,
+    accept: "application/xml, text/xml",
+  });
+  const programmes = parseXmltvAll(resource.text);
+  xmltvCache.set(epgUrl, {
+    expiresAt: Date.now() + XMLTV_CACHE_TTL_MS,
+    programmes,
+  });
+  for (const key of xmltvCache.keys()) {
+    if (xmltvCache.size <= XMLTV_CACHE_MAX_SOURCES) break;
+    if (key !== epgUrl) xmltvCache.delete(key);
+  }
+  return programmes;
 }
 
 export async function loadLiveTvEpg(
@@ -686,11 +728,8 @@ export async function loadLiveTvEpg(
   if (!channel) throw new LiveTvError("Canal de Live TV no encontrado.", 404);
   if (source.epgUrl) {
     if (!channel.tvgId) return [];
-    const resource = await fetchLiveTvResource(source.epgUrl, {
-      maxBytes: LIVE_TV_MAX_XMLTV_BYTES,
-      accept: "application/xml, text/xml",
-    });
-    return parseXmltv(resource.text, channel.tvgId);
+    const programmes = await loadParsedXmltv(source.epgUrl);
+    return selectProgrammes(programmes.get(channel.tvgId) ?? [], Date.now());
   }
   if (source.sourceType === "xtream") {
     const streamId = channel.id.slice("xtream-".length);
@@ -757,14 +796,12 @@ export async function loadLiveTvGuide(
     ];
     if (!tvgIds.length) return response;
     try {
-      const resource = await fetchLiveTvResource(source.epgUrl, {
-        maxBytes: LIVE_TV_MAX_XMLTV_BYTES,
-        accept: "application/xml, text/xml",
-      });
-      const programmes = parseXmltvChannels(resource.text, tvgIds, now, window);
+      const programmes = await loadParsedXmltv(source.epgUrl);
       response.channels.forEach((row, index) => {
         const tvgId = requested[index].tvgId;
-        row.programmes = tvgId ? (programmes.get(tvgId) ?? []) : [];
+        row.programmes = tvgId
+          ? selectProgrammes(programmes.get(tvgId) ?? [], now, window)
+          : [];
       });
     } catch {
       // Shared guide failures affect mapped rows only; never expose provider errors/URLs.

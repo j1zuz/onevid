@@ -1,17 +1,44 @@
 import { useQuery } from '@tanstack/react-query';
-import { Chip, SearchField, Typography } from 'heroui-native';
-import { Radio, RefreshCw, Tv } from 'lucide-react-native';
-import { useCallback, useDeferredValue, useMemo, useState, type ReactNode } from 'react';
+import * as ScreenOrientation from 'expo-screen-orientation';
+import {
+  router,
+  useFocusEffect,
+  useLocalSearchParams,
+  useNavigation,
+} from 'expo-router';
+import { SearchField, Typography } from 'heroui-native';
+import { Radio, Tv } from 'lucide-react-native';
+import {
+  type ComponentRef,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  Keyboard,
+  Platform,
   Pressable,
+  StatusBar as RNStatusBar,
+  useWindowDimensions,
   ScrollView,
+  type ScrollViewInstance,
+  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChannelRowsSkeleton } from '@/components/channel-row';
 import { EmptyState } from '@/components/empty-state';
-import { LiveTvGuide } from '@/components/live-tv-guide';
+import { LiveTvCategoryPicker } from '@/components/live-tv-category-picker';
+import {
+  LiveTvGuide,
+  LiveTvGuideSkeleton,
+} from '@/components/live-tv-guide';
+import { Player } from '@/app/player';
+import { sanitizeUrlForVlc } from '@/lib/stream-url';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { tvFocusRing, useTvFocus } from '@/hooks/use-tv-focus';
 import {
@@ -34,6 +61,28 @@ export default function LiveTvTab() {
   const [sourceId, setSourceId] = useState('');
   const [group, setGroup] = useState('');
   const [query, setQuery] = useState('');
+  // Canal que suena arriba de la guía (sin salir del EPG para cambiar).
+  const [playing, setPlaying] = useState<LiveTvChannel | null>(null);
+  // Pantalla completa EN SITIO: el mismo reproductor se agranda. Navegar a
+  // /player montaba otro reproductor y volvía a cargar el canal desde cero.
+  const [fullscreen, setFullscreen] = useState(false);
+  const navigation = useNavigation();
+  const scrollRef = useRef<ScrollViewInstance | null>(null);
+  // Ancho explícito del reproductor: con `aspectRatio` y `flexShrink` Yoga podía
+  // encogerlo y dejar un hueco a la derecha.
+  const { width: windowWidth } = useWindowDimensions();
+  const playerWidth = Math.max(0, Math.round(windowWidth - 32));
+  const searchRef = useRef<ComponentRef<typeof SearchField.Input>>(null);
+  // Si el usuario toca el buscador a propósito no le quitamos el foco; solo se
+  // combate el foco automático de Android.
+  const searchTouchedRef = useRef(false);
+  // La Biblioteca y las filas del feed abren el canal aquí (mismo reproductor
+  // embebido), pasándolo por params en vez de navegar al reproductor completo.
+  const liveParams = useLocalSearchParams<{
+    at?: string;
+    title?: string;
+    url?: string;
+  }>();
   const deferredQuery = useDeferredValue(query);
   const source = sources.find((item) => item.id === sourceId) ?? sources[0];
 
@@ -80,6 +129,114 @@ export default function LiveTvTab() {
     void channelsQuery.refetch();
   }, [channelsQuery, source, sourcesQuery]);
 
+  // Android enfoca el primer campo de texto al montar la pantalla (y al montar
+  // vistas nuevas, como el reproductor) y abre el teclado solo. En Live TV lo
+  // primero es la guía: se quita ese foco al entrar y cada vez que se abre un
+  // canal, para que tocar un canal no enfoque el buscador.
+  useEffect(() => {
+    // Android mueve el foco al primer EditText cuando cambia el árbol (al
+    // montar el player, al desplazar la guía o al terminar de cargar el vídeo),
+    // así que un solo blur no basta. Sin canal se insiste unos segundos; con un
+    // canal sonando se vigila mientras dure (salvo que el usuario toque el
+    // buscador, que entonces manda su intención).
+    const blurSearch = () => {
+      if (searchTouchedRef.current) return;
+      // `TextInput.State` alcanza al input realmente enfocado aunque el ref del
+      // componente compuesto no apunte al nativo.
+      const focused = TextInput.State.currentlyFocusedInput?.();
+      focused?.blur?.();
+      searchRef.current?.blur();
+      Keyboard.dismiss();
+    };
+    blurSearch();
+    const immediate = setTimeout(blurSearch, 120);
+    const interval = setInterval(blurSearch, playing ? 400 : 250);
+    const stop = playing
+      ? null
+      : setTimeout(() => clearInterval(interval), 8000);
+    return () => {
+      clearTimeout(immediate);
+      clearInterval(interval);
+      if (stop) clearTimeout(stop);
+    };
+  }, [playing]);
+
+  useEffect(() => {
+    if (!liveParams.url) return;
+    setPlaying({
+      id: liveParams.url,
+      name: liveParams.title || 'Live TV',
+      url: liveParams.url,
+      group: '',
+    });
+  }, [liveParams.at, liveParams.title, liveParams.url]);
+
+  useEffect(() => {
+    navigation.setOptions({
+      tabBarStyle: fullscreen
+        ? { display: 'none' }
+        : {
+            backgroundColor: COLORS.background,
+            borderTopColor: '#222',
+          },
+    });
+  }, [fullscreen, navigation]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    RNStatusBar.setHidden(true, 'fade');
+    return () => RNStatusBar.setHidden(false, 'fade');
+  }, [fullscreen]);
+
+  // Pantalla completa = horizontal, igual que el reproductor de /player. Al
+  // salir se devuelve la pestaña a vertical.
+  useEffect(() => {
+    if (!fullscreen) return;
+    ScreenOrientation.lockAsync(
+      ScreenOrientation.OrientationLock.LANDSCAPE,
+    ).catch(() => {
+      /* el dispositivo puede no permitirlo */
+    });
+    return () => {
+      ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT_UP,
+      ).catch(() => {
+        /* ignore */
+      });
+    };
+  }, [fullscreen]);
+
+  // Al cambiar de pestaña se corta el directo (no debe seguir sonando por
+  // detrás, como no lo hace la web al salir de la página).
+  useFocusEffect(
+    useCallback(() => {
+      return () => setPlaying(null);
+    }, []),
+  );
+
+  const closePlayer = useCallback(() => {
+    setFullscreen(false);
+    setPlaying(null);
+  }, []);
+
+  // Selector de categoría: barra abajo en móvil, en el encabezado de la guía en TV.
+  const categoryPicker =
+    groups.length > 0 ? (
+      <LiveTvCategoryPicker
+        group={group}
+        groups={groups}
+        onChange={setGroup}
+        variant={Platform.isTV ? 'pill' : 'bar'}
+      />
+    ) : null;
+
+  const openChannel = useCallback((channel: LiveTvChannel) => {
+    setPlaying(channel);
+    // La guía está desplazada cuando el usuario baja a buscar canales: el
+    // reproductor se monta arriba del contenido, así que lo llevamos allí.
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }, []);
+
   const loading =
     sourcesQuery.isLoading || (Boolean(source) && channelsQuery.isLoading);
   const error = sourcesQuery.isError || channelsQuery.isError;
@@ -108,7 +265,8 @@ export default function LiveTvTab() {
       style={{
         flex: 1,
         backgroundColor: COLORS.background,
-        paddingTop: insets.top,
+        // En pantalla completa no debe quedar la franja del inset superior.
+        paddingTop: fullscreen ? 0 : insets.top,
       }}
     >
       <View style={{ paddingHorizontal: 16, paddingTop: 8, gap: 12 }}>
@@ -116,19 +274,6 @@ export default function LiveTvTab() {
           <Typography type="h2" style={{ flex: 1 }}>
             Live TV
           </Typography>
-          {channels.length > 0 ? (
-            <Chip
-              animation="disable-all"
-              color="default"
-              focusable={false}
-              size="sm"
-              style={{ alignSelf: 'center' }}
-              variant="secondary"
-            >
-              {t('{{count}} canales', { count: channels.length })}
-            </Chip>
-          ) : null}
-          <RefreshButton onPress={refresh} label={t('Actualizar')} />
         </View>
 
         {!sourcesQuery.isLoading && sources.length > 0 ? (
@@ -137,8 +282,26 @@ export default function LiveTvTab() {
               <SearchField.Group>
                 <SearchField.SearchIcon />
                 <SearchField.Input
-                  className="h-9 min-h-9 text-sm"
+                  ref={searchRef}
+                  onBlur={() => {
+                    searchTouchedRef.current = false;
+                  }}
+                  onPressIn={() => {
+                    searchTouchedRef.current = true;
+                  }}
+                  // Sin altura fija (con `h-9` el texto quedaba pegado arriba y
+                  // se recortaba con la escala de fuente del sistema).
+                  // `includeFontPadding: false` + `textAlignVertical: center`
+                  // centran la línea de verdad en Android: con el padding de
+                  // fuente por defecto, "Search channel…" se ve unos píxeles
+                  // por encima del icono, que sí está centrado.
+                  className="min-h-11 text-sm"
                   placeholder={t('Buscar canal…')}
+                  style={{
+                    includeFontPadding: false,
+                    paddingVertical: 0,
+                    textAlignVertical: 'center',
+                  }}
                 />
                 <SearchField.ClearButton />
               </SearchField.Group>
@@ -159,31 +322,13 @@ export default function LiveTvTab() {
                 ))}
               </ChipRow>
             ) : null}
-
-            {groups.length > 0 ? (
-              <ChipRow>
-                <FilterChip
-                  active={!group}
-                  label={t('Todas')}
-                  onPress={() => setGroup('')}
-                />
-                {groups.map((item) => (
-                  <FilterChip
-                    key={item}
-                    active={group === item}
-                    label={item}
-                    onPress={() => setGroup(item)}
-                  />
-                ))}
-              </ChipRow>
-            ) : null}
           </>
         ) : null}
       </View>
 
       {loading ? (
-        <View style={{ flex: 1, paddingTop: 16, gap: 24 }}>
-          <ChannelRowsSkeleton rows={3} />
+        <View style={{ flex: 1, paddingTop: 16 }}>
+          <LiveTvGuideSkeleton />
         </View>
       ) : error ? (
         <LoadError onRetry={refresh} />
@@ -206,47 +351,87 @@ export default function LiveTvTab() {
           }
         />
       ) : source ? (
+        <>
+          {/* El reproductor va ARRIBA de la guía, fuera del ScrollView: así
+              ocupa el ancho completo de la pantalla y no se desplaza dentro de
+              la tabla del EPG. Es el mismo `Player` de /player. */}
+          {playing ? (
+            <View
+              style={
+                fullscreen
+                  ? {
+                      position: 'absolute',
+                      top: 0,
+                      right: 0,
+                      bottom: 0,
+                      left: 0,
+                      zIndex: 100,
+                      elevation: 100,
+                      backgroundColor: '#000',
+                    }
+                  : {
+                      width: playerWidth,
+                      height: Math.round((playerWidth * 9) / 16),
+                      marginHorizontal: 16,
+                      marginTop: 12,
+                      marginBottom: 12,
+                      borderRadius: 12,
+                      overflow: 'hidden',
+                      backgroundColor: '#000',
+                    }
+              }
+            >
+              <Player
+                key={playing.id}
+                fullscreen={fullscreen}
+                live
+                onBack={() => {
+                  if (fullscreen) {
+                    setFullscreen(false);
+                    return;
+                  }
+                  closePlayer();
+                }}
+                onFullscreen={() => setFullscreen((value) => !value)}
+                title={playing.name}
+                url={sanitizeUrlForVlc(playing.url)}
+              />
+            </View>
+          ) : null}
         <ScrollView
           contentContainerStyle={{ paddingTop: 16, paddingBottom: 32 }}
           nestedScrollEnabled
+          ref={scrollRef}
           style={{ flex: 1 }}
         >
-          <LiveTvGuide channels={filtered} source={source} />
+          <LiveTvGuide
+            channels={filtered}
+            headerExtra={Platform.isTV ? categoryPicker : null}
+            onPlayChannel={openChannel}
+            source={source}
+          />
         </ScrollView>
+        </>
+      ) : null}
+
+      {/* En móvil el selector de categoría va fijo abajo, sobre las pestañas
+          (como antes), para no comerle sitio a la guía. En TV va en el
+          encabezado. */}
+      {!Platform.isTV && categoryPicker && !loading && !error && source ? (
+        <View
+          style={{
+            paddingHorizontal: 16,
+            paddingTop: 8,
+            paddingBottom: 8,
+            borderTopWidth: 1,
+            borderTopColor: '#1f1f1f',
+            backgroundColor: COLORS.background,
+          }}
+        >
+          {categoryPicker}
+        </View>
       ) : null}
     </View>
-  );
-}
-
-function RefreshButton({
-  onPress,
-  label,
-}: {
-  onPress: () => void;
-  label: string;
-}) {
-  const { focused, focusProps } = useTvFocus();
-  return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      onPress={onPress}
-      {...focusProps}
-      hitSlop={8}
-      style={[
-        {
-          width: 36,
-          height: 36,
-          borderRadius: 999,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: COLORS.surface,
-        },
-        tvFocusRing(focused),
-      ]}
-    >
-      <RefreshCw size={17} color="#e5e5e5" />
-    </Pressable>
   );
 }
 

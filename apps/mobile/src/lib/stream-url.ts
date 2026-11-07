@@ -108,6 +108,25 @@ const resolvedUrlCache = new Map<
 >();
 
 /**
+ * Listas HLS/DASH. Estos orígenes NO se pre-resuelven: varios paneles (XC_VM,
+ * el del proveedor actual) responden el `.m3u8` con un 302 a
+ * `/auth/<token>` y ese token caduca a los pocos minutos ("AES token has
+ * expired"). Un directo refresca la lista cada ~6 s, así que si se le entrega a
+ * libVLC la URL final del token, el canal muere al caducar. Con la URL estable,
+ * VLC sigue el 302 y recibe un token nuevo en cada refresco (lo mismo que hace
+ * hls.js en la web, y por eso ahí sí funciona).
+ */
+const MANIFEST_PATTERN = /\.(?:m3u8|mpd)(?:$|[?#])/i;
+
+function isManifestUrl(value: string): boolean {
+  try {
+    return MANIFEST_PATTERN.test(new URL(value).pathname);
+  } catch {
+    return MANIFEST_PATTERN.test(value);
+  }
+}
+
+/**
  * Adelanta la resolución de una fuente sin bloquear a nadie. La pantalla de
  * detalle la llama en cuanto tiene la lista de fuentes, así que al pulsar
  * Reproducir la URL final ya está en caché y el arranque se ahorra ese tramo
@@ -174,7 +193,12 @@ export async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
   // primer fotograma, disparaba el fallback y REMONTABA el player (se veía la
   // carátula dos veces / "reinicio"). Seguimos la redirección aquí con `fetch` y
   // le entregamos a VLC la URL FINAL, así abre a la primera y sin doble arranque.
-  const redirect = await resolveRedirect(url);
+  // Excepción: listas HLS/DASH, cuyo redirect lleva un token temporal que
+  // caduca mientras el directo se refresca (ver `isManifestUrl`). Ahí manda la
+  // URL estable y el 302 lo sigue VLC.
+  const redirect = isManifestUrl(url)
+    ? { url: null, timedOut: false, tookMs: 0 }
+    : await resolveRedirect(url);
   const resolved: ResolvedStream = {
     url: redirect.url ? sanitizeUrlForVlc(redirect.url) : url,
     fileName,

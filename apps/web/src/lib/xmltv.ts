@@ -109,6 +109,37 @@ export function parseXmltvChannels(
 ): Map<string, LiveTvProgramme[]> {
   if (channelIds.length > LIVE_TV_MAX_GUIDE_CHANNELS)
     throw new LiveTvError("La guía de Live TV admite como máximo 12 canales.");
+  const all = parseXmltvDocument(text);
+  const channels = new Map<string, LiveTvProgramme[]>(
+    channelIds.map((id) => [id, []]),
+  );
+  for (const [id] of channels) {
+    channels.set(
+      id,
+      selectProgrammes(all.get(id) ?? [], now, window),
+    );
+  }
+  return channels;
+}
+
+/**
+ * Parse the full XMLTV document into programmes per channel. The guide caches
+ * this result so changing page/window does not download and parse the whole
+ * 8 MiB file again.
+ */
+export function parseXmltvAll(
+  text: string,
+): Map<string, LiveTvProgramme[]> {
+  return parseXmltvDocument(text);
+}
+
+// Bound the total programme entries even before per-channel filtering: an
+// 8 MiB XMLTV can otherwise allocate an arbitrarily large map.
+const MAX_XMLTV_PROGRAMMES = 250_000;
+
+function parseXmltvDocument(
+  text: string,
+): Map<string, LiveTvProgramme[]> {
   const invalid = () =>
     new LiveTvError("La guía XMLTV de Live TV no es válida.");
   if (new TextEncoder().encode(text).byteLength > LIVE_TV_MAX_XMLTV_BYTES)
@@ -149,25 +180,18 @@ export function parseXmltvChannels(
       for (let child = node.firstChild; child; child = child.nextSibling)
         stack.push({ node: child, depth: depth + 1 });
     }
-    const channels = new Map<string, LiveTvProgramme[]>(
-      channelIds.map((id) => [id, []]),
-    );
+    const channels = new Map<string, LiveTvProgramme[]>();
+    let total = 0;
     for (let node = root.firstChild; node; node = node.nextSibling) {
       if (node.nodeType !== 1) continue;
       const entry = node as import("@xmldom/xmldom").Element;
       if (entry.tagName !== "programme") continue;
       const channelId = entry.getAttribute("channel") ?? "";
-      const programmes = channels.get(channelId);
-      if (!programmes) continue;
+      if (!channelId) continue;
       const start = parseXmltvTimestamp(entry.getAttribute("start") ?? "");
       const end = parseXmltvTimestamp(entry.getAttribute("stop") ?? "");
-      if (
-        start === undefined ||
-        end === undefined ||
-        end <= start ||
-        (window ? end <= window.start || start >= window.end : end <= now)
-      )
-        continue;
+      if (start === undefined || end === undefined || end <= start) continue;
+      if (++total > MAX_XMLTV_PROGRAMMES) throw invalid();
       let title = "";
       let description = "";
       for (let child = entry.firstChild; child; child = child.nextSibling) {
@@ -177,16 +201,17 @@ export function parseXmltvChannels(
         if (child.nodeName === "desc" && !description)
           description = cleanGuideText(child.textContent ?? "");
       }
-      programmes.push({
+      const programme = {
         id: programmeId(channelId, start),
         title: title || "Live TV",
         ...(description ? { description } : {}),
         start: new Date(start).toISOString(),
         end: new Date(end).toISOString(),
-      });
+      };
+      const programmes = channels.get(channelId);
+      if (programmes) programmes.push(programme);
+      else channels.set(channelId, [programme]);
     }
-    for (const [id, programmes] of channels)
-      channels.set(id, selectProgrammes(programmes, now, window));
     return channels;
   } catch {
     // Parser exceptions can quote untrusted XML, including secret URLs. Never log them.

@@ -98,20 +98,19 @@ export function liveTvChannelsQueryOptions(sourceId: string, enabled = true) {
 }
 
 /**
- * Abre un canal en el reproductor. `live=1` desactiva progreso/seek y la
- * descarga offline (un directo no tiene duración ni termina).
+ * Abre un canal de Live TV. Igual que la web, se reproduce EMBEBIDO arriba de
+ * la guía (pestaña Live TV), no en el reproductor a pantalla completa: así el
+ * usuario cambia de canal sin salir y no se montan dos reproductores a la vez.
  */
 export function playLiveTvChannel(channel: LiveTvChannel): void {
-  // El logo va a la carátula del reproductor; si no hay (o no es HTTPS
-  // válido) el player cae al nombre del canal.
-  const logo = safeChannelLogo(channel.logo);
-  router.push({
-    pathname: '/player',
+  router.navigate({
+    pathname: '/live',
     params: {
-      url: channel.url,
+      // `at` fuerza a que abrir el MISMO canal otra vez vuelva a disparar el
+      // reproductor (los params iguales no cambian y el efecto no se repetiría).
+      at: String(Date.now()),
       title: channel.name,
-      live: '1',
-      ...(logo ? { logo } : {}),
+      url: channel.url,
     },
   });
 }

@@ -24,6 +24,12 @@ interface PlayerDownloadButtonProps {
   storageKey: string;
   /** Pista/hint de codec (título de la fuente) para la detección de compatibilidad. */
   codecHint?: string;
+  /**
+   * Índice 0-based de la pista de audio activa en el player. Solo aplica cuando
+   * hay que transcodificar: el archivo offline conserva ese idioma y descarta
+   * los demás.
+   */
+  audioTrackIndex?: number;
   onSaved?: () => void;
 }
 
@@ -47,6 +53,7 @@ export function PlayerDownloadButton({
   filename,
   storageKey,
   codecHint = "",
+  audioTrackIndex,
   onSaved,
 }: PlayerDownloadButtonProps) {
   const [state, setState] = useState<DownloadState>({ status: "idle" });
@@ -127,6 +134,7 @@ export function PlayerDownloadButton({
         filename,
         storageKey,
         codecHint,
+        audioTrackIndex,
         abortedRef: aborted,
         conversionRef,
         onProgress: (progress) => {
@@ -152,7 +160,7 @@ export function PlayerDownloadButton({
         }, 4000);
       }
     }
-  }, [url, filename, storageKey, codecHint, onSaved]);
+  }, [url, filename, storageKey, codecHint, audioTrackIndex, onSaved]);
 
   if (state.status === "downloading") {
     const offset = C - state.progress * C;

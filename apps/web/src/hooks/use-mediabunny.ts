@@ -577,7 +577,15 @@ async function transcodeToWritable(
   writeStream: WritableStream,
   onProgress: ((progress: number) => void) | undefined,
   conversionRef: { current: CancellableConversion | null },
-  abortedRef: { current: boolean }
+  abortedRef: { current: boolean },
+  /**
+   * Índice 0-based de la pista de audio que se quiere CONSERVAR en el archivo
+   * descargado. `undefined` mantiene todas (comportamiento antiguo). Con un
+   * índice, el resto se descarta: el MP4 offline trae una sola pista, así que
+   * el `<video>` reproduce el idioma elegido sin depender del `audioTracks`
+   * del navegador (que Chromium no expone para blobs locales).
+   */
+  audioTrackIndex?: number
 ): Promise<DownloadOutcome> {
   const [
     {
@@ -605,11 +613,27 @@ async function transcodeToWritable(
   registerTrueHdDecoder();
   registerAacEncoder();
 
+  const input = new Input({
+    source: new UrlSource(source, urlSourceOptions(source, abortedRef)),
+    formats: ALL_FORMATS,
+  });
+
+  // Resolver la pista elegida contra las pistas REALES del archivo: el índice
+  // viene del player y puede quedar fuera de rango (p. ej. si la lista aún no
+  // estaba cargada). Elegir una pista inexistente descartaría todo el audio.
+  let selectedAudioIndex: number | null = null;
+  if (audioTrackIndex !== undefined && Number.isFinite(audioTrackIndex)) {
+    const tracks = await input.getAudioTracks();
+    if (tracks.length > 0) {
+      selectedAudioIndex = Math.min(
+        Math.max(Math.floor(audioTrackIndex), 0),
+        tracks.length - 1
+      );
+    }
+  }
+
   const conversion = await Conversion.init({
-    input: new Input({
-      source: new UrlSource(source, urlSourceOptions(source, abortedRef)),
-      formats: ALL_FORMATS,
-    }),
+    input,
     output: new Output({
       format: new Mp4OutputFormat(),
       target: new StreamTarget(writeStream),
@@ -618,13 +642,18 @@ async function transcodeToWritable(
       const codec = await track.getCodec();
       return codec && PASSTHROUGH_VIDEO_CODECS.has(codec) ? {} : { codec: "avc" };
     },
-    audio: async () => ({
-      codec: "aac",
-      numberOfChannels: 2,
-      sampleRate: 48_000,
-      bitrate: 128_000,
-      forceTranscode: true,
-    }),
+    // `n` es 1-based por tipo. Si hay idioma elegido, solo esa pista se
+    // re-encodea a AAC; las demás se descartan.
+    audio: async (_track, n) =>
+      selectedAudioIndex === null || n === selectedAudioIndex + 1
+        ? {
+            codec: "aac",
+            numberOfChannels: 2,
+            sampleRate: 48_000,
+            bitrate: 128_000,
+            forceTranscode: true,
+          }
+        : { discard: true },
   });
   if (!conversion.isValid) {
     throw new Error(
@@ -1485,6 +1514,12 @@ interface DownloadMediaFileOptions {
   filename: string;
   storageKey: string;
   codecHint?: string;
+  /**
+   * Índice 0-based de la pista de audio seleccionada en el player. Cuando la
+   * fuente necesita transcodificar, el MP4 guardado conserva SOLO esa pista
+   * para que se oiga el idioma elegido al verlo sin conexión.
+   */
+  audioTrackIndex?: number;
   onProgress?: (progress: number) => void;
   abortedRef: { current: boolean };
   conversionRef: { current: CancellableConversion | null };
@@ -1498,6 +1533,7 @@ export async function downloadMediaFile(
     filename,
     storageKey,
     codecHint = "",
+    audioTrackIndex,
     onProgress,
     abortedRef,
     conversionRef,
@@ -1581,7 +1617,8 @@ export async function downloadMediaFile(
       createOpfsWriteStream(writable),
       onProgress,
       conversionRef,
-      abortedRef
+      abortedRef,
+      audioTrackIndex
     );
     if (outcome === "canceled") {
       await root.removeEntry(storedName).catch(() => undefined);
