@@ -1,6 +1,3 @@
-diff --git a/node_modules/expo-libvlc-player/.bun-tag-69aaffeffd05f560 b/node_modules/expo-libvlc-player/.bun-tag-69aaffeffd05f560
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerModule.kt b/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerModule.kt
 --- a/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerModule.kt
 +++ b/android/src/main/java/expo/modules/libvlcplayer/LibVlcPlayerModule.kt
