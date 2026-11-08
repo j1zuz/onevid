@@ -66,6 +66,7 @@
         "uniwind": "^1.13.1",
       },
       "devDependencies": {
+        "@posthog/cli": "^0.19.0",
         "@react-native-tvos/config-tv": "^0.1.6",
         "@types/react": "~19.3.0",
         "eas-build-cache-provider": "^27.2.0",
@@ -166,6 +167,7 @@
   },
   "trustedDependencies": [
     "esbuild",
+    "@posthog/cli",
     "unrs-resolver",
   ],
   "patchedDependencies": {
@@ -825,6 +827,8 @@
     "@pkgjs/parseargs": ["@pkgjs/parseargs@0.11.0", "", {}, "sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg=="],
 
     "@posthog/browser-common": ["@posthog/browser-common@0.10.3", "", { "dependencies": { "@posthog/core": "^1.62.0", "@posthog/types": "^1.419.0", "dompurify": "^3.4.13", "preact": "^10.29.3" } }, "sha512-dR8Ljupo0QCzOec7bRiBt+BzkDHBFA+983Ncvy6bxthIKPeowk/0ONXyAMqfZBan+zlrQakzB+7yCgpvlfKvaA=="],
+
+    "@posthog/cli": ["@posthog/cli@0.19.0", "", { "dependencies": { "detect-libc": "^2.1.2" }, "bin": { "posthog-cli": "run-posthog-cli.js" } }, "sha512-2fh0UepeCIjyW9MJR0lpMfxaGIgQMj30nI8Nn+wR78Rghk9kJMolxwmh2XaQkOKws4IpuV3y3G2dF2BW8D22iQ=="],
 
     "@posthog/core": ["@posthog/core@1.62.0", "", { "dependencies": { "@posthog/types": "^1.418.0" } }, "sha512-KjNwGC7s0141wnWWHubNMdg1lOhZjqKRw2OTNstuzdVvNDfvv2RbFJQSSvvABmbCmTXwlMpdnbb/M/aAigDnNQ=="],
 
