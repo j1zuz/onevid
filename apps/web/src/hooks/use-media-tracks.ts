@@ -22,8 +22,15 @@ export interface MediaTracks {
 // @videojs/react pulls it in and only hands us the live instance).
 const HLS_AUDIO_TRACKS_UPDATED = "hlsAudioTracksUpdated";
 const HLS_AUDIO_TRACK_SWITCHED = "hlsAudioTrackSwitched";
+const HLS_SUBTITLE_TRACKS_UPDATED = "hlsSubtitleTracksUpdated";
+const HLS_SUBTITLE_TRACK_SWITCH = "hlsSubtitleTrackSwitch";
 
 interface HlsAudioTrack {
+  lang?: string;
+  name?: string;
+}
+
+interface HlsSubtitleTrack {
   lang?: string;
   name?: string;
 }
@@ -33,6 +40,9 @@ interface HlsEngine {
   audioTracks: HlsAudioTrack[];
   off: (event: string, listener: () => void) => void;
   on: (event: string, listener: () => void) => void;
+  subtitleDisplay: boolean;
+  subtitleTrack: number;
+  subtitleTracks: HlsSubtitleTrack[];
 }
 
 /** `HTMLMediaElement.audioTracks` is missing from lib.dom, so model it here. */
@@ -145,7 +155,11 @@ export function useMediaTracks(
     }
 
     const list = video.textTracks;
-    const sync = () => {
+    const controller = new AbortController();
+    const { signal } = controller;
+    let engine: HlsEngine | null = null;
+
+    const syncTextTracks = () => {
       const next: MediaTrackOption[] = [];
       let active: string | null = null;
       for (let i = 0; i < list.length; i++) {
@@ -171,15 +185,51 @@ export function useMediaTracks(
       setActiveSubtitleId(active);
     };
 
+    const sync = () => {
+      // Con MSE, hls.js es la fuente de verdad de las renditions de subtítulos:
+      // `video.textTracks` puede tener los objetos creados pero sin playlist
+      // cargada. Si hay `subtitleTracks`, la selección va por `subtitleTrack`.
+      const nextEngine = getHlsEngine(media);
+      if (nextEngine !== engine) {
+        engine?.off(HLS_SUBTITLE_TRACKS_UPDATED, sync);
+        engine?.off(HLS_SUBTITLE_TRACK_SWITCH, sync);
+        engine = nextEngine;
+        engine?.on(HLS_SUBTITLE_TRACKS_UPDATED, sync);
+        engine?.on(HLS_SUBTITLE_TRACK_SWITCH, sync);
+      }
+      if (
+        engine &&
+        Array.isArray(engine.subtitleTracks) &&
+        engine.subtitleTracks.length > 0
+      ) {
+        setSubtitleTracks(
+          engine.subtitleTracks.map((track, index) => ({
+            id: String(index),
+            label: trackLabel(track.name, track.lang, index, "Subtítulos"),
+          }))
+        );
+        setActiveSubtitleId(
+          typeof engine.subtitleTrack === "number" && engine.subtitleTrack >= 0
+            ? String(engine.subtitleTrack)
+            : null
+        );
+        return;
+      }
+      syncTextTracks();
+    };
+
     sync();
-    const controller = new AbortController();
-    const { signal } = controller;
     list.addEventListener("addtrack", sync, { signal });
     list.addEventListener("removetrack", sync, { signal });
     list.addEventListener("change", sync, { signal });
+    video.addEventListener("loadstart", sync, { signal });
     video.addEventListener("loadedmetadata", sync, { signal });
-    return () => controller.abort();
-  }, [video]);
+    return () => {
+      controller.abort();
+      engine?.off(HLS_SUBTITLE_TRACKS_UPDATED, sync);
+      engine?.off(HLS_SUBTITLE_TRACK_SWITCH, sync);
+    };
+  }, [video, media]);
 
   useEffect(() => {
     if (!video) {
@@ -258,6 +308,25 @@ export function useMediaTracks(
       if (!video) {
         return;
       }
+      const engine = getHlsEngine(media);
+      if (
+        engine &&
+        Array.isArray(engine.subtitleTracks) &&
+        engine.subtitleTracks.length > 0
+      ) {
+        // hls.js solo carga la playlist de subtítulos cuando se le dice por
+        // `subtitleTrack`. Poner `textTrack.mode = "showing"` a mano deja la
+        // pista visible en la lista pero sin cues.
+        if (id === null) {
+          engine.subtitleDisplay = false;
+          engine.subtitleTrack = -1;
+        } else {
+          engine.subtitleDisplay = true;
+          engine.subtitleTrack = Number(id);
+        }
+        setActiveSubtitleId(id);
+        return;
+      }
       const list = video.textTracks;
       for (let i = 0; i < list.length; i++) {
         const track = list[i];
@@ -268,7 +337,7 @@ export function useMediaTracks(
       }
       setActiveSubtitleId(id);
     },
-    [video]
+    [media, video]
   );
 
   const selectAudio = useCallback(

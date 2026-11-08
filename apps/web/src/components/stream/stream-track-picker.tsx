@@ -78,8 +78,24 @@ export function StreamTrackPicker({
   subtitleTracks,
 }: StreamTrackPickerProps) {
   const [open, setOpen] = useState(false);
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
+    null
+  );
   const showAudio = audioTracks.length > 0;
   const showSubtitles = subtitleTracks.length > 0;
+
+  // En fullscreen, el portal por defecto (document.body) queda FUERA del
+  // elemento fullscreen y el drawer se abre invisible. Lo montamos dentro del
+  // fullscreen actual para que se vea y reciba los clics.
+  const openPicker = () => {
+    setPortalContainer(
+      typeof document !== "undefined" &&
+        document.fullscreenElement instanceof HTMLElement
+        ? document.fullscreenElement
+        : null
+    );
+    setOpen(true);
+  };
 
   return (
     <>
@@ -89,7 +105,7 @@ export function StreamTrackPicker({
             <button
               aria-label="Audio y subtítulos"
               className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-              onClick={() => setOpen(true)}
+              onClick={openPicker}
               type="button"
             />
           }
@@ -100,7 +116,7 @@ export function StreamTrackPicker({
       </Tooltip>
 
       <Drawer onOpenChange={setOpen} open={open} swipeDirection="right">
-        <DrawerContent>
+        <DrawerContent container={portalContainer ?? undefined}>
           <DrawerHeader>
             <DrawerTitle>Audio y subtítulos</DrawerTitle>
           </DrawerHeader>

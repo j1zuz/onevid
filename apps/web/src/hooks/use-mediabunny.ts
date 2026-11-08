@@ -85,7 +85,14 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 const OFFLINE_FILE_PREFIX = "onevid-offline-";
 const OFFLINE_EXTENSIONS = [".mp4", ".mkv", ".webm", ".mov", ".m4v", ".ts"];
 const OFFLINE_METADATA_PREFIX = "onevid-offline-meta:v1:";
+const OFFLINE_LRU_KEY = "onevid-offline-lru:v1";
 export const OFFLINE_RETENTION_MS = 24 * 60 * 60 * 1000;
+// Margen libre que dejamos siempre en la cuota del navegador. Sin esto, la
+// última escritura puede fallar con QuotaExceeded a mitad de archivo.
+const MIN_FREE_STORAGE_BYTES = 64 * 1024 * 1024;
+// Cuando no conocemos el tamaño de salida de una transcodificación, exigimos
+// este espacio libre antes de empezar (el MP4 suele ser del orden del origen).
+const TRANSCODE_FALLBACK_BYTES = 300 * 1024 * 1024;
 
 function offlineFileName(storageKey: string, extension: string): string {
   return `${OFFLINE_FILE_PREFIX}${encodeURIComponent(storageKey)}${extension}`;
@@ -110,6 +117,7 @@ function writeOfflineExpiry(storageKey: string, expiresAt: number): void {
   } catch {
     // OPFS remains the source of truth if browser storage is unavailable.
   }
+  touchOfflineLru(storageKey);
 }
 
 function removeOfflineExpiry(storageKey: string): void {
@@ -117,6 +125,112 @@ function removeOfflineExpiry(storageKey: string): void {
     localStorage.removeItem(offlineMetadataKey(storageKey));
   } catch {
     // Best-effort metadata cleanup.
+  }
+}
+
+/**
+ * Orden LRU de los títulos guardados (el último elemento es el más reciente).
+ * La expiración vive en su propia clave para no migrar los archivos ya
+ * descargados; esta lista solo decide a quién borrar cuando falta espacio.
+ */
+function readOfflineLru(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(
+      localStorage.getItem(OFFLINE_LRU_KEY) ?? "[]"
+    );
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeOfflineLru(keys: string[]): void {
+  try {
+    localStorage.setItem(OFFLINE_LRU_KEY, JSON.stringify(keys));
+  } catch {
+    // Si localStorage no está disponible, la cuota se gestiona sin LRU.
+  }
+}
+
+function touchOfflineLru(storageKey: string): void {
+  const keys = readOfflineLru().filter((key) => key !== storageKey);
+  keys.push(storageKey);
+  writeOfflineLru(keys);
+}
+
+function forgetOfflineLru(storageKey: string): void {
+  writeOfflineLru(readOfflineLru().filter((key) => key !== storageKey));
+}
+
+/** Pide al navegador que no evicte OPFS por presión de espacio (best-effort). */
+async function ensurePersistentStorage(): Promise<void> {
+  if (typeof navigator === "undefined" || !navigator.storage?.persist) {
+    return;
+  }
+  try {
+    if (!(await navigator.storage.persisted?.())) {
+      await navigator.storage.persist();
+    }
+  } catch {
+    // Safari/Firefox pueden rechazarlo sin gesto de usuario; seguimos igual.
+  }
+}
+
+async function readStorageUsage(): Promise<{ quota: number; usage: number }> {
+  if (typeof navigator === "undefined" || !navigator.storage?.estimate) {
+    return { quota: 0, usage: 0 };
+  }
+  try {
+    const estimate = await navigator.storage.estimate();
+    return { quota: estimate.quota ?? 0, usage: estimate.usage ?? 0 };
+  } catch {
+    return { quota: 0, usage: 0 };
+  }
+}
+
+/**
+ * Garantiza espacio para `expectedBytes` (más el margen). Si no cabe, borra
+ * primero los títulos caducados y luego los menos usados, y si aun así no cabe
+ * falla antes de empezar la descarga en vez de romper a mitad.
+ */
+async function ensureStorageHeadroom(expectedBytes: number): Promise<void> {
+  if (typeof navigator === "undefined" || !navigator.storage?.estimate) {
+    return;
+  }
+  const needed = Math.max(0, expectedBytes) + MIN_FREE_STORAGE_BYTES;
+  let { quota, usage } = await readStorageUsage();
+  if (!quota || quota - usage >= needed) {
+    return;
+  }
+
+  // 1) Caducados: liberan espacio sin quitarle nada al usuario.
+  for (const key of readOfflineLru()) {
+    if (quota - usage >= needed) {
+      return;
+    }
+    const expiresAt = readOfflineExpiry(key);
+    if (expiresAt !== null && expiresAt > Date.now()) {
+      continue;
+    }
+    await deleteOfflineMediaFile(key).catch(() => undefined);
+    ({ quota, usage } = await readStorageUsage());
+  }
+
+  // 2) LRU: la lista va de más viejo a más nuevo.
+  for (const key of readOfflineLru()) {
+    if (quota - usage >= needed) {
+      return;
+    }
+    await deleteOfflineMediaFile(key).catch(() => undefined);
+    ({ quota, usage } = await readStorageUsage());
+  }
+
+  if (quota - usage < needed) {
+    throw new Error(
+      "No hay espacio suficiente para guardar este título sin conexión. Elimina otra descarga o libera espacio."
+    );
   }
 }
 
@@ -150,11 +264,13 @@ export async function getOfflineMediaFile(
       // Chromium reports an opaque demuxer error for an empty OPFS file.
       if (file.size === 0) {
         await root.removeEntry(offlineFileName(storageKey, extension));
+        forgetOfflineLru(storageKey);
         continue;
       }
       if (expiresAt === null) {
         writeOfflineExpiry(storageKey, Date.now() + OFFLINE_RETENTION_MS);
       }
+      touchOfflineLru(storageKey);
       return file;
     } catch (error) {
       if (error instanceof DOMException && error.name === "NotFoundError") {
@@ -169,6 +285,7 @@ export async function getOfflineMediaFile(
 /** Removes every cached variant for a title after an invalid offline file. */
 export async function deleteOfflineMediaFile(storageKey: string): Promise<void> {
   removeOfflineExpiry(storageKey);
+  forgetOfflineLru(storageKey);
   if (!("storage" in navigator) || !navigator.storage.getDirectory) {
     return;
   }
@@ -577,7 +694,15 @@ async function transcodeToWritable(
   writeStream: WritableStream,
   onProgress: ((progress: number) => void) | undefined,
   conversionRef: { current: CancellableConversion | null },
-  abortedRef: { current: boolean }
+  abortedRef: { current: boolean },
+  /**
+   * Índice 0-based de la pista de audio que se quiere CONSERVAR en el archivo
+   * descargado. `undefined` mantiene todas (comportamiento antiguo). Con un
+   * índice, el resto se descarta: el MP4 offline trae una sola pista, así que
+   * el `<video>` reproduce el idioma elegido sin depender del `audioTracks`
+   * del navegador (que Chromium no expone para blobs locales).
+   */
+  audioTrackIndex?: number
 ): Promise<DownloadOutcome> {
   const [
     {
@@ -605,11 +730,27 @@ async function transcodeToWritable(
   registerTrueHdDecoder();
   registerAacEncoder();
 
+  const input = new Input({
+    source: new UrlSource(source, urlSourceOptions(source, abortedRef)),
+    formats: ALL_FORMATS,
+  });
+
+  // Resolver la pista elegida contra las pistas REALES del archivo: el índice
+  // viene del player y puede quedar fuera de rango (p. ej. si la lista aún no
+  // estaba cargada). Elegir una pista inexistente descartaría todo el audio.
+  let selectedAudioIndex: number | null = null;
+  if (audioTrackIndex !== undefined && Number.isFinite(audioTrackIndex)) {
+    const tracks = await input.getAudioTracks();
+    if (tracks.length > 0) {
+      selectedAudioIndex = Math.min(
+        Math.max(Math.floor(audioTrackIndex), 0),
+        tracks.length - 1
+      );
+    }
+  }
+
   const conversion = await Conversion.init({
-    input: new Input({
-      source: new UrlSource(source, urlSourceOptions(source, abortedRef)),
-      formats: ALL_FORMATS,
-    }),
+    input,
     output: new Output({
       format: new Mp4OutputFormat(),
       target: new StreamTarget(writeStream),
@@ -618,13 +759,18 @@ async function transcodeToWritable(
       const codec = await track.getCodec();
       return codec && PASSTHROUGH_VIDEO_CODECS.has(codec) ? {} : { codec: "avc" };
     },
-    audio: async () => ({
-      codec: "aac",
-      numberOfChannels: 2,
-      sampleRate: 48_000,
-      bitrate: 128_000,
-      forceTranscode: true,
-    }),
+    // `n` es 1-based por tipo. Si hay idioma elegido, solo esa pista se
+    // re-encodea a AAC; las demás se descartan.
+    audio: async (_track, n) =>
+      selectedAudioIndex === null || n === selectedAudioIndex + 1
+        ? {
+            codec: "aac",
+            numberOfChannels: 2,
+            sampleRate: 48_000,
+            bitrate: 128_000,
+            forceTranscode: true,
+          }
+        : { discard: true },
   });
   if (!conversion.isValid) {
     throw new Error(
@@ -1041,11 +1187,6 @@ async function runProgressivePlayback(opts: {
       return mimeType;
     }
     const fixed = mimeType.replace(/mp4a\.40\.\d+/, `mp4a.40.${objectType}`);
-    if (fixed !== mimeType) {
-      console.info(
-        `[mediabunny] perfil AAC corregido por esds: ${mimeType} -> ${fixed}`
-      );
-    }
     return fixed;
   };
 
@@ -1237,7 +1378,13 @@ async function runProgressivePlayback(opts: {
       const canceled =
         error instanceof Error && /canceled/i.test(error.name + error.message);
       if (!(abortedRef.current || canceled)) {
-        console.warn("[mediabunny] el carril de audio falló:", error);
+        try {
+          posthog.capture("mediabunny_audio_lane_failed", {
+            error_name: error instanceof Error ? error.name : "unknown",
+          });
+        } catch {
+          // La analítica nunca debe romper la reproducción.
+        }
       }
     });
     return promise;
@@ -1485,6 +1632,12 @@ interface DownloadMediaFileOptions {
   filename: string;
   storageKey: string;
   codecHint?: string;
+  /**
+   * Índice 0-based de la pista de audio seleccionada en el player. Cuando la
+   * fuente necesita transcodificar, el MP4 guardado conserva SOLO esa pista
+   * para que se oiga el idioma elegido al verlo sin conexión.
+   */
+  audioTrackIndex?: number;
   onProgress?: (progress: number) => void;
   abortedRef: { current: boolean };
   conversionRef: { current: CancellableConversion | null };
@@ -1498,6 +1651,7 @@ export async function downloadMediaFile(
     filename,
     storageKey,
     codecHint = "",
+    audioTrackIndex,
     onProgress,
     abortedRef,
     conversionRef,
@@ -1527,6 +1681,8 @@ export async function downloadMediaFile(
     return "canceled";
   }
 
+  await ensurePersistentStorage();
+
   const extension = needsMediaBunny(filename, codecHint)
     ? ".mp4"
     : (filename.match(/\.[a-z0-9]+$/i)?.[0] ?? ".mp4").toLowerCase();
@@ -1539,11 +1695,18 @@ export async function downloadMediaFile(
     if (!response.ok || !response.body) {
       throw new Error(`Could not save media: HTTP ${response.status}`);
     }
+    const total = Number(response.headers.get("content-length")) || 0;
+    try {
+      await ensureStorageHeadroom(total);
+    } catch (error) {
+      // No dejamos el cuerpo a medio consumir si rechazamos la descarga.
+      await response.body.cancel().catch(() => undefined);
+      throw error;
+    }
     const handle = await root.getFileHandle(storedName, { create: true });
     const writable = await handle.createWritable();
     try {
       const reader = response.body.getReader();
-      const total = Number(response.headers.get("content-length")) || 0;
       let received = 0;
       while (true) {
         const chunk = await reader.read();
@@ -1573,6 +1736,7 @@ export async function downloadMediaFile(
   }
 
   // Incompatible → transcodificar a MP4 compatible dentro de OPFS.
+  await ensureStorageHeadroom(TRANSCODE_FALLBACK_BYTES);
   const handle = await root.getFileHandle(storedName, { create: true });
   const writable = await handle.createWritable();
   try {
@@ -1581,7 +1745,8 @@ export async function downloadMediaFile(
       createOpfsWriteStream(writable),
       onProgress,
       conversionRef,
-      abortedRef
+      abortedRef,
+      audioTrackIndex
     );
     if (outcome === "canceled") {
       await root.removeEntry(storedName).catch(() => undefined);
@@ -1758,34 +1923,29 @@ export function useMediaBunny(
         if (abortedRef.current) {
           return;
         }
-        // Logueamos el motivo real de la caída al camino OPFS completo (codec
-        // de vídeo que habría que re-encodear, mime no soportado por
-        // MediaSource, fallo de red/CORS al leer la fuente…) — sin esto no hay
-        // forma de saber desde la consola por qué una fuente tarda en salir.
         const message =
           progressiveError instanceof Error ? progressiveError.message : "";
-        if (message === NON_PASSTHROUGH_VIDEO_ERROR) {
-          console.info(
-            "[mediabunny] source video codec requires full transcode; falling back"
-          );
-        } else {
-          console.warn(
-            "[mediabunny] progressive playback failed, falling back to full transcode:",
-            progressiveError
-          );
-        }
+        const isNonPassthrough = message === NON_PASSTHROUGH_VIDEO_ERROR;
         // Telemetría del fallback: el camino progresivo (reproducir mientras se
-        // transcodifica) cayó al camino lento (transcodificar el archivo entero
-        // antes de reproducir). Sin esto no hay forma de saber POR QUÉ pasa en
-        // producción. Se manda solo el nombre del archivo y el hint de codec —
-        // NUNCA la URL de origen, que lleva el token de TorBox. `capture` respeta
-        // el opt-in del consentimiento (ver components/cookie-consent.tsx).
-        posthog.capture("mediabunny_progressive_fallback", {
-          reason: message,
-          is_non_passthrough: message === NON_PASSTHROUGH_VIDEO_ERROR,
-          filename,
-          codec_hint: codecHint,
-        });
+        // transcodifica) cayó al camino lento. No mandamos `message`: puede
+        // incluir la URL de origen con el token de TorBox. Solo el motivo
+        // clasificado, el nombre del archivo y el hint de codec.
+        try {
+          posthog.capture("mediabunny_progressive_fallback", {
+            reason: isNonPassthrough
+              ? "non_passthrough_video"
+              : "progressive_error",
+            is_non_passthrough: isNonPassthrough,
+            error_name:
+              progressiveError instanceof Error
+                ? progressiveError.name
+                : "unknown",
+            filename,
+            codec_hint: codecHint,
+          });
+        } catch {
+          // La analítica nunca debe romper la reproducción.
+        }
         // Progressive no fue posible / falló: limpiar MSE y dejar que el caller
         // muestre el error. La reproducción no debe convertir el archivo entero
         // automáticamente ni presentarlo como una descarga.

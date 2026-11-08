@@ -171,8 +171,16 @@ export default function DiscoverTab() {
               <SearchField.Group>
                 <SearchField.SearchIcon />
                 <SearchField.Input
-                  className="h-9 min-h-9 text-sm"
+                  // Mismo ajuste que en Live TV: la línea se centra con el
+                  // icono en Android (`includeFontPadding: false`) y la altura
+                  // es mínima, no fija.
+                  className="min-h-11 text-sm"
                   placeholder={t('Buscar películas, series…')}
+                  style={{
+                    includeFontPadding: false,
+                    paddingVertical: 0,
+                    textAlignVertical: 'center',
+                  }}
                 />
                 <SearchField.ClearButton />
               </SearchField.Group>

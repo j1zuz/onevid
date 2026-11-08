@@ -3,46 +3,63 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { oneVid } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
+import { LruTtlCache } from "@/lib/lru-ttl-cache";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { readTorboxKey } from "@/lib/secret-box";
 import { resolveTorboxRedirect, resolveTorboxStream } from "@/lib/torbox";
 
 export const runtime = "nodejs";
 
-const FINAL_URL_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_FINAL_URL_TTL_MS = 5 * 60 * 1000;
+// No servimos ni cacheamos un enlace que caduca en menos de este margen: el
+// player se quedaría con un 403 justo al empezar.
+const FINAL_URL_SAFETY_MARGIN_MS = 30_000;
 const FINAL_URL_CACHE_LIMIT = 100;
 // El player pide muchos rangos sobre la misma URL. Sin esta caché, cada rango
 // volvería a crear/listar el torrent en el servicio. Es por instancia y por
 // usuario; la respuesta además se cachea en el browser.
-const finalUrlCache = new Map<string, { expiresAt: number; url: string }>();
+const finalUrlCache = new LruTtlCache<string, string>(FINAL_URL_CACHE_LIMIT);
 
-function readCachedFinalUrl(key: string): string | null {
-  const entry = finalUrlCache.get(key);
-  if (!entry) {
-    return null;
-  }
-  if (entry.expiresAt <= Date.now()) {
-    finalUrlCache.delete(key);
-    return null;
-  }
-  return entry.url;
-}
-
-function writeCachedFinalUrl(key: string, url: string): void {
-  if (finalUrlCache.size >= FINAL_URL_CACHE_LIMIT) {
-    const oldest = finalUrlCache.keys().next().value;
-    if (oldest !== undefined) {
-      finalUrlCache.delete(oldest);
+/**
+ * Los enlaces del CDN suelen llevar su caducidad en la query (`expires`, `exp`,
+ * ...). Si la conocemos, la caché no debe sobrevivirla: un 302 cacheado con un
+ * token muerto deja al player recibiendo 403 hasta que expire la entrada.
+ */
+function finalUrlTtlMs(rawUrl: string): number {
+  try {
+    const url = new URL(rawUrl);
+    for (const key of ["expires", "expire", "exp", "expires_at", "expiry"]) {
+      const raw = url.searchParams.get(key);
+      if (!raw) {
+        continue;
+      }
+      const numeric = Number(raw);
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        continue;
+      }
+      // Segundos (10 dígitos) o milisegundos (13 dígitos).
+      const expiresAt = numeric > 1e12 ? numeric : numeric * 1000;
+      const remaining = expiresAt - Date.now() - FINAL_URL_SAFETY_MARGIN_MS;
+      return remaining > 0
+        ? Math.min(DEFAULT_FINAL_URL_TTL_MS, remaining)
+        : 0;
     }
+  } catch {
+    /* URL no parseable: se usa el TTL por defecto. */
   }
-  finalUrlCache.set(key, { expiresAt: Date.now() + FINAL_URL_TTL_MS, url });
+  return DEFAULT_FINAL_URL_TTL_MS;
 }
 
-function finalRedirectResponse(target: string): Response {
+function finalRedirectResponse(target: string, ttlMs: number): Response {
+  const maxAge = Math.max(0, Math.floor(ttlMs / 1000));
   return new Response(null, {
     status: 302,
     headers: {
-      "Cache-Control": "private, max-age=300",
+      // `private` evita caches compartidas; `Vary` evita que otro perfil del
+      // mismo navegador reutilice un 302 con el token de este usuario.
+      "Cache-Control":
+        maxAge > 0 ? `private, max-age=${maxAge}` : "private, no-store",
+      Vary: "Cookie, Authorization",
       Location: target,
     },
   });
@@ -86,9 +103,13 @@ export async function GET(request: Request) {
 
   const cacheKey = `${session.user.id}:${magnet}`;
   if (wantFinalRedirect) {
-    const cached = readCachedFinalUrl(cacheKey);
+    const cached = finalUrlCache.get(cacheKey);
     if (cached) {
-      return finalRedirectResponse(cached);
+      const ttlMs = finalUrlTtlMs(cached);
+      if (ttlMs > 0) {
+        return finalRedirectResponse(cached, ttlMs);
+      }
+      finalUrlCache.delete(cacheKey);
     }
   }
 
@@ -123,8 +144,9 @@ export async function GET(request: Request) {
       const target =
         (await resolveTorboxRedirect(resolved.url).catch(() => null)) ??
         resolved.url;
-      writeCachedFinalUrl(cacheKey, target);
-      return finalRedirectResponse(target);
+      const ttlMs = finalUrlTtlMs(target);
+      finalUrlCache.set(cacheKey, target, ttlMs);
+      return finalRedirectResponse(target, ttlMs);
     }
     return Response.redirect(resolved.url, 302);
   }

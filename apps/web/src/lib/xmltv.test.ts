@@ -52,6 +52,39 @@ describe("secure XMLTV guide", () => {
 
     expect(parseXmltv(xml, "news.id", now)).toHaveLength(20);
   });
+  test("collapses overlapping provider entries with the same title", () => {
+    const rows = [
+      {
+        id: "a",
+        title: "Fútbol Colombiano",
+        start: "2026-11-07T20:00:00Z",
+        end: "2026-11-07T22:00:00Z",
+      },
+      {
+        id: "b",
+        title: "Fútbol Colombiano",
+        start: "2026-11-07T21:00:00Z",
+        end: "2026-11-07T23:00:00Z",
+      },
+      {
+        id: "c",
+        title: "Fútbol Colombiano",
+        start: "2026-11-07T22:00:00Z",
+        end: "2026-11-08T00:00:00Z",
+      },
+      {
+        id: "d",
+        title: "Noticias",
+        start: "2026-11-07T21:30:00Z",
+        end: "2026-11-07T23:00:00Z",
+      },
+    ];
+    expect(
+      selectProgrammes(rows, now, undefined, {
+        dedupeSameTitleOverlaps: true,
+      }).map((row) => row.id),
+    ).toEqual(["a", "d", "c"]);
+  });
   test.each([
     '<!DOCTYPE tv SYSTEM "https://private.example/secret"><tv/>',
     '<!DOCTYPE tv [<!ENTITY x SYSTEM "file:///etc/passwd">]><tv/>',

@@ -1,4 +1,8 @@
+"use client";
+
 import { cn } from "@workspace/ui/lib/utils";
+import { Sticker, type StickerName } from "stick-it-up";
+import { stickerAvatarId } from "@/lib/onevid-avatars";
 
 const AVATAR_KEYS = ["black", "blue", "green", "orange", "purple", "red"];
 
@@ -8,6 +12,10 @@ export function avatarImageSrc(avatar: string): string {
   return `/avatar/${key}.jpg`;
 }
 
+/**
+ * Avatar de perfil. Puede ser una de las claves de gradiente de siempre o un
+ * sticker de `stick-it-up` guardado como `sticker:<id>`.
+ */
 export function OneVidProfileAvatar({
   avatar,
   name,
@@ -17,6 +25,8 @@ export function OneVidProfileAvatar({
   className?: string;
   name: string;
 }) {
+  const sticker = stickerAvatarId(avatar);
+
   return (
     <span
       className={cn(
@@ -24,12 +34,16 @@ export function OneVidProfileAvatar({
         className
       )}
     >
-      {/* biome-ignore lint/performance/noImgElement: small local static asset */}
-      <img
-        alt={name}
-        className="size-full object-cover"
-        src={avatarImageSrc(avatar)}
-      />
+      {sticker ? (
+        <Sticker name={sticker as StickerName} size="100%" />
+      ) : (
+        // biome-ignore lint/performance/noImgElement: small local static asset
+        <img
+          alt={name}
+          className="size-full object-cover"
+          src={avatarImageSrc(avatar)}
+        />
+      )}
     </span>
   );
 }

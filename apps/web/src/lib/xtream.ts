@@ -282,5 +282,7 @@ export function parseXtreamEpg(
       end: new Date(end).toISOString(),
     });
   }
-  return selectProgrammes(programmes, now, window);
+  return selectProgrammes(programmes, now, window, {
+    dedupeSameTitleOverlaps: true,
+  });
 }

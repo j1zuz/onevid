@@ -1,19 +1,23 @@
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Button, Switch, Typography, useToast } from 'heroui-native';
-import { ArrowLeft, Check, Trash2 } from 'lucide-react-native';
+import { ArrowLeft, Trash2 } from 'lucide-react-native';
 import { type ComponentProps, useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
-import { AVATAR_KEYS, type AvatarKey, avatarSource } from '@/lib/avatars';
+import { AvatarPickerSheet } from '@/components/avatar-picker';
+import { TvTextField } from '@/components/tv-text-field';
+import { avatarSource } from '@/lib/avatars';
 import {
   clearActiveProfile,
   confirmPinReset,
   createProfile,
   deleteProfile,
   listProfiles,
+  loadActiveProfile,
   requestPinReset,
+  setActiveProfile,
   updateProfile,
 } from '@/lib/profiles';
 import { COLORS } from '@/lib/theme';
@@ -35,7 +39,8 @@ export default function EditProfileScreen() {
   const { toast } = useToast();
 
   const [name, setName] = useState('');
-  const [avatar, setAvatar] = useState<AvatarKey>('black');
+  const [avatar, setAvatar] = useState<string>('black');
+  const [avatarOpen, setAvatarOpen] = useState(false);
   const [isKids, setIsKids] = useState(false);
 
   const [hadPin, setHadPin] = useState(false); // este perfil ya tenía PIN
@@ -157,13 +162,18 @@ export default function EditProfileScreen() {
       const lockPinArg = resolveLockPin();
       const authPinArg = managePinRequired ? authPin : undefined;
       if (isEdit && editingId) {
-        await updateProfile(editingId, {
+        const updated = await updateProfile(editingId, {
           name: trimmed,
           avatar,
           isKids,
           lockPin: lockPinArg,
           authPin: authPinArg,
         });
+        // El tab "Perfil" (y el resto de la app) lee el perfil activo de
+        // SecureStore, no de la API: sin esto el avatar/el nombre del tab
+        // seguían mostrando los anteriores hasta cambiar de perfil.
+        const active = await loadActiveProfile().catch(() => null);
+        if (active?.id === updated.id) await setActiveProfile(updated);
       } else {
         await createProfile({
           name: trimmed,
@@ -271,12 +281,29 @@ export default function EditProfileScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, gap: 28 }}>
-        <View style={{ alignItems: 'center' }}>
+        <View style={{ alignItems: 'center', gap: 12 }}>
           <Image
             source={avatarSource(avatar)}
             style={{ width: 120, height: 120, borderRadius: 60 }}
             contentFit="cover"
           />
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setAvatarOpen(true)}
+            style={(s) => [
+              {
+                borderRadius: 999,
+                paddingHorizontal: 18,
+                paddingVertical: 8,
+                backgroundColor: 'rgba(255,255,255,0.1)',
+              },
+              tvFocusRing((s as { focused?: boolean }).focused ?? false),
+            ]}
+          >
+            <Typography type="body-sm" weight="semibold">
+              Cambiar avatar
+            </Typography>
+          </Pressable>
         </View>
 
         <View style={{ gap: 8 }}>
@@ -298,22 +325,6 @@ export default function EditProfileScreen() {
               fontSize: 16,
             }}
           />
-        </View>
-
-        <View style={{ gap: 12 }}>
-          <Typography type="body-sm" color="muted">
-            Avatar
-          </Typography>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14 }}>
-            {AVATAR_KEYS.map((key) => (
-              <AvatarOption
-                key={key}
-                avatarKey={key}
-                selected={avatar === key}
-                onPress={() => setAvatar(key)}
-              />
-            ))}
-          </View>
         </View>
 
         <ToggleRow
@@ -430,6 +441,13 @@ export default function EditProfileScreen() {
           </FocusButton>
         ) : null}
       </ScrollView>
+
+      <AvatarPickerSheet
+        onClose={() => setAvatarOpen(false)}
+        onSelect={setAvatar}
+        value={avatar}
+        visible={avatarOpen}
+      />
     </SafeAreaView>
   );
 }
@@ -477,60 +495,6 @@ function ToggleRow({
   );
 }
 
-function AvatarOption({
-  avatarKey,
-  selected,
-  onPress,
-}: {
-  avatarKey: AvatarKey;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  const { focused, focusProps } = useTvFocus();
-  return (
-    <Pressable onPress={onPress} {...focusProps}>
-      {/* El avatar va recortado en círculo; el check de "seleccionado" vive
-          FUERA de ese recorte (antes lo cortaba y el círculo parecía mordido). */}
-      <View style={{ width: 72, height: 72 }}>
-        <View
-          style={{
-            width: 72,
-            height: 72,
-            borderRadius: 36,
-            overflow: 'hidden',
-            borderWidth: selected || focused ? 3 : 0,
-            borderColor: focused ? '#4f9dff' : '#fff',
-          }}
-        >
-          <Image
-            source={avatarSource(avatarKey)}
-            style={{ width: '100%', height: '100%' }}
-            contentFit="cover"
-          />
-        </View>
-        {selected ? (
-          <View
-            style={{
-              position: 'absolute',
-              right: -1,
-              bottom: -1,
-              width: 22,
-              height: 22,
-              borderRadius: 11,
-              backgroundColor: '#fff',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Check size={13} color="#000" />
-          </View>
-        ) : null}
-      </View>
-    </Pressable>
-  );
-}
-
-// Button de HeroUI con anillo de foco para TV (en móvil tvFocusRing es null).
 function FocusButton({ children, style, ...props }: ComponentProps<typeof Button>) {
   const { focused, focusProps } = useTvFocus();
   return (
@@ -542,16 +506,7 @@ function FocusButton({ children, style, ...props }: ComponentProps<typeof Button
 
 // TextInput con borde de foco para TV.
 function FocusTextInput({ style, ...props }: ComponentProps<typeof TextInput>) {
-  const { focused, focusProps } = useTvFocus();
-  return (
-    <TextInput
-      {...props}
-      onFocus={focusProps.onFocus}
-      onBlur={focusProps.onBlur}
-      style={[
-        style,
-        focused ? { borderWidth: 2, borderColor: '#4f9dff' } : null,
-      ]}
-    />
-  );
+  // En TV el input no puede tomar el foco con el D-pad (se queda con las
+  // flechas y no lo suelta); `TvTextField` lo abre con OK y sale con BACK.
+  return <TvTextField {...props} style={style} />;
 }

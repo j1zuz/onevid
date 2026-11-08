@@ -10,11 +10,32 @@ export interface OfflineVideo {
   title: string;
   downloadedAt: number;
   expiresAt: number;
+  /**
+   * Pista de audio que el usuario tenía elegida al descargar. El archivo se
+   * copia tal cual (todas las pistas siguen dentro), así que al reproducirlo
+   * offline se preselecciona esta en vez de caer al default de libVLC. `name`
+   * y `index` se guardan juntos: el nombre es lo que expone VLC y el índice
+   * sirve de respaldo cuando varias pistas se llaman igual o no tienen nombre.
+   */
+  audioTrackName?: string;
+  audioTrackIndex?: number;
 }
 
 export interface OfflineDownloadControl {
   cancelled: boolean;
   cancel: () => Promise<void>;
+}
+
+/**
+ * Pista de audio que el usuario tenía elegida. El archivo descargado es una
+ * copia literal del origen (todas las pistas siguen dentro), así que esto solo
+ * sirve para preseleccionar ese idioma al reproducirlo sin conexión.
+ */
+export interface OfflineAudioSelection {
+  /** Nombre tal cual lo expone libVLC (suele llevar idioma/códec). */
+  name?: string;
+  /** Índice 0-based dentro de la lista de pistas de audio del player. */
+  index?: number;
 }
 
 function fileNameForKey(key: string): string {
@@ -76,6 +97,9 @@ export async function downloadOfflineVideo(input: {
   key: string;
   url: string;
   title: string;
+  /** Pista de audio activa en el player al iniciar la descarga. */
+  audioTrackName?: string;
+  audioTrackIndex?: number;
   control?: OfflineDownloadControl;
   onProgress?: (progress: number) => void;
 }): Promise<OfflineVideo> {
@@ -128,6 +152,11 @@ export async function downloadOfflineVideo(input: {
       title: input.title,
       downloadedAt,
       expiresAt: downloadedAt + EXPIRATION_MS,
+      ...(input.audioTrackName ? { audioTrackName: input.audioTrackName } : {}),
+      ...(typeof input.audioTrackIndex === 'number' &&
+      input.audioTrackIndex >= 0
+        ? { audioTrackIndex: input.audioTrackIndex }
+        : {}),
     };
     const list = (await readMetadata()).filter((item) => item.key !== input.key);
     await writeMetadata([entry, ...list]);

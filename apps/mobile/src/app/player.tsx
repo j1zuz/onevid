@@ -21,6 +21,7 @@ import {
   Maximize2,
   Minimize2,
   Pause,
+  Maximize,
   PictureInPicture2,
   Play,
   RotateCcw,
@@ -82,9 +83,11 @@ import {
   STREAM_UA,
 } from '@/lib/stream-url';
 import { bumpImageGeneration } from '@/lib/image-refresh';
+import { VLC_OPTIONS, VLC_OPTIONS_VOD } from '@/lib/vlc-options';
 import {
   downloadOfflineVideo,
   getOfflineVideo,
+  type OfflineAudioSelection,
   type OfflineVideo,
   type OfflineDownloadControl,
 } from '@/lib/offline-videos';
@@ -150,6 +153,12 @@ const MAX_START_EXTENSIONS = 7; // tope: 15 s + 7×15 s = 120 s máx por fuente
 // Elección manual del usuario: le damos algo más de margen "sin pistas" antes de
 // saltar, porque pidió ESA fuente explícitamente (p. ej. torbox lento de arrancar).
 const PLAYBACK_MANUAL_TIMEOUT_MS = 20_000;
+// Directo: si no llega el primer fotograma, o el tiempo deja de avanzar, se
+// recrea el player un par de veces antes de avisar (la web también reconecta
+// antes de mostrar el error). Sin esto, un canal caído se quedaba en negro sin
+// decir nada y un corte de red no se recuperaba.
+const LIVE_STALL_MS = 18_000;
+const LIVE_MAX_RETRIES = 2;
 // Cuánto antes del final aparece el botón de "siguiente episodio": el 15 % de
 // la duración, con techo de 75 s. Mismos números que la web, para que la app y
 // el navegador ofrezcan el salto en el mismo punto de un episodio.
@@ -167,33 +176,6 @@ type VlcEvent<K extends keyof VlcProps> =
 // (puede ser red lenta → merece prórroga) de "VLC dio error" (403/404/enlace
 // muerto → saltar ya). Viaja también a PostHog para poder separar ambos casos.
 type UnplayableReason = 'timeout' | 'error';
-// Opciones de libVLC del medio. Va como CONSTANTE DE MÓDULO, no como literal
-// inline en el JSX, y esto es crítico: con New Architecture, Fabric reenvía
-// TODOS los props del nodo en cada update (SurfaceMountingManager.updateProps
-// pasa el mapa completo, no un diff), Expo invoca cada setter sin comparar
-// (ConcreteViewProp.set) y los setters nativos de `source`/`options` marcan
-// `shouldInit` → OnViewDidUpdateProps llama initPlayer() → destroyPlayer() +
-// createPlayer(). O sea: un array nuevo por render REINICIABA el stream desde
-// cero. En TV, donde el primer fotograma tarda ~20 s (p50 medido), esos
-// reinicios agotaban el watchdog de arranque y el player "saltaba" las fuentes.
-// network-caching = colchón (ms) que VLC mantiene leído por delante: es a la vez
-// el pre-buffer de ARRANQUE y la ventana que sostiene DURANTE todo el vídeo. Es
-// un buffer de tamaño fijo, NO crece con el tiempo, y VLC no puede ampliarlo en
-// caliente (cambiarlo obliga a reabrir el stream), por eso usamos un único valor
-// y no dos fases. 1500 ms (antes 3000) para que el vídeo aparezca antes: es la
-// espera fija que el usuario nota al dar Play. Un corte tras el primer fotograma
-// lo recupera :http-reconnect y NO tira la fuente. El User-Agent de navegador
-// evita 403 de hosts que rechazan el UA por defecto de VLC.
-//
-// OJO al vigilar esto: `player_rebuffer` estaba en 3,58 cortes por reproducción
-// en teléfono (30 días, medido en PostHog) ANTES de esta bajada, y este colchón
-// es justo lo que los contiene. Si esa cifra sube, hay que volver a 2500.
-const VLC_OPTIONS = [
-  ':network-caching=1500',
-  ':file-caching=1500',
-  ':http-reconnect',
-  `:http-user-agent=${STREAM_UA}`,
-];
 
 // Diagnóstico: consulta la URL ya resuelta (1 byte) para ver qué devuelve el
 // host realmente (código HTTP, tipo de contenido, tamaño, redirección). Cuando
@@ -337,6 +319,32 @@ function pickDefaultAudio(audio: Track[]): number | null {
     /espa|castell|spanish|latino|\bes\b|lat/i.test(t.name ?? ''),
   );
   return (es ?? real[0]).id;
+}
+
+/**
+ * Pista de audio guardada al descargar (idioma que el usuario eligió). Se
+ * resuelve contra las pistas reales del archivo ya abierto: primero por índice
+ * (el archivo offline es el mismo, así que el orden coincide) validando el
+ * nombre, y si cambió, por nombre. `null` = sin preferencia: el caller usa
+ * `pickDefaultAudio`.
+ */
+function pickPreferredAudio(
+  audio: Track[],
+  preferred: OfflineAudioSelection | null,
+): number | null {
+  if (!preferred) return null;
+  const real = audio.filter((t) => t.id >= 0);
+  if (real.length === 0) return null;
+  const { name, index } = preferred;
+  if (typeof index === 'number' && index >= 0 && index < real.length) {
+    const byIndex = real[index];
+    if (!name || (byIndex.name ?? '') === name) return byIndex.id;
+  }
+  if (name) {
+    const byName = real.find((t) => (t.name ?? '') === name);
+    if (byName) return byName.id;
+  }
+  return null;
 }
 
 export default function PlayerScreen() {
@@ -884,7 +892,7 @@ export default function PlayerScreen() {
           onDownloadOffline={
             isLive || state.url.startsWith('file://')
               ? undefined
-              : async () => {
+              : async (audio) => {
                   offlineDownloadControlRef.current.cancelled = false;
                   setOfflineDownloadProgress(0);
                   setOfflineDownloading(true);
@@ -893,6 +901,8 @@ export default function PlayerScreen() {
                       key: contentKey,
                       url: state.url,
                       title: title ?? 'Video',
+                      audioTrackName: audio?.name,
+                      audioTrackIndex: audio?.index,
                       control: offlineDownloadControlRef.current,
                       onProgress: setOfflineDownloadProgress,
                     });
@@ -1081,7 +1091,14 @@ function SourcePicker({
   );
 }
 
-function Player({
+/**
+ * Reproductor en sí (chrome + libVLC), sin la lógica de pantalla (resolución de
+ * fuentes, orientación, carátula). Se exporta para poder usarlo también
+ * embebido arriba de la guía de Live TV, igual que la web: mismo reproductor en
+ * los dos sitios, sin duplicar UI ni audio.
+ */
+export function Player({
+  embedded = false,
   url,
   title,
   subtitle,
@@ -1104,6 +1121,10 @@ function Player({
   offlineDownloadProgress,
   onDownloadOffline,
   onCancelDownload,
+  /** Alterna pantalla completa (en el player embebido de Live TV). */
+  onFullscreen,
+  /** Estado de pantalla completa, para cambiar el icono. */
+  fullscreen,
   nextEpisode,
   onPlayNextEpisode,
 }: {
@@ -1136,8 +1157,20 @@ function Player({
   offlineChecked?: boolean;
   offlineDownloading?: boolean;
   offlineDownloadProgress?: number;
-  onDownloadOffline?: () => Promise<void>;
+  /** Recibe la pista de audio activa para guardarla junto a la descarga. */
+  onDownloadOffline?: (audio?: OfflineAudioSelection) => Promise<void>;
   onCancelDownload?: () => Promise<void>;
+  /** Presente solo cuando el player va embebido (Live TV): alterna pantalla completa. */
+  onFullscreen?: () => void;
+  /** Si está a pantalla completa (cambia el icono del botón). */
+  fullscreen?: boolean;
+  /**
+   * Player embebido (Live TV arriba de la guía). En TV los controles NO deben
+   * robar el foco al aparecer: con `hasTVPreferredFocus` el D-pad volvía al
+   * botón de play cada vez que se pulsaba una flecha y no se podía bajar a la
+   * guía.
+   */
+  embedded?: boolean;
   /** Episodio que sigue al actual, o null si es el último de la serie. */
   nextEpisode?: NextEpisodeRef | null;
   onPlayNextEpisode?: (next: NextEpisodeRef) => Promise<void> | void;
@@ -1194,6 +1227,17 @@ function Player({
   // effect de montaje (no en render: Date.now() es impuro). `rebufferingRef`
   // evita capturar cada onBuffering repetido de VLC como un evento distinto.
   const startedAtRef = useRef(0);
+  // Reintentos de directo (ver LIVE_STALL_MS).
+  const [liveAttempt, setLiveAttempt] = useState(0);
+  const liveAttemptsRef = useRef(0);
+  const liveGiveUpRef = useRef(false);
+  const lastTickAtRef = useRef(0);
+  const liveStartedAtRef = useRef(0);
+  // Idioma elegido al descargar este contenido. Solo aplica cuando la fuente que
+  // suena es el archivo offline (`offlineVideo.uri === url`); al abrirlo, VLC
+  // enumera las pistas y elegimos esa en vez del default. En un ref (no en las
+  // deps de `handleESAdded`) porque esos callbacks deben tener identidad estable.
+  const preferredOfflineAudioRef = useRef<OfflineAudioSelection | null>(null);
   const rebufferingRef = useRef(false);
   // Diagnóstico por fuente: registramos qué eventos nativos de VLC ocurrieron
   // antes de que la fuente se declarara no reproducible. Así sabemos EXACTAMENTE
@@ -1207,6 +1251,17 @@ function Player({
   useEffect(() => {
     startedAtRef.current = Date.now();
   }, []);
+
+  useEffect(() => {
+    const offline =
+      offlineVideo && offlineVideo.uri === url ? offlineVideo : null;
+    preferredOfflineAudioRef.current =
+      offline &&
+      (offline.audioTrackName !== undefined ||
+        offline.audioTrackIndex !== undefined)
+        ? { name: offline.audioTrackName, index: offline.audioTrackIndex }
+        : null;
+  }, [offlineVideo, url]);
 
   const [playing, setPlaying] = useState(true);
   const [buffering, setBuffering] = useState(true);
@@ -1556,6 +1611,63 @@ function Player({
   // `scrubbing`, así que el propio arranque (setDuration en onFirstPlay, el
   // primer fotograma) reiniciaba el stream justo cuando estaba llenando el buffer.
 
+  /** Recrea el reproductor del directo (nueva instancia nativa y contadores a 0). */
+  const retryLivePlayback = useCallback(() => {
+    if (!live) return false;
+    if (liveAttemptsRef.current >= LIVE_MAX_RETRIES) {
+      liveGiveUpRef.current = true;
+      setErrorMsg('No se pudo reproducir este canal. Revisa tu conexión.');
+      setRawError(null);
+      setProbe(null);
+      onReveal?.();
+      return false;
+    }
+    liveAttemptsRef.current += 1;
+    setErrorMsg(null);
+    setRawError(null);
+    setProbe(null);
+    firstFrameRef.current = false;
+    setFirstFrame(false);
+    setHasPlayed(false);
+    setBuffering(true);
+    setPlaying(true);
+    setTracks({ audio: [], video: [], subtitle: [] });
+    setAudioId(null);
+    setSubtitleId(null);
+    liveStartedAtRef.current = Date.now();
+    lastTickAtRef.current = Date.now();
+    setLiveAttempt((value) => value + 1);
+    return true;
+  }, [live, onReveal]);
+
+  /** Reintento manual desde la tarjeta de error (tras agotar los automáticos). */
+  const manualRetryLive = useCallback(() => {
+    liveAttemptsRef.current = 0;
+    liveGiveUpRef.current = false;
+    setErrorMsg(null);
+    retryLivePlayback();
+  }, [retryLivePlayback]);
+
+  // Vigila el arranque y los cortes del directo. `lastTickAtRef` lo actualiza
+  // onTimeChanged en cada tick: si el tiempo deja de avanzar (red caída, token
+  // caducado) se reintenta antes de mostrar el error.
+  useEffect(() => {
+    if (!live) return;
+    liveStartedAtRef.current = Date.now();
+    lastTickAtRef.current = Date.now();
+    const timer = setInterval(() => {
+      if (liveGiveUpRef.current || errorMsg) return;
+      const now = Date.now();
+      const stuckFor = firstFrameRef.current
+        ? now - lastTickAtRef.current
+        : now - liveStartedAtRef.current;
+      if (stuckFor >= LIVE_STALL_MS) {
+        retryLivePlayback();
+      }
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [live, errorMsg, retryLivePlayback]);
+
   const handleBuffering = useCallback(
     ({ value: progress }: VlcEvent<'onBuffering'>) => {
       setBuffering(true);
@@ -1641,6 +1753,9 @@ function Player({
 
   const handleTimeChanged = useCallback(
     ({ value }: VlcEvent<'onTimeChanged'>) => {
+      // Heartbeat del watchdog de directo: si esto deja de actualizarse, el
+      // stream se quedó sin datos y se reintenta.
+      lastTickAtRef.current = Date.now();
       // El tiempo avanza ⇒ hay fotogramas pintándose ⇒ ya podemos fundir la
       // carátula al vídeo (sin pasar por negro ni spinner). Sellamos el ref en el
       // acto para no re-disparar setFirstFrame en cada tick siguiente.
@@ -1675,7 +1790,10 @@ function Player({
       };
       setTracks(clean);
       setAudioId((prev) => {
-        const picked = prev ?? pickDefaultAudio(clean.audio);
+        const picked =
+          prev ??
+          pickPreferredAudio(clean.audio, preferredOfflineAudioRef.current) ??
+          pickDefaultAudio(clean.audio);
         audioInfoRef.current = {
           count: clean.audio.length,
           names: clean.audio.map((t) => t.name ?? ''),
@@ -1726,6 +1844,13 @@ function Player({
         reportUnplayable('error');
         return;
       }
+      // Directo: antes de rendirnos, recrea el player (corte de red, token
+      // caducado…). Si ya no quedan reintentos, `retryLivePlayback` deja el
+      // mensaje amable puesto, así que no se sobrescribe con el técnico.
+      if (live) {
+        retryLivePlayback();
+        return;
+      }
       setErrorMsg(humanizePlaybackError(message));
       setRawError(message || 'EncounteredError (sin mensaje)');
       // Funde la carátula única para que se vea esta tarjeta de error.
@@ -1734,38 +1859,71 @@ function Player({
       setProbe('Comprobando enlace…');
       probeStreamUrl(url).then(setProbe);
     },
-    [mediaType, mediaId, onUnplayable, reportUnplayable, onReveal, url],
+    [
+      live,
+      mediaType,
+      mediaId,
+      onUnplayable,
+      reportUnplayable,
+      onReveal,
+      retryLivePlayback,
+      url,
+    ],
+  );
+
+  // Botón de zoom/llenar pantalla: en Live TV va primero en la fila; en el
+  // reproductor normal (VOD) queda donde estaba, antes de PiP.
+  const videoFitButton = (
+    <Pressable
+      style={withRing(styles.actionBtn)}
+      onPress={() => {
+        setVideoFit((fit) => (fit === 'contain' ? 'cover' : 'contain'));
+        showControls();
+      }}
+      accessibilityLabel={
+        videoFit === 'contain' ? 'Llenar pantalla' : 'Mostrar video completo'
+      }
+      accessibilityRole="button"
+      hitSlop={6}
+    >
+      {videoFit === 'contain' ? (
+        <Maximize2 size={20} color="#fff" />
+      ) : (
+        <Minimize2 size={20} color="#fff" />
+      )}
+    </Pressable>
   );
 
   return (
     <>
       <LibVlcPlayerView
+        key={`${url}:${liveAttempt}`}
         ref={playerRef}
         style={StyleSheet.absoluteFill}
-        // `null` libera el player (no crear media con URL vacía → evita el
-        // error nativo "media could not be set").
-        source={url?.trim() ? url : null}
-        // Constante de módulo a propósito: ver VLC_OPTIONS (un array nuevo por
-        // render reinicia el player nativo).
-        options={VLC_OPTIONS}
-        // En TV forzamos AudioTrack como salida de audio. El default de libVLC 3.7
-        // (AAudio) falla EN SILENCIO en algunos Android TV baratos (KTC): vídeo y
-        // pista de audio OK pero sin sonido, sin error. Es el mismo remedio que el
-        // VLC oficial aplica vía setAudioOutput/ajuste "Salida de audio". Requiere
-        // build nativo (prop añadido en patches/expo-libvlc-player@7.1.6.patch).
-        audioOutput={Platform.isTV ? 'audiotrack' : undefined}
-        contentFit={videoFit}
-        autoplay
-        pictureInPicture={pipSupported}
-        tracks={playerTracks}
-        onBuffering={handleBuffering}
-        onPlaying={handlePlaying}
-        onPaused={handlePaused}
-        onStopped={handleStopped}
-        onDialogDisplay={handleDialogDisplay}
-        onFirstPlay={handleFirstPlay}
-        onTimeChanged={handleTimeChanged}
-        onESAdded={handleESAdded}
+          // `null` libera el player (no crear media con URL vacía → evita el
+          // error nativo "media could not be set").
+          source={url?.trim() ? url : null}
+          // Constante de módulo a propósito: ver VLC_OPTIONS (un array nuevo por
+          // render reinicia el player nativo).
+          options={VLC_OPTIONS}
+          // En TV forzamos AudioTrack como salida de audio. El default de libVLC 3.7
+          // (AAudio) falla EN SILENCIO en algunos Android TV baratos (KTC): vídeo y
+          // pista de audio OK pero sin sonido, sin error. Es el mismo remedio que el
+          // VLC oficial aplica vía setAudioOutput/ajuste "Salida de audio". Requiere
+          // build nativo (prop añadido en patches/expo-libvlc-player@7.1.6.patch).
+          audioOutput={Platform.isTV ? 'audiotrack' : undefined}
+          contentFit={videoFit}
+          autoplay
+          pictureInPicture={pipSupported}
+          tracks={playerTracks}
+          onBuffering={handleBuffering}
+          onPlaying={handlePlaying}
+          onPaused={handlePaused}
+          onStopped={handleStopped}
+          onDialogDisplay={handleDialogDisplay}
+          onFirstPlay={handleFirstPlay}
+          onTimeChanged={handleTimeChanged}
+          onESAdded={handleESAdded}
         onEncounteredError={handleEncounteredError}
       />
 
@@ -1773,6 +1931,9 @@ function Player({
           normal: en error los controles quedan fijos). */}
       {!showLoading && !errorMsg ? (
         <Pressable
+          // No enfocable: en TV esta capa táctil cubre el vídeo y el D-pad
+          // caía en ella en vez de en los controles (play, pantalla completa).
+          focusable={false}
           style={StyleSheet.absoluteFill}
           onPress={() =>
             controlsVisible ? setControlsVisible(false) : showControls()
@@ -1838,7 +1999,15 @@ function Player({
               ) : null}
             </View>
             <View style={styles.topActions}>
-              {tracks.audio.length > 0 ? (
+              {/* En Live TV el zoom va primero; en VOD mantiene su sitio. */}
+              {onFullscreen ? videoFitButton : null}
+  
+              {/* Pantalla completa: primero de la fila, junto al botón de idioma
+                  (no al final, pegado al de "Llenar pantalla"). */}
+              
+              {/* Solo hay algo que elegir si hay MÁS de una pista: con una sola
+                  el botón de idioma no sirve (Live TV casi siempre trae una). */}
+              {tracks.audio.length > 1 ? (
                 <Pressable
                   style={withRing(styles.actionBtn)}
                   onPress={() => {
@@ -1904,13 +2073,29 @@ function Player({
                       });
                     } else {
                       setDownloadError(null);
-                      void onDownloadOffline().catch((error: unknown) => {
-                        setDownloadError(
-                          error instanceof Error
-                            ? error.message
-                            : 'No se pudo descargar el video.',
-                        );
-                      });
+                      // El archivo se copia completo, pero guardamos qué idioma
+                      // tenía elegido para preseleccionarlo al verlo offline.
+                      const audioIndex =
+                        audioId === null
+                          ? -1
+                          : tracks.audio.findIndex((t) => t.id === audioId);
+                      const selectedAudio: OfflineAudioSelection | undefined =
+                        audioId === null
+                          ? undefined
+                          : {
+                              name:
+                                tracks.audio[audioIndex]?.name || undefined,
+                              index: audioIndex >= 0 ? audioIndex : undefined,
+                            };
+                      void onDownloadOffline(selectedAudio).catch(
+                        (error: unknown) => {
+                          setDownloadError(
+                            error instanceof Error
+                              ? error.message
+                              : 'No se pudo descargar el video.',
+                          );
+                        },
+                      );
                     }
                     showControls();
                   }}
@@ -1962,28 +2147,9 @@ function Player({
                   )}
                 </Pressable>
               ) : null}
-              <Pressable
-                style={withRing(styles.actionBtn)}
-                onPress={() => {
-                  setVideoFit((fit) =>
-                    fit === 'contain' ? 'cover' : 'contain',
-                  );
-                  showControls();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  videoFit === 'contain'
-                    ? 'Llenar pantalla'
-                    : 'Mostrar video completo'
-                }
-                hitSlop={6}
-              >
-                {videoFit === 'contain' ? (
-                  <Maximize2 size={20} color="#fff" />
-                ) : (
-                  <Minimize2 size={20} color="#fff" />
-                )}
-              </Pressable>
+
+              
+              {onFullscreen ? null : videoFitButton}
               {pipSupported ? (
                 <Pressable
                   style={withRing(styles.actionBtn)}
@@ -1993,6 +2159,26 @@ function Player({
                   <PictureInPicture2 size={20} color="#fff" />
                 </Pressable>
               ) : null}
+  {onFullscreen ? (
+                  <Pressable
+                    style={withRing(styles.actionBtn)}
+                    onPress={() => {
+                      onFullscreen();
+                      showControls();
+                    }}
+                    accessibilityLabel={
+                      fullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'
+                    }
+                    accessibilityRole="button"
+                    hitSlop={6}
+                  >
+                    {fullscreen ? (
+                      <Minimize2 size={20} color="#fff" />
+                    ) : (
+                      <Maximize size={20} color="#fff" />
+                    )}
+                  </Pressable>
+                ) : null}
             </View>
           </View>
 
@@ -2012,24 +2198,38 @@ function Player({
                 >
                   {errorMsg}
                 </Typography>
-                {rawError ? (
-                  <Text style={styles.errorDetail} selectable>
-                    {rawError}
-                  </Text>
-                ) : null}
-                {tracksInfo ? (
-                  <Text style={styles.tracksDetail} selectable>
-                    {tracksInfo}
-                  </Text>
-                ) : null}
-                {probe ? (
-                  <Text style={styles.tracksDetail} selectable>
-                    {probe}
-                  </Text>
-                ) : null}
-                <Text style={styles.urlDetail} selectable numberOfLines={3}>
-                  {url}
-                </Text>
+                {/* En directo, mensaje claro + reintentar (los detalles
+                    técnicos solo estorban en la caja embebida). */}
+                {live ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={manualRetryLive}
+                    style={styles.liveRetryBtn}
+                  >
+                    <Text style={styles.liveRetryText}>Reintentar</Text>
+                  </Pressable>
+                ) : (
+                  <>
+                    {rawError ? (
+                      <Text style={styles.errorDetail} selectable>
+                        {rawError}
+                      </Text>
+                    ) : null}
+                    {tracksInfo ? (
+                      <Text style={styles.tracksDetail} selectable>
+                        {tracksInfo}
+                      </Text>
+                    ) : null}
+                    {probe ? (
+                      <Text style={styles.tracksDetail} selectable>
+                        {probe}
+                      </Text>
+                    ) : null}
+                    <Text style={styles.urlDetail} selectable numberOfLines={3}>
+                      {url}
+                    </Text>
+                  </>
+                )}
               </View>
             </View>
           ) : showLoading ? (
@@ -2055,7 +2255,7 @@ function Player({
                 style={withRing(styles.playBtn)}
                 onPress={togglePlay}
                 hitSlop={8}
-                hasTVPreferredFocus
+                hasTVPreferredFocus={!embedded}
               >
                 {playing ? (
                   <Pause size={32} color="#fff" fill="#fff" />
@@ -2365,6 +2565,19 @@ function LoadingArt({
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
+  liveRetryBtn: {
+    marginTop: 12,
+    alignSelf: 'center',
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  liveRetryText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   artRoot: {
     position: 'absolute',
     top: 0,

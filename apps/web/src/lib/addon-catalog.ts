@@ -7,6 +7,7 @@
  */
 
 import { encodeAddonMediaId } from "@/lib/addon-media";
+import { LruTtlCache } from "@/lib/lru-ttl-cache";
 import {
   fetchMovieMeta,
   fetchTvMeta,
@@ -38,12 +39,14 @@ interface StremioCatalogResponse {
 // se cachea en memoria para que el feed, "Ver todo" y la app no repitan la
 // misma descarga seguida.
 const CATALOG_CACHE_TTL_MS = 5 * 60_000;
+// Cada entrada son hasta CATALOG_VIEW_ALL_ITEM_LIMIT previews (100), así que 50
+// catálogos acotan la memoria sin dejar fuera los addons de un usuario normal.
+const CATALOG_CACHE_MAX_ENTRIES = 50;
 /** Proveedores IPTV lentos tardan ~20 s; 10 s los hacía desaparecer del feed. */
 const CATALOG_FETCH_TIMEOUT_MS = 30_000;
-const catalogCache = new Map<
-  string,
-  { expiresAt: number; metas: StremioMetaPreview[] }
->();
+const catalogCache = new LruTtlCache<string, StremioMetaPreview[]>(
+  CATALOG_CACHE_MAX_ENTRIES
+);
 
 interface StremioMetaPreview {
   background?: unknown;
@@ -194,8 +197,8 @@ export async function fetchAddonCatalogResults(opts: {
   const cacheKey = `${addonBaseUrl}|${type}|${catalogId}`;
   const cached = catalogCache.get(cacheKey);
   let allMetas: StremioMetaPreview[];
-  if (cached && cached.expiresAt > Date.now()) {
-    allMetas = cached.metas;
+  if (cached) {
+    allMetas = cached;
   } else {
     try {
       const res = await safeFetch(
@@ -213,17 +216,15 @@ export async function fetchAddonCatalogResults(opts: {
             CATALOG_VIEW_ALL_ITEM_LIMIT
           )
         : [];
-      catalogCache.set(cacheKey, {
-        expiresAt: Date.now() + CATALOG_CACHE_TTL_MS,
-        metas: allMetas,
-      });
+      catalogCache.set(cacheKey, allMetas, CATALOG_CACHE_TTL_MS);
     } catch (error) {
       // Si el addon falla ahora pero tenemos una copia anterior, mostramos esa
       // en vez de hacer desaparecer la fila del feed.
-      if (!cached) {
+      const stale = catalogCache.get(cacheKey, { allowStale: true });
+      if (!stale) {
         throw error;
       }
-      allMetas = cached.metas;
+      allMetas = stale;
     }
   }
 

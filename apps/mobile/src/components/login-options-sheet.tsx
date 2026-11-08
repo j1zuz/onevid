@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { BottomSheet, Button, Typography, useToast } from 'heroui-native';
 import * as WebBrowser from 'expo-web-browser';
 import { QrCode } from 'lucide-react-native';
-import { useCallback, useState } from 'react';
+import { type ComponentRef, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Platform,
@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import { TvSheet } from '@/components/tv-sheet';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { useDeviceLogin } from '@/hooks/use-device-login';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
@@ -33,6 +34,9 @@ export function LoginOptionsSheet({
   const [openingBrowser, setOpeningBrowser] = useState(false);
   const googleFocus = useTvFocus();
   const codeFocus = useTvFocus();
+  // En TV el foco inicial dentro de la hoja se pide explícitamente al botón de
+  // Google (Android no enfoca solo al abrir la ventana del Modal).
+  const googleRef = useRef<ComponentRef<typeof Button>>(null);
 
   const surface = useAppSurface();
   const onApproved = useCallback(async () => {
@@ -75,6 +79,102 @@ export function LoginOptionsSheet({
     router.push('/login');
   }, [onClose]);
 
+  const content = (
+    <View style={styles.body}>
+      <View style={styles.badge}>
+        <Image
+          source={require('../../assets/images/onevid-icon.png')}
+          contentFit="cover"
+          style={{ width: 46, height: 46, borderRadius: 14 }}
+        />
+      </View>
+
+      <View style={{ alignItems: 'center', gap: 6 }}>
+        {Platform.isTV ? (
+          <>
+            <Typography align="center" type="h5" weight="bold">
+              {t('Iniciar sesión')}
+            </Typography>
+            <Typography align="center" color="muted" type="body-sm">
+              {t('Continúa para iniciar sesión o crear una cuenta.')}
+            </Typography>
+          </>
+        ) : (
+          <>
+            <BottomSheet.Title className="text-center">
+              {t('Iniciar sesión')}
+            </BottomSheet.Title>
+            <BottomSheet.Description className="text-center">
+              {t('Continúa para iniciar sesión o crear una cuenta.')}
+            </BottomSheet.Description>
+          </>
+        )}
+      </View>
+
+      <Button
+        variant="outline"
+        onPress={handleGoogle}
+        isDisabled={openingBrowser}
+        hasTVPreferredFocus={Platform.isTV}
+        ref={googleRef}
+        {...googleFocus.focusProps}
+        style={[
+          {
+            alignSelf: 'center',
+            flexDirection: 'row',
+            gap: 10,
+            paddingHorizontal: 18,
+          },
+          tvFocusRing(googleFocus.focused),
+        ]}
+      >
+        <GoogleIcon size={18} />
+        <Button.Label>
+          {openingBrowser ? t('Abriendo…') : t('Continuar con Google')}
+        </Button.Label>
+      </Button>
+
+      <View style={styles.divider}>
+        <View style={styles.line} />
+        <View style={styles.or}>
+          <Typography type="body-xs" color="muted">
+            {t('o')}
+          </Typography>
+        </View>
+        <View style={styles.line} />
+      </View>
+
+      <Button
+        variant="outline"
+        onPress={handleCode}
+        hasTVPreferredFocus={false}
+        {...codeFocus.focusProps}
+        style={[
+          {
+            alignSelf: 'center',
+            flexDirection: 'row',
+            gap: 10,
+            paddingHorizontal: 18,
+          },
+          tvFocusRing(codeFocus.focused),
+        ]}
+      >
+        <QrCode size={18} color="#e5e7eb" />
+        <Button.Label>{t('Activar por código')}</Button.Label>
+      </Button>
+    </View>
+  );
+
+  // En TV el sheet de HeroUI (portal de JS) dejaba el D-pad ir a la pantalla de
+  // atrás; con un `Modal` nativo el foco se queda en el diálogo.
+  if (Platform.isTV) {
+    return (
+      <TvSheet firstFocusRef={googleRef} onClose={onClose} visible={visible}>
+        {content}
+      </TvSheet>
+    );
+  }
+
   return (
     <BottomSheet
       isOpen={visible}
@@ -84,77 +184,7 @@ export function LoginOptionsSheet({
     >
       <BottomSheet.Portal>
         <BottomSheet.Overlay />
-        <BottomSheet.Content>
-          <View style={styles.body}>
-            <View style={styles.badge}>
-              <Image
-                source={require('../../assets/images/onevid-icon.png')}
-                contentFit="cover"
-                style={{ width: 46, height: 46, borderRadius: 14 }}
-              />
-            </View>
-
-            <View style={{ alignItems: 'center', gap: 6 }}>
-              <BottomSheet.Title className="text-center">
-                {t('Iniciar sesión')}
-              </BottomSheet.Title>
-              <BottomSheet.Description className="text-center">
-                {t('Continúa para iniciar sesión o crear una cuenta.')}
-              </BottomSheet.Description>
-            </View>
-
-            <Button
-              variant="outline"
-              onPress={handleGoogle}
-              isDisabled={openingBrowser}
-              hasTVPreferredFocus={Platform.isTV}
-              {...googleFocus.focusProps}
-              style={[
-                {
-                  alignSelf: 'center',
-                  flexDirection: 'row',
-                  gap: 10,
-                  paddingHorizontal: 18,
-                },
-                tvFocusRing(googleFocus.focused),
-              ]}
-            >
-              <GoogleIcon size={18} />
-              <Button.Label>
-                {openingBrowser ? t('Abriendo…') : t('Continuar con Google')}
-              </Button.Label>
-            </Button>
-
-            <View style={styles.divider}>
-              <View style={styles.line} />
-              <View style={styles.or}>
-                <Typography type="body-xs" color="muted">
-                  {t('o')}
-                </Typography>
-              </View>
-              <View style={styles.line} />
-            </View>
-
-            <Button
-              variant="outline"
-              onPress={handleCode}
-              hasTVPreferredFocus={false}
-              {...codeFocus.focusProps}
-              style={[
-                {
-                  alignSelf: 'center',
-                  flexDirection: 'row',
-                  gap: 10,
-                  paddingHorizontal: 18,
-                },
-                tvFocusRing(codeFocus.focused),
-              ]}
-            >
-              <QrCode size={18} color="#e5e7eb" />
-              <Button.Label>{t('Activar por código')}</Button.Label>
-            </Button>
-          </View>
-        </BottomSheet.Content>
+        <BottomSheet.Content>{content}</BottomSheet.Content>
       </BottomSheet.Portal>
     </BottomSheet>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckCircle2Icon, DownloadIcon, XIcon } from "lucide-react";
+import posthog from "posthog-js";
 import {
   Tooltip,
   TooltipContent,
@@ -24,6 +25,12 @@ interface PlayerDownloadButtonProps {
   storageKey: string;
   /** Pista/hint de codec (título de la fuente) para la detección de compatibilidad. */
   codecHint?: string;
+  /**
+   * Índice 0-based de la pista de audio activa en el player. Solo aplica cuando
+   * hay que transcodificar: el archivo offline conserva ese idioma y descarta
+   * los demás.
+   */
+  audioTrackIndex?: number;
   onSaved?: () => void;
 }
 
@@ -47,6 +54,7 @@ export function PlayerDownloadButton({
   filename,
   storageKey,
   codecHint = "",
+  audioTrackIndex,
   onSaved,
 }: PlayerDownloadButtonProps) {
   const [state, setState] = useState<DownloadState>({ status: "idle" });
@@ -68,7 +76,14 @@ export function PlayerDownloadButton({
       })
       .catch((error: unknown) => {
         if (active) {
-          console.error("Could not inspect offline media:", error);
+          try {
+            posthog.capture("offline_media_error", {
+              error_name: error instanceof Error ? error.name : "unknown",
+              stage: "inspect",
+            });
+          } catch {
+            // La analítica nunca debe romper la reproducción.
+          }
         }
       });
     return () => {
@@ -89,7 +104,14 @@ export function PlayerDownloadButton({
     const remaining = state.expiresAt - Date.now();
     if (remaining <= 0) {
       void deleteOfflineMediaFile(storageKey).catch((error: unknown) => {
-        console.error("Could not expire offline media:", error);
+        try {
+          posthog.capture("offline_media_error", {
+            error_name: error instanceof Error ? error.name : "unknown",
+            stage: "expire",
+          });
+        } catch {
+          // La analítica nunca debe romper la reproducción.
+        }
       });
       setState({ status: "idle" });
       return;
@@ -97,7 +119,14 @@ export function PlayerDownloadButton({
     const timer = setTimeout(() => {
       void deleteOfflineMediaFile(storageKey)
         .catch((error: unknown) => {
-          console.error("Could not expire offline media:", error);
+          try {
+            posthog.capture("offline_media_error", {
+              error_name: error instanceof Error ? error.name : "unknown",
+              stage: "expire",
+            });
+          } catch {
+            // La analítica nunca debe romper la reproducción.
+          }
         })
         .finally(() => setState({ status: "idle" }));
     }, remaining);
@@ -127,6 +156,7 @@ export function PlayerDownloadButton({
         filename,
         storageKey,
         codecHint,
+        audioTrackIndex,
         abortedRef: aborted,
         conversionRef,
         onProgress: (progress) => {
@@ -152,7 +182,7 @@ export function PlayerDownloadButton({
         }, 4000);
       }
     }
-  }, [url, filename, storageKey, codecHint, onSaved]);
+  }, [url, filename, storageKey, codecHint, audioTrackIndex, onSaved]);
 
   if (state.status === "downloading") {
     const offset = C - state.progress * C;

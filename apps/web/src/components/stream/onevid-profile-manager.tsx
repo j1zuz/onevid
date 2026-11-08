@@ -16,7 +16,16 @@ import { LockIcon, PencilIcon, PlusIcon, TrashIcon } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "@/lib/onevid-i18n-context";
-import { avatarImageSrc, OneVidProfileAvatar } from "./onevid-profile-avatar";
+import {
+  avatarImageSrc,
+  OneVidProfileAvatar,
+} from "./onevid-profile-avatar";
+import {
+  STICKER_AVATAR_IDS,
+  stickerAvatarId,
+  stickerAvatarValue,
+} from "@/lib/onevid-avatars";
+import { Sticker, type StickerName } from "stick-it-up";
 import {
   type MutationResult,
   type OneVidProfile,
@@ -53,29 +62,59 @@ function AvatarPicker({
   onChange: (a: string) => void;
   value: string;
 }) {
+  const selectedSticker = stickerAvatarId(value);
+
   return (
-    <div className="flex flex-wrap gap-2">
-      {AVATARS.map((a) => (
-        <button
-          aria-label={a}
-          className={cn(
-            "size-10 overflow-hidden rounded-full ring-offset-background transition",
-            value === a
-              ? "ring-2 ring-primary ring-offset-2"
-              : "opacity-70 hover:opacity-100"
-          )}
-          key={a}
-          onClick={() => onChange(a)}
-          type="button"
-        >
-          {/* biome-ignore lint/performance/noImgElement: small local static asset */}
-          <img
-            alt={a}
-            className="size-full object-cover"
-            src={avatarImageSrc(a)}
-          />
-        </button>
-      ))}
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        {AVATARS.map((a) => (
+          <button
+            aria-label={a}
+            className={cn(
+              "size-10 overflow-hidden rounded-full ring-offset-background transition",
+              value === a
+                ? "ring-2 ring-primary ring-offset-2"
+                : "opacity-70 hover:opacity-100"
+            )}
+            key={a}
+            onClick={() => onChange(a)}
+            type="button"
+          >
+            {/* biome-ignore lint/performance/noImgElement: small local static asset */}
+            <img
+              alt={a}
+              className="size-full object-cover"
+              src={avatarImageSrc(a)}
+            />
+          </button>
+        ))}
+      </div>
+
+      {/* Stickers de stick-it-up: se guardan como `sticker:<id>`. */}
+      <div className="max-h-56 overflow-y-auto rounded-xl border border-border p-2">
+        <div className="grid grid-cols-8 gap-2 sm:grid-cols-10">
+          {STICKER_AVATAR_IDS.map((id) => {
+            const active = selectedSticker === id;
+            return (
+              <button
+                aria-label={id}
+                aria-pressed={active}
+                className={cn(
+                  "flex aspect-square items-center justify-center rounded-xl p-1 transition",
+                  active
+                    ? "bg-primary/15 ring-2 ring-primary"
+                    : "hover:bg-muted"
+                )}
+                key={id}
+                onClick={() => onChange(stickerAvatarValue(id))}
+                type="button"
+              >
+                <Sticker name={id as StickerName} size={34} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

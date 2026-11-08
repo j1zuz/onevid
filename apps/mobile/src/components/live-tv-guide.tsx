@@ -7,10 +7,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Heart,
-  RefreshCw,
 } from 'lucide-react-native';
 import {
   type ComponentProps,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -23,6 +23,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  TVFocusGuideView,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -57,18 +58,125 @@ const GRID_LINE = 'rgba(255,255,255,0.06)';
 const BLOCK_BG = '#1b1b1b';
 const BLOCK_BORDER = 'rgba(255,255,255,0.14)';
 const ACCENT = '#4f9dff';
+// Clave centinela de "Todas": `group` vacío significa sin filtro.
+const ALL_GROUPS_KEY = '__all_groups__';
 
 interface SelectedProgramme {
   channel: LiveTvChannel;
   programme: LiveTvProgramme;
 }
 
+
+/**
+ * Esqueleto de la guía con la MISMA forma que el contenido real (cabecera con
+ * "Canal", columnas de horas y filas de canales). Antes se pintaba el esqueleto
+ * de filas del feed (tarjetas 16:9), que no se parecía a un EPG.
+ */
+export function LiveTvGuideSkeleton({ rows = 6 }: { rows?: number }) {
+  return (
+    <View style={{ gap: 12 }}>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+          paddingHorizontal: 16,
+        }}
+      >
+        <Skeleton style={{ width: 150, height: 22, borderRadius: 6 }} />
+        <View style={{ flex: 1 }} />
+        <Skeleton style={{ width: 32, height: 32, borderRadius: 999 }} />
+        <Skeleton style={{ width: 64, height: 32, borderRadius: 999 }} />
+        <Skeleton style={{ width: 32, height: 32, borderRadius: 999 }} />
+      </View>
+      <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderColor: BORDER }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            height: 40,
+            backgroundColor: '#141414',
+            borderBottomWidth: StyleSheet.hairlineWidth,
+            borderColor: BORDER,
+          }}
+        >
+          <View
+            style={{
+              width: 160,
+              justifyContent: 'center',
+              paddingHorizontal: 10,
+              borderRightWidth: StyleSheet.hairlineWidth,
+              borderColor: BORDER,
+            }}
+          >
+            <Skeleton style={{ width: 44, height: 10, borderRadius: 4 }} />
+          </View>
+          {Array.from({ length: 3 }).map((_, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: placeholder estático
+            <View
+              key={index}
+              style={{
+                flex: 1,
+                justifyContent: 'center',
+                paddingHorizontal: 8,
+                borderLeftWidth: StyleSheet.hairlineWidth,
+                borderColor: BORDER,
+              }}
+            >
+              <Skeleton style={{ width: 46, height: 10, borderRadius: 4 }} />
+            </View>
+          ))}
+        </View>
+        {Array.from({ length: rows }).map((_, row) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: placeholder estático
+          <View
+            key={row}
+            style={{
+              flexDirection: 'row',
+              height: 84,
+              borderBottomWidth: StyleSheet.hairlineWidth,
+              borderColor: BORDER,
+            }}
+          >
+            <View
+              style={{
+                width: 160,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                paddingHorizontal: 8,
+                borderRightWidth: StyleSheet.hairlineWidth,
+                borderColor: BORDER,
+              }}
+            >
+              <Skeleton style={{ width: 64, height: 36, borderRadius: 6 }} />
+              <Skeleton style={{ flex: 1, height: 12, borderRadius: 4 }} />
+            </View>
+            <View style={{ flex: 1, padding: 6 }}>
+              <Skeleton style={{ flex: 1, borderRadius: 8 }} />
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export function LiveTvGuide({
   source,
   channels,
+  onPlayChannel = playLiveTvChannel,
+  headerExtra,
 }: {
   source: LiveTvSourceSummary;
   channels: LiveTvChannel[];
+  /**
+   * Qué hacer al tocar un canal o "Ver" en un programa. Por defecto navega al
+   * reproductor a pantalla completa; la pestaña de Live TV lo sobreescribe para
+   * reproducir arriba de la guía y poder cambiar de canal sin salir (como la web).
+   */
+  onPlayChannel?: (channel: LiveTvChannel) => void;
+  /** Selector de categoría que se pinta a la derecha del encabezado (TV). */
+  headerExtra?: ReactNode;
 }) {
   const { t } = useTranslation();
   const { width } = useWindowDimensions();
@@ -77,8 +185,16 @@ export function LiveTvGuide({
   // menos tramos pero más grandes, como la guía de la web.
   const channelWidth = isTV ? 230 : 160;
   const visibleCells = isTV ? GUIDE_TICKS : 2;
+  // En TV la guía se alinea con la barra de búsqueda (16px por lado), como el
+  // resto de la pantalla; si no, la rejilla iba de borde a borde.
+  const horizontalInset = isTV ? 16 : 0;
   const cellWidth = isTV
-    ? Math.max(120, Math.round((width - channelWidth) / visibleCells))
+    ? Math.max(
+        120,
+        Math.round(
+          (width - channelWidth - horizontalInset * 2) / visibleCells,
+        ),
+      )
     : 150;
   const timelineWidth = cellWidth * GUIDE_TICKS;
   const rowBaseHeight = isTV ? 96 : 84;
@@ -90,7 +206,6 @@ export function LiveTvGuide({
   );
   const [now, setNow] = useState(() => Date.now());
   const [selected, setSelected] = useState<SelectedProgramme | null>(null);
-
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
@@ -203,46 +318,34 @@ export function LiveTvGuide({
           </Typography>
         </View>
         <View style={{ flex: 1 }} />
+        {headerExtra}
         <FocusButton
           accessibilityLabel={t('Tres horas anteriores')}
+          className="h-8 w-8 px-0"
           onPress={() => setWindowStart((value) => value - GUIDE_WINDOW_MS)}
           size="sm"
           variant="ghost"
         >
           <ChevronLeft size={16} color="#fff" />
         </FocusButton>
-        <FocusButton onPress={goNow} size="sm" variant="secondary">
+        <FocusButton
+          className="h-8 px-3"
+          onPress={goNow}
+          size="sm"
+          variant="secondary"
+        >
           {t('Ahora')}
         </FocusButton>
         <FocusButton
           accessibilityLabel={t('Tres horas siguientes')}
+          className="h-8 w-8 px-0"
           onPress={() => setWindowStart((value) => value + GUIDE_WINDOW_MS)}
           size="sm"
           variant="ghost"
         >
           <ChevronRight size={16} color="#fff" />
         </FocusButton>
-        <FocusButton
-          accessibilityLabel={t('Actualizar guía')}
-          isDisabled={loading}
-          onPress={() => void guideQuery.refetch()}
-          size="sm"
-          variant="ghost"
-        >
-          <RefreshCw size={15} color="#fff" />
-        </FocusButton>
       </View>
-
-      <Typography
-        type="body-xs"
-        color="muted"
-        style={{ paddingHorizontal: 16 }}
-      >
-        {formatGuideRange(windowStart, windowEnd)} · {t('Página {{page}} de {{pageCount}}', {
-          page: pageData.page + 1,
-          pageCount: pageData.pageCount,
-        })}
-      </Typography>
 
       {!source.hasEpg ? (
         <Typography
@@ -272,6 +375,9 @@ export function LiveTvGuide({
         horizontal
         nestedScrollEnabled
         showsHorizontalScrollIndicator={false}
+        style={
+          horizontalInset > 0 ? { marginHorizontal: horizontalInset } : undefined
+        }
       >
         <View style={{ width: channelWidth + timelineWidth }}>
           <View
@@ -286,7 +392,9 @@ export function LiveTvGuide({
             <View
               style={{
                 width: channelWidth,
-                justifyContent: 'center',
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
                 paddingHorizontal: 10,
                 borderRightWidth: StyleSheet.hairlineWidth,
                 borderColor: BORDER,
@@ -295,6 +403,26 @@ export function LiveTvGuide({
               <Typography type="body-xs" weight="semibold">
                 {t('Canal')}
               </Typography>
+              {channels.length > 0 ? (
+                <View
+                  style={{
+                    marginLeft: 'auto',
+                    borderRadius: 6,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: 'rgba(255,255,255,0.25)',
+                    paddingHorizontal: 4,
+                    paddingVertical: 1,
+                  }}
+                >
+                  <Typography
+                    type="body-xs"
+                    color="muted"
+                    style={{ fontSize: 9 }}
+                  >
+                    {t('{{count}} canales', { count: channels.length })}
+                  </Typography>
+                </View>
+              ) : null}
             </View>
             <View style={{ flexDirection: 'row', width: timelineWidth }}>
               {ticks.map((tick) => (
@@ -345,6 +473,7 @@ export function LiveTvGuide({
                 onSelectProgramme={(programme) =>
                   setSelected({ channel, programme })
                 }
+                onPlay={() => onPlayChannel(channel)}
                 onToggleFavorite={() => void toggleSaved(channel, 'favorite')}
                 onToggleWatchlist={() => void toggleSaved(channel, 'watchlist')}
                 programmeHeight={programmeHeight}
@@ -367,6 +496,7 @@ export function LiveTvGuide({
         }}
       >
         <FocusButton
+          className="h-8 px-3"
           isDisabled={pageData.page === 0}
           onPress={() => setPage(pageData.page - 1)}
           size="sm"
@@ -374,10 +504,8 @@ export function LiveTvGuide({
         >
           {t('Anterior')}
         </FocusButton>
-        <Typography type="body-xs" color="muted">
-          {pageData.page + 1} / {pageData.pageCount}
-        </Typography>
         <FocusButton
+          className="h-8 px-3"
           isDisabled={pageData.page + 1 >= pageData.pageCount}
           onPress={() => setPage(pageData.page + 1)}
           size="sm"
@@ -387,11 +515,12 @@ export function LiveTvGuide({
         </FocusButton>
       </View>
 
+
       <ProgrammeModal
         onClose={() => setSelected(null)}
         onWatch={(channel) => {
           setSelected(null);
-          playLiveTvChannel(channel);
+          onPlayChannel(channel);
         }}
         selected={selected}
       />
@@ -412,6 +541,7 @@ function GuideRow({
   now,
   nowPosition,
   onSelectProgramme,
+  onPlay,
   saved,
   onToggleFavorite,
   onToggleWatchlist,
@@ -429,6 +559,8 @@ function GuideRow({
   now: number;
   nowPosition: number | null;
   onSelectProgramme: (programme: LiveTvProgramme) => void;
+  /** Reproduce este canal (arriba de la guía, no a pantalla completa). */
+  onPlay: () => void;
   saved: SavedStatus;
   onToggleFavorite: () => void;
   onToggleWatchlist: () => void;
@@ -447,6 +579,7 @@ function GuideRow({
       <ChannelCell
         channel={channel}
         height={height}
+        onPlay={onPlay}
         onToggleFavorite={onToggleFavorite}
         onToggleWatchlist={onToggleWatchlist}
         saved={saved}
@@ -536,6 +669,7 @@ function ChannelCell({
   width,
   height,
   saved,
+  onPlay,
   onToggleFavorite,
   onToggleWatchlist,
 }: {
@@ -543,6 +677,8 @@ function ChannelCell({
   width: number;
   height: number;
   saved: SavedStatus;
+  /** Reproduce el canal (arriba de la guía o a pantalla completa). */
+  onPlay: () => void;
   onToggleFavorite: () => void;
   onToggleWatchlist: () => void;
 }) {
@@ -568,7 +704,7 @@ function ChannelCell({
       <Pressable
         accessibilityLabel={channel.name}
         accessibilityRole="button"
-        onPress={() => playLiveTvChannel(channel)}
+        onPress={onPlay}
         {...playFocus.focusProps}
         style={[
           {
@@ -588,7 +724,7 @@ function ChannelCell({
             source={{ uri: logo }}
             contentFit="contain"
             onError={() => setLogoFailed(true)}
-            style={{ width: 56, height: 34 }}
+            style={{ width: 64, height: 36, borderRadius: 6 }}
             transition={150}
           />
         ) : (
@@ -712,6 +848,33 @@ function ProgrammeBlock({
   );
 }
 
+/**
+ * Panel del modal de programa. En TV el foco se limita al panel: al llegar al
+ * último botón (o arriba/abajo) Android podía saltar a la guía de atrás, que
+ * sigue siendo enfocable aunque el modal esté encima.
+ */
+function TvModalPanel({
+  children,
+  style,
+}: {
+  children: ReactNode;
+  style?: ComponentProps<typeof View>['style'];
+}) {
+  if (!Platform.isTV) return <View style={style}>{children}</View>;
+  return (
+    <TVFocusGuideView
+      autoFocus
+      style={style}
+      trapFocusDown
+      trapFocusLeft
+      trapFocusRight
+      trapFocusUp
+    >
+      {children}
+    </TVFocusGuideView>
+  );
+}
+
 function ProgrammeModal({
   selected,
   onClose,
@@ -747,7 +910,7 @@ function ProgrammeModal({
           onPress={onClose}
           style={StyleSheet.absoluteFill}
         />
-        <View
+        <TvModalPanel
           style={{
             alignSelf: 'center',
             width: '100%',
@@ -793,7 +956,7 @@ function ProgrammeModal({
               {t('Ver canal en vivo')}
             </Button>
           </View>
-        </View>
+        </TvModalPanel>
       </View>
     </Modal>
   );

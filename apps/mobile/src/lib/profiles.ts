@@ -1,13 +1,13 @@
 import * as SecureStore from 'expo-secure-store';
 import { getActiveProfileId, setActiveProfileId } from './active-profile';
 import { apiFetch } from './api';
-import type { AvatarKey } from './avatars';
 import { queryClient } from './query';
 
 export interface Profile {
   id: string;
   name: string;
-  avatar: AvatarKey;
+  /** Clave de gradiente ('black', 'blue'…) o 'sticker:<id>'. */
+  avatar: string;
   isKids: boolean;
   hasPin?: boolean;
   createdAt?: string;
@@ -19,6 +19,23 @@ export interface ProfilesResponse {
 }
 
 const ACTIVE_KEY = 'onevid_active_profile';
+
+// El perfil activo se guarda en SecureStore, pero varias pantallas (p. ej. el
+// icono del tab "Perfil") copian su valor a estado local. Sin aviso, tras
+// editar el avatar el tab seguía mostrando el anterior hasta cambiar de perfil.
+type ActiveProfileListener = (profile: Profile | null) => void;
+const activeProfileListeners = new Set<ActiveProfileListener>();
+
+export function subscribeActiveProfile(
+  listener: ActiveProfileListener,
+): () => void {
+  activeProfileListeners.add(listener);
+  return () => activeProfileListeners.delete(listener);
+}
+
+function emitActiveProfile(profile: Profile | null) {
+  for (const listener of activeProfileListeners) listener(profile);
+}
 
 export async function loadActiveProfile(): Promise<Profile | null> {
   const raw = await SecureStore.getItemAsync(ACTIVE_KEY);
@@ -51,11 +68,13 @@ export async function setActiveProfile(p: Profile): Promise<void> {
     }
   }
   await SecureStore.setItemAsync(ACTIVE_KEY, JSON.stringify(p));
+  emitActiveProfile(p);
 }
 
 export async function clearActiveProfile(): Promise<void> {
   setActiveProfileId(null);
   await SecureStore.deleteItemAsync(ACTIVE_KEY);
+  emitActiveProfile(null);
 }
 
 // ─── API ────────────────────────────────────────────────────────────
@@ -66,7 +85,7 @@ export async function listProfiles(): Promise<ProfilesResponse> {
 
 export async function createProfile(input: {
   name: string;
-  avatar: AvatarKey;
+  avatar: string;
   isKids: boolean;
   lockPin?: string | null;
   authPin?: string;
@@ -81,7 +100,7 @@ export async function updateProfile(
   id: string,
   input: {
     name?: string;
-    avatar?: AvatarKey;
+    avatar?: string;
     isKids?: boolean;
     lockPin?: string | null;
     authPin?: string;

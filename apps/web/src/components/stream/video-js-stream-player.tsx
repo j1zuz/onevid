@@ -7,11 +7,16 @@ import {
   useMedia,
   videoFeatures,
 } from "@videojs/react";
-import { HlsJsVideo } from "@videojs/react/media/hlsjs-video";
+import {
+  HlsJsVideo,
+  type HlsEngineConfig,
+} from "@videojs/react/media/hlsjs-video";
 import { Video, VideoSkin } from "@videojs/react/video";
+import posthog from "posthog-js";
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type ComponentProps,
   type ReactNode,
@@ -20,6 +25,198 @@ import "@videojs/react/video/skin.css";
 import { cn } from "@workspace/ui/lib/utils";
 import "./video-js-player-overrides.css";
 import type { MimeType } from "@/types/stream";
+
+type HlsJsConfig = NonNullable<HlsEngineConfig["hlsJs"]>;
+
+/**
+ * hls.js del directo. El objetivo es arrancar cerca del borde
+ * (`liveSyncDurationCount`) sin acumular RAM (`backBufferLength`) y sin que la
+ * latencia derive con el tiempo (`liveMaxLatencyDurationCount` +
+ * `maxLiveSyncPlaybackRate`). El colchón por delante no aumenta la latencia: el
+ * playhead sigue cerca del borde; solo protege de la jitter del proveedor.
+ */
+const LIVE_HLS_CONFIG_CONTROL: HlsJsConfig = {
+  // Arranque: primera estimación baja para que el primer segmento sea ligero y
+  // `maxLoadingDelay` corto para no esperar 4 s a elegir nivel.
+  startLevel: -1,
+  abrEwmaDefaultEstimate: 800_000,
+  maxLoadingDelay: 3,
+  initialLiveManifestSize: 1,
+  // Régimen: 20–30 s por delante; 40 MB y 15 s de back buffer en vez del
+  // default `backBufferLength: Infinity` (que acumula RAM en sesiones largas).
+  maxBufferLength: 30,
+  maxMaxBufferLength: 60,
+  maxBufferSize: 40 * 1000 * 1000,
+  backBufferLength: 15,
+  liveSyncDurationCount: 3,
+  liveMaxLatencyDurationCount: 6,
+  maxLiveSyncPlaybackRate: 1.1,
+  // Más conservador que los defaults (4 y 0.7) en redes/proveedores inestables.
+  maxStarvationDelay: 3,
+  abrBandWidthUpFactor: 0.65,
+  enableWorker: true,
+  // Los proveedores IPTV reales tardan varios segundos en el primer byte (hemos
+  // medido hasta ~6 s en el manifiesto). Los timeouts del default (10 s) se
+  // quedaban cortos en recargas de playlist y segmentos, y convertían una
+  // lentitud normal en un error fatal. Estos valores dan margen sin dejar el
+  // canal colgado para siempre: el watchdog de LiveTvPlayer sigue mandando.
+  manifestLoadPolicy: {
+    default: {
+      maxTimeToFirstByteMs: 20000,
+      maxLoadTimeMs: 30000,
+      timeoutRetry: { maxNumRetry: 3, retryDelayMs: 0, maxRetryDelayMs: 0 },
+      errorRetry: { maxNumRetry: 2, retryDelayMs: 1000, maxRetryDelayMs: 8000 },
+    },
+  },
+  playlistLoadPolicy: {
+    default: {
+      maxTimeToFirstByteMs: 15000,
+      maxLoadTimeMs: 30000,
+      timeoutRetry: { maxNumRetry: 3, retryDelayMs: 0, maxRetryDelayMs: 0 },
+      errorRetry: { maxNumRetry: 3, retryDelayMs: 1000, maxRetryDelayMs: 8000 },
+    },
+  },
+  fragLoadPolicy: {
+    default: {
+      maxTimeToFirstByteMs: 12000,
+      maxLoadTimeMs: 60000,
+      timeoutRetry: { maxNumRetry: 4, retryDelayMs: 0, maxRetryDelayMs: 0 },
+      errorRetry: { maxNumRetry: 6, retryDelayMs: 1000, maxRetryDelayMs: 8000 },
+    },
+  },
+};
+
+/**
+ * Variante A/B del directo: prioriza arranque/latencia sobre colchón. Se elige
+ * una sola vez por carga (cambiarla en caliente recrearía el motor de hls.js y
+ * reiniciaría el canal). Para probar en local: `?live_variant=fast-start`.
+ */
+const LIVE_HLS_CONFIG_FAST_START: HlsJsConfig = {
+  startLevel: 0,
+  abrEwmaDefaultEstimate: 600_000,
+  maxLoadingDelay: 2,
+  initialLiveManifestSize: 1,
+  maxBufferLength: 20,
+  maxMaxBufferLength: 40,
+  maxBufferSize: 30 * 1000 * 1000,
+  backBufferLength: 10,
+  liveSyncDurationCount: 2,
+  liveMaxLatencyDurationCount: 5,
+  maxLiveSyncPlaybackRate: 1.1,
+  maxStarvationDelay: 2,
+  abrBandWidthUpFactor: 0.6,
+  enableWorker: true,
+  manifestLoadPolicy: LIVE_HLS_CONFIG_CONTROL.manifestLoadPolicy,
+  playlistLoadPolicy: LIVE_HLS_CONFIG_CONTROL.playlistLoadPolicy,
+  fragLoadPolicy: LIVE_HLS_CONFIG_CONTROL.fragLoadPolicy,
+};
+
+// Nota para el futuro: algunos proveedores IPTV sirven H.264 corrupto que el
+// decoder del navegador rechaza (MEDIA_ERR_DECODE). El pipeline de MediaBunny
+// en live solo transcodifica audio; el vídeo H.264 va en passthrough, así que
+// no puede repararlo. No forzamos re-encode de vídeo en vivo: no es viable a
+// tiempo real. La alerta muestra la causa real al usuario.
+
+type LiveConfigVariant = "control" | "fast-start";
+const LIVE_CONFIG_FLAG = "live-player-buffer";
+
+function resolveLiveConfigVariant(): LiveConfigVariant {
+  if (typeof window === "undefined") {
+    return "control";
+  }
+  try {
+    const override = new URLSearchParams(window.location.search).get(
+      "live_variant"
+    );
+    if (override === "fast-start" || override === "b") {
+      return "fast-start";
+    }
+    if (override === "control" || override === "a") {
+      return "control";
+    }
+    const flag = posthog.getFeatureFlag(LIVE_CONFIG_FLAG);
+    if (flag === "fast-start" || flag === "b") {
+      return "fast-start";
+    }
+  } catch {
+    /* Sin PostHog disponible: control. */
+  }
+  return "control";
+}
+
+const LIVE_HLS_CONFIGS: Record<LiveConfigVariant, HlsJsConfig> = {
+  control: LIVE_HLS_CONFIG_CONTROL,
+  "fast-start": LIVE_HLS_CONFIG_FAST_START,
+};
+
+/**
+ * hls.js de VOD. Arranca con un colchón moderado y, si la reproducción aguanta
+ * 10 s, la rampa de buffer de abajo lo sube a 60 s / 90 MB. `startFragPrefetch`
+ * adelanta el primer fragmento sin retrasar el primer frame.
+ */
+const VOD_HLS_CONFIG: HlsJsConfig = {
+  maxBufferLength: 30,
+  maxMaxBufferLength: 60,
+  maxBufferSize: 60 * 1000 * 1000,
+  backBufferLength: 30,
+  startFragPrefetch: true,
+  capLevelToPlayerSize: true,
+  abrEwmaDefaultEstimate: 1_000_000,
+  maxStarvationDelay: 4,
+  enableWorker: true,
+};
+
+const VOD_BUFFER_AFTER_RAMP_SEC = 60;
+const VOD_BUFFER_AFTER_RAMP_BYTES = 90 * 1000 * 1000;
+const VOD_BUFFER_RAMP_DELAY_MS = 10_000;
+
+function monotonicNow(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+interface HlsEngineHandle {
+  config: {
+    maxBufferLength: number;
+    maxBufferSize: number;
+  };
+  startLoad?: () => void;
+  recoverMediaError?: () => void;
+}
+
+interface LiveHlsErrorData {
+  type?: string;
+  details?: string;
+  fatal?: boolean;
+  reason?: string;
+}
+
+const MAX_LIVE_INPLACE_RECOVERIES = 2;
+const LIVE_RECOVERY_BACKOFF_MS = [400, 1200];
+const LIVE_STABLE_RESET_MS = 10_000;
+
+/**
+ * hls.js entrega el detalle en `MediaError.data`, pero el `<video>` lo entrega
+ * envuelto en un `ErrorEvent.error`. Aceptamos las dos formas.
+ */
+function liveErrorData(error: unknown): LiveHlsErrorData | undefined {
+  const candidate = error as
+    | {
+        data?: LiveHlsErrorData;
+        error?: { data?: LiveHlsErrorData };
+      }
+    | null
+    | undefined;
+  return candidate?.data ?? candidate?.error?.data;
+}
+
+/** El `Hls` de hls.js vive en `media.engine` cuando el camino es MSE. */
+function getHlsEngine(media: unknown): HlsEngineHandle | null {
+  const engine = (media as { engine?: unknown } | null)?.engine;
+  if (!engine || typeof engine !== "object" || !("config" in engine)) {
+    return null;
+  }
+  return engine as HlsEngineHandle;
+}
 
 function serializePlaybackError(error: unknown): string {
   if (error instanceof Error) {
@@ -115,6 +312,12 @@ interface VideoJsStreamPlayerProps {
   poster?: string;
   preload?: "auto" | "metadata" | "none";
   src: string;
+  /**
+   * Metadatos no sensibles para segmentar los eventos del player
+   * (`player_ttff_ms`, `live_playback_error`): por ejemplo `content_id`,
+   * `content_type` o `channel_name`. Nunca incluir URLs ni tokens.
+   */
+  ttffProperties?: Record<string, string | number | boolean>;
 }
 
 /** Una pista de subtítulos externa, ya en WebVTT y servible con CORS propio. */
@@ -188,6 +391,7 @@ export function VideoJsStreamPlayer({
   onWaiting,
   onPlaying,
   onTimeUpdate,
+  ttffProperties,
 }: VideoJsStreamPlayerProps) {
   // Estado y no ref: al montar el <video> hay que re-renderizar para publicarlo
   // vía `onMediaRef`.
@@ -195,10 +399,30 @@ export function VideoJsStreamPlayer({
   // Objeto media del skin, que `MediaBridge` saca del contexto de `<Player>`.
   const [media, setMedia] = useState<unknown>(null);
   const handleMedia = useCallback((next: unknown) => setMedia(next), []);
+  // TTFF: se mide desde que la fuente queda montada hasta el primer `playing`.
+  // Los eventos posteriores (seek, recuperación de un corte) no lo reenvían.
+  const [hasStartedPlaying, setHasStartedPlaying] = useState(false);
+  const startedAtRef = useRef<number | null>(null);
+  const ttffReportedRef = useRef(false);
+  // Recuperación en caliente del directo: si hls.js emite un fatal, probamos
+  // `recoverMediaError`/`startLoad` antes de rendirnos y mostrar la alerta.
+  const liveRecoveryAttemptsRef = useRef(0);
+  const liveRecoveryTimerRef = useRef<number | null>(null);
+  const liveStableTimerRef = useRef<number | null>(null);
+  // Evita duplicar el evento: el mismo fatal llega por el <video> y por el
+  // bridge de estado del player.
+  const lastLiveErrorRef = useRef<{ details: string; at: number } | null>(null);
   // HLS (streams en vivo o .m3u8 bajo demanda) necesita hls.js para MSE: un
   // <video> nativo solo lo reproduce en Safari. HlsJsVideo decide internamente
   // MSE vs. nativo según soporte del navegador.
   const isHls = mimeType === "application/x-mpegURL";
+  // Se resuelve al montar el <video> (no al cargar el chunk): para entonces los
+  // flags de PostHog ya suelen estar disponibles. Cambiarla en caliente
+  // recrearía hls.js y reiniciaría el canal, así que es estable por sesión.
+  const [liveConfigVariant] = useState<LiveConfigVariant>(() =>
+    resolveLiveConfigVariant()
+  );
+  const liveHlsConfig = LIVE_HLS_CONFIGS[liveConfigVariant];
 
   const rootClassName = cn(
     "stream-video-player-root relative w-full overflow-hidden rounded-lg",
@@ -210,6 +434,36 @@ export function VideoJsStreamPlayer({
   useEffect(() => {
     onMediaRef?.({ media, video: videoEl });
   }, [media, videoEl, onMediaRef]);
+
+  // Cada fuente nueva reinicia la medición y la rampa de buffer.
+  useEffect(() => {
+    startedAtRef.current = monotonicNow();
+    ttffReportedRef.current = false;
+    liveRecoveryAttemptsRef.current = 0;
+    lastLiveErrorRef.current = null;
+    if (liveRecoveryTimerRef.current !== null) {
+      window.clearTimeout(liveRecoveryTimerRef.current);
+      liveRecoveryTimerRef.current = null;
+    }
+    if (liveStableTimerRef.current !== null) {
+      window.clearTimeout(liveStableTimerRef.current);
+      liveStableTimerRef.current = null;
+    }
+    setHasStartedPlaying(false);
+  }, [src]);
+
+  // Los timers de recuperación no deben sobrevivir al desmontaje.
+  useEffect(
+    () => () => {
+      if (liveRecoveryTimerRef.current !== null) {
+        window.clearTimeout(liveRecoveryTimerRef.current);
+      }
+      if (liveStableTimerRef.current !== null) {
+        window.clearTimeout(liveStableTimerRef.current);
+      }
+    },
+    []
+  );
 
   // `default` a propósito en ninguno: el <track> arranca desactivado y es el
   // selector el que pone `mode = "showing"` cuando el usuario elige idioma.
@@ -229,51 +483,105 @@ export function VideoJsStreamPlayer({
     }
   }, [src, mimeType, onSourceInfo]);
 
+  const tryRecoverLivePlayback = useCallback(
+    (error: unknown): boolean => {
+      const data = liveErrorData(error);
+      if (!data) {
+        return false;
+      }
+      // `fatal: false` significa que hls.js ya se está recuperando solo; no
+      // mostramos la alerta ni pisamos su recuperación.
+      if (data.fatal === false) {
+        return true;
+      }
+      if (liveRecoveryTimerRef.current !== null) {
+        return true;
+      }
+      if (liveRecoveryAttemptsRef.current >= MAX_LIVE_INPLACE_RECOVERIES) {
+        return false;
+      }
+      const engine = getHlsEngine(media);
+      if (!engine) {
+        return false;
+      }
+      const attempt = liveRecoveryAttemptsRef.current;
+      liveRecoveryAttemptsRef.current += 1;
+      const delay = LIVE_RECOVERY_BACKOFF_MS[attempt] ?? 1200;
+      liveRecoveryTimerRef.current = window.setTimeout(() => {
+        liveRecoveryTimerRef.current = null;
+        if (data.type === "mediaError") {
+          engine.recoverMediaError?.();
+        } else {
+          engine.startLoad?.();
+        }
+      }, delay);
+      return true;
+    },
+    [media]
+  );
+
   const handleError = useCallback(
     (error: unknown) => {
       if (liveMode) {
-        // HLS errors can embed provider URLs and credentials, including in their cause/data.
-        if (process.env.NODE_ENV === "development") {
-          const candidate = error as {
+        const candidate = error as {
+          data?: LiveHlsErrorData;
+          error?: {
             code?: unknown;
-            details?: unknown;
-            fatal?: unknown;
-            message?: unknown;
-            reason?: unknown;
-            response?: { code?: unknown };
-            target?: unknown;
-            type?: unknown;
+            data?: LiveHlsErrorData;
           };
-          const target =
-            typeof HTMLVideoElement !== "undefined" &&
-            candidate.target instanceof HTMLVideoElement
-              ? candidate.target
-              : null;
-          const detail =
-            error && typeof error === "object"
-              ? JSON.stringify({
-                  type: candidate.type,
-                  details: candidate.details,
-                  fatal: candidate.fatal,
-                  reason: candidate.reason,
-                  code: candidate.code ?? candidate.response?.code,
-                  mediaCode: target?.error?.code,
-                  readyState: target?.readyState,
-                  networkState: target?.networkState,
-                }).slice(0, 300)
-              : String(error).slice(0, 300);
-          // biome-ignore lint/suspicious/noConsole: diagnóstico temporal en desarrollo.
-          console.warn("[live-tv] playback error:", detail);
+          target?: unknown;
+        };
+        const data = candidate.data ?? candidate.error?.data;
+        const mediaErrorCode =
+          (candidate.error?.code as number | undefined) ??
+          (typeof HTMLVideoElement !== "undefined" &&
+          candidate.target instanceof HTMLVideoElement
+            ? candidate.target.error?.code
+            : undefined) ??
+          null;
+        // `MEDIA_ERR_DECODE` (3) sin detalle de hls.js también es un problema de
+        // códec: el navegador no pudo decodificar el vídeo de ese segmento.
+        const details =
+          data?.details ??
+          (mediaErrorCode === 3 ? "mediaDecodeError" : "unknown");
+        const now = Date.now();
+        const recovering = tryRecoverLivePlayback(error);
+        const shouldReport =
+          !lastLiveErrorRef.current ||
+          lastLiveErrorRef.current.details !== details ||
+          now - lastLiveErrorRef.current.at > 1500;
+        if (shouldReport) {
+          lastLiveErrorRef.current = { details, at: now };
+          try {
+            posthog.capture("live_playback_error", {
+              details,
+              hls_type: data?.type ?? null,
+              fatal: data?.fatal ?? null,
+              media_error_code: mediaErrorCode,
+              recovery_attempt: liveRecoveryAttemptsRef.current,
+              recovered: recovering,
+              config_variant: liveConfigVariant,
+              ...(ttffProperties ?? {}),
+            });
+          } catch {
+            // La analítica nunca debe romper la reproducción.
+          }
         }
-        onError?.(new Error("No se pudo reproducir este canal de Live TV."));
+        if (recovering) {
+          return;
+        }
+        const failure = new Error(
+          "No se pudo reproducir este canal de Live TV."
+        ) as Error & { details?: string };
+        failure.details = details;
+        onError?.(failure);
         return;
       }
       const message = serializePlaybackError(error);
       const err = error instanceof Error ? error : new Error(message);
-      console.error("Playback error:", err);
       onError?.(err);
     },
-    [liveMode, onError],
+    [liveConfigVariant, liveMode, onError, tryRecoverLivePlayback, ttffProperties]
   );
 
   const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -283,6 +591,60 @@ export function VideoJsStreamPlayer({
       Number.isFinite(el.duration) ? el.duration : 0
     );
   };
+
+  const handlePlaying = useCallback(() => {
+    const startedAt = startedAtRef.current;
+    if (!ttffReportedRef.current && startedAt !== null) {
+      ttffReportedRef.current = true;
+      try {
+        posthog.capture("player_ttff_ms", {
+          ttff_ms: Math.max(0, Math.round(monotonicNow() - startedAt)),
+          mode: liveMode ? "live" : "vod",
+          engine: isHls ? "hls" : "native",
+          mime_type: mimeType,
+          autoplay: autoPlay,
+          preload,
+          ...(liveMode ? { config_variant: liveConfigVariant } : {}),
+          ...(ttffProperties ?? {}),
+        });
+      } catch {
+        // La analítica nunca debe romper la reproducción.
+      }
+    }
+    setHasStartedPlaying(true);
+    if (liveMode) {
+      // Tras 10 s de reproducción estable, perdonamos los intentos de
+      // recuperación anteriores: un corte puntual no debe agotar el presupuesto
+      // para un corte que ocurra una hora después.
+      if (liveStableTimerRef.current !== null) {
+        window.clearTimeout(liveStableTimerRef.current);
+      }
+      liveStableTimerRef.current = window.setTimeout(() => {
+        liveRecoveryAttemptsRef.current = 0;
+        liveStableTimerRef.current = null;
+      }, LIVE_STABLE_RESET_MS);
+    }
+    onPlaying?.();
+  }, [isHls, liveConfigVariant, liveMode, mimeType, onPlaying, ttffProperties, autoPlay, preload]);
+
+  // En VOD HLS, una vez que la reproducción se sostiene 10 s, subimos el
+  // colchón. Hacerlo en el segundo 0 solo descarga de más antes de saber si la
+  // red aguanta. En Live no se toca: 30 s por delante ya es suficiente.
+  useEffect(() => {
+    if (!hasStartedPlaying || liveMode || !isHls) {
+      return;
+    }
+    const engine = getHlsEngine(media);
+    if (!engine) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      engine.config.maxBufferLength = VOD_BUFFER_AFTER_RAMP_SEC;
+      engine.config.maxBufferSize = VOD_BUFFER_AFTER_RAMP_BYTES;
+    }, VOD_BUFFER_RAMP_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [hasStartedPlaying, isHls, liveMode, media]);
+
   const hlsVideoProps = {
     autoPlay,
     controls,
@@ -290,7 +652,7 @@ export function VideoJsStreamPlayer({
     onError: handleError,
     onCanPlay,
     onLoadStart,
-    onPlaying,
+    onPlaying: handlePlaying,
     onTimeUpdate: handleTimeUpdate,
     onWaiting,
     playsInline,
@@ -300,21 +662,11 @@ export function VideoJsStreamPlayer({
     source: {
       src,
       type: "application/vnd.apple.mpegurl",
-      // Los proveedores de IPTV cortan peticiones con frecuencia. Damos algo
-      // más de margen que los valores por defecto de hls.js, pero sin dejar de
-      // fallar: el watchdog de LiveTvPlayer muestra el error si no arranca.
-      ...(liveMode
-        ? {
-            engine: {
-              hlsJs: {
-                debug: false,
-                manifestLoadingMaxRetry: 3,
-                levelLoadingMaxRetry: 6,
-                fragLoadingMaxRetry: 8,
-              },
-            },
-          }
-        : {}),
+      // Config separada: el directo prioriza latencia estable y RAM acotada; el
+      // VOD arranca con 30 s y la rampa lo sube a 60 s si la red aguanta.
+      engine: {
+        hlsJs: liveMode ? liveHlsConfig : VOD_HLS_CONFIG,
+      },
     },
     ...(liveMode
       ? {
@@ -355,7 +707,7 @@ export function VideoJsStreamPlayer({
               onError={handleError}
               onCanPlay={onCanPlay}
               onLoadStart={onLoadStart}
-              onPlaying={onPlaying}
+              onPlaying={handlePlaying}
               onTimeUpdate={handleTimeUpdate}
               onWaiting={onWaiting}
               playsInline={playsInline}

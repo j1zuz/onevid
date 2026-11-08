@@ -1,5 +1,6 @@
 "use client";
 
+import posthog from "posthog-js";
 import { useEffect, useState } from "react";
 import {
   type LivePlaybackHandle,
@@ -87,12 +88,15 @@ export function useLiveTvPlayback(url: string | null): LiveTvPlayback {
           if (cancelled) {
             return;
           }
-          // Sin URL ni credenciales en el log: el mensaje de MediaBunny puede
-          // llevar el origen.
-          console.warn(
-            "[live-tv] no se pudo transcodificar el audio; se usa hls.js:",
-            error.name,
-          );
+          // Sin URL ni credenciales en el evento: solo el tipo de error.
+          try {
+            posthog.capture("live_audio_transcode_fallback", {
+              content_type: "live",
+              error_name: error.name,
+            });
+          } catch {
+            // La analítica nunca debe romper la reproducción.
+          }
           setSrc(null);
           setProbing(false);
         },

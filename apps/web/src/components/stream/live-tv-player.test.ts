@@ -24,6 +24,7 @@ mock.module("@workspace/ui/components/tooltip", () => ({
 }));
 mock.module("./stream-track-picker", () => ({ StreamTrackPicker: () => null }));
 const {
+  describeLiveFailure,
   getLiveEdge,
   isLiveTvPlaybackUrl,
   LIVE_TV_BUFFERING_TIMEOUT_MS,
@@ -68,6 +69,16 @@ describe("shared Live TV player", () => {
     ]) {
       assert.equal(isLiveTvPlaybackUrl(url), false);
     }
+  });
+
+  it("explains codec and network failures without always blaming HTTP", () => {
+    assert.match(describeLiveFailure("bufferAppendError"), /decodificar/);
+    assert.match(describeLiveFailure("fragParsingError"), /decodificar/);
+    assert.match(describeLiveFailure("mediaDecodeError"), /decodificar/);
+    assert.match(describeLiveFailure("bufferStalledError"), /señal/);
+    assert.match(describeLiveFailure("manifestParsingError"), /proveedor/);
+    assert.match(describeLiveFailure("manifestLoadError"), /proveedor/);
+    assert.match(describeLiveFailure(null), /proveedor/);
   });
 
   it("uses the final seekable range and avoids its exact end", () => {
