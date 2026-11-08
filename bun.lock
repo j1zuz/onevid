@@ -168,6 +168,9 @@
     "esbuild",
     "unrs-resolver",
   ],
+  "patchedDependencies": {
+    "expo-libvlc-player@58.0.5": "patches/expo-libvlc-player@58.0.5.patch",
+  },
   "overrides": {
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
