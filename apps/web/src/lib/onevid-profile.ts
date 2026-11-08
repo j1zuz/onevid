@@ -9,18 +9,9 @@ import {
 import { db } from "@/lib/db";
 import type { MediaMeta } from "@/lib/tmdb";
 
+export * from "@/lib/onevid-avatars";
+
 export const MAX_PROFILES = 5;
-
-export const PROFILE_AVATARS = [
-  "black",
-  "blue",
-  "green",
-  "orange",
-  "purple",
-  "red",
-] as const;
-
-export type ProfileAvatar = (typeof PROFILE_AVATARS)[number];
 
 const PIN_RE = /^\d{4}$/;
 
@@ -36,13 +27,6 @@ export function buildId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-export function isValidAvatar(value: unknown): value is ProfileAvatar {
-  return (
-    typeof value === "string" &&
-    (PROFILE_AVATARS as readonly string[]).includes(value)
-  );
 }
 
 export function isValidPin(value: unknown): value is string {

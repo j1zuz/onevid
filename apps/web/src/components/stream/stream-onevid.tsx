@@ -457,7 +457,17 @@ export function StreamOnevid({
         setOfflineMediaUrl(null);
         URL.revokeObjectURL(invalidOfflineUrl);
         void deleteOfflineMediaFile(offlineKey).catch((cleanupError) => {
-          console.error("Could not remove invalid offline media:", cleanupError);
+          try {
+            posthog.capture("offline_media_error", {
+              error_name:
+                cleanupError instanceof Error
+                  ? cleanupError.name
+                  : "unknown",
+              stage: "cleanup",
+            });
+          } catch {
+            // La analítica nunca debe romper la reproducción.
+          }
         });
         setPlaybackRetry(0);
         setPlaybackError(null);
@@ -1034,6 +1044,10 @@ export function StreamOnevid({
             onWaiting={() => setIsBuffering(true)}
             src={activeSrc}
             subtitles={subtitles}
+            ttffProperties={{
+              content_id: contentId,
+              content_type: contentType,
+            }}
           />
         )}
         {/* Va DESPUÉS del player a propósito: el <video> de MSE pinta negro

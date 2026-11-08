@@ -21,6 +21,7 @@ import {
   type LiveTvProgramme,
 } from "./live-tv";
 import { isSafeFetchUrl, SAFE_FETCH_MAX_BODY_BYTES } from "../utils/ssrf-guard";
+import { LruTtlCache } from "./lru-ttl-cache";
 import { checkRateLimit, rateLimitResponse } from "./rate-limit";
 import { parseXmltvAll, selectProgrammes } from "./xmltv";
 import {
@@ -45,21 +46,21 @@ const LIVE_TV_CHANNELS_TIMEOUT_MS = 30_000;
 // El catálogo cambia poco: 10 minutos evitan re-descargar y re-parsear miles de
 // canales en cada navegación; la acción "actualizar" sigue forzando refresh.
 const LIVE_CHANNELS_CACHE_TTL_MS = 10 * 60_000;
-const liveChannelsCache = new Map<
-  string,
-  { expiresAt: number; channels: LiveTvChannel[] }
->();
+// Cada entrada guarda la lista completa de canales de un usuario+fuente (miles
+// de objetos), así que el tope es bajo: 25 cubre de sobra los refrescos
+// recientes sin dejar crecer el proceso con el número de usuarios.
+const LIVE_CHANNELS_CACHE_MAX_ENTRIES = 25;
+const liveChannelsCache = new LruTtlCache<string, LiveTvChannel[]>(
+  LIVE_CHANNELS_CACHE_MAX_ENTRIES,
+);
 // Guía XMLTV parseada. Sin esto, cada página/ventana de la guía vuelve a bajar
 // y parsear el XMLTV completo (hasta 8 MiB), que es lo que dispara el CPU.
 const XMLTV_CACHE_TTL_MS = 5 * 60_000;
 const XMLTV_CACHE_MAX_SOURCES = 4;
-const xmltvCache = new Map<
+const xmltvCache = new LruTtlCache<
   string,
-  {
-    expiresAt: number;
-    programmes: Map<string, LiveTvProgramme[]>;
-  }
->();
+  Map<string, LiveTvProgramme[]>
+>(XMLTV_CACHE_MAX_SOURCES);
 const blocked = new BlockList();
 for (const [address, prefix] of [
   ["0.0.0.0", 8],
@@ -637,8 +638,8 @@ async function loadCachedChannels(
     liveChannelsCache.delete(cacheKey);
   }
   const cached = liveChannelsCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.channels;
+  if (cached) {
+    return cached;
   }
 
   const channels =
@@ -662,10 +663,7 @@ async function loadCachedChannels(
     if (!updated.length) throw new LiveTvError("Fuente no encontrada.", 404);
   }
 
-  liveChannelsCache.set(cacheKey, {
-    expiresAt: Date.now() + LIVE_CHANNELS_CACHE_TTL_MS,
-    channels,
-  });
+  liveChannelsCache.set(cacheKey, channels, LIVE_CHANNELS_CACHE_TTL_MS);
   return channels;
 }
 
@@ -684,22 +682,15 @@ async function loadParsedXmltv(
   epgUrl: string,
 ): Promise<Map<string, LiveTvProgramme[]>> {
   const cached = xmltvCache.get(epgUrl);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.programmes;
+  if (cached) {
+    return cached;
   }
   const resource = await fetchLiveTvResource(epgUrl, {
     maxBytes: LIVE_TV_MAX_XMLTV_BYTES,
     accept: "application/xml, text/xml",
   });
   const programmes = parseXmltvAll(resource.text);
-  xmltvCache.set(epgUrl, {
-    expiresAt: Date.now() + XMLTV_CACHE_TTL_MS,
-    programmes,
-  });
-  for (const key of xmltvCache.keys()) {
-    if (xmltvCache.size <= XMLTV_CACHE_MAX_SOURCES) break;
-    if (key !== epgUrl) xmltvCache.delete(key);
-  }
+  xmltvCache.set(epgUrl, programmes, XMLTV_CACHE_TTL_MS);
   return programmes;
 }
 

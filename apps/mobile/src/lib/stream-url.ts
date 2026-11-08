@@ -3,6 +3,7 @@ import {
   appClientHeaders,
   getAccessToken,
 } from '@/lib/auth';
+import { LruTtlCache } from '@/lib/lru-ttl-cache';
 
 // Resolución de la URL de un medio antes de dársela a libVLC: saneado,
 // resolución del proxy del backend y seguimiento de la redirección al CDN.
@@ -102,10 +103,13 @@ export async function fetchWithTimeout(
 // (60 s): margen de sobra para el pre-warm del detalle sin llegar a reutilizar un
 // enlace firmado ya caducado.
 const RESOLVED_URL_TTL_MS = 60_000;
-const resolvedUrlCache = new Map<
-  string,
-  { at: number; value: ResolvedStream }
->();
+// Tope de entradas: el usuario puede recorrer muchas fuentes/títulos y este
+// `Map` vivía toda la sesión. 100 URLs resueltas cubren de sobra el pre-warm y
+// el historial reciente sin crecer sin límite.
+const RESOLVED_URL_CACHE_MAX_ENTRIES = 100;
+const resolvedUrlCache = new LruTtlCache<string, ResolvedStream>(
+  RESOLVED_URL_CACHE_MAX_ENTRIES,
+);
 
 /**
  * Listas HLS/DASH. Estos orígenes NO se pre-resuelven: varios paneles (XC_VM,
@@ -141,10 +145,10 @@ export function prewarmStreamUrl(raw: string): void {
 
 export async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
   const cached = resolvedUrlCache.get(raw);
-  if (cached && Date.now() - cached.at < RESOLVED_URL_TTL_MS) {
+  if (cached) {
     // `tookMs: 0` marca en la telemetría los arranques que salieron de caché,
     // para poder separarlos de los que sí pagaron la resolución.
-    return { ...cached.value, redirect: { ...cached.value.redirect, tookMs: 0 } };
+    return { ...cached, redirect: { ...cached.redirect, tookMs: 0 } };
   }
   let url: string;
   let fileName: string | undefined;
@@ -204,7 +208,7 @@ export async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
     fileName,
     redirect,
   };
-  resolvedUrlCache.set(raw, { at: Date.now(), value: resolved });
+  resolvedUrlCache.set(raw, resolved, RESOLVED_URL_TTL_MS);
   return resolved;
 }
 

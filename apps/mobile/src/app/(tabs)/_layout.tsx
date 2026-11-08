@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { Tabs, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Platform, View } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
@@ -8,7 +8,7 @@ import { TabIcon, type TabIconName } from '@/components/tab-icon';
 import { TvSidebar } from '@/components/tv-sidebar';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { avatarSource } from '@/lib/avatars';
-import { loadActiveProfile } from '@/lib/profiles';
+import { loadActiveProfile, subscribeActiveProfile } from '@/lib/profiles';
 import { COLORS } from '@/lib/theme';
 
 function icon(name: TabIconName) {
@@ -66,6 +66,16 @@ export default function TabsLayout() {
   // se navega con el rail) y con "reducir movimiento" se cambia en seco.
   const reduceMotion = useReducedMotion();
   const [avatar, setAvatar] = useState<string | undefined>(undefined);
+  // Al editar el avatar se avisa desde `setActiveProfile`: así el tab se
+  // actualiza al momento aunque la pestaña no vuelva a enfocarse.
+  useEffect(
+    () =>
+      subscribeActiveProfile((p) => {
+        if (!authed) return;
+        setAvatar(p?.avatar);
+      }),
+    [authed],
+  );
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;

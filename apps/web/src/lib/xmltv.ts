@@ -62,13 +62,23 @@ export function programmeId(channel: string, start: number): string {
   return `guide-${createHash("sha256").update(`${channel}\0${start}`).digest("hex").slice(0, 24)}`;
 }
 
+export interface SelectProgrammesOptions {
+  /**
+   * Colapsa entradas solapadas con el mismo título. Algunos paneles Xtream
+   * devuelven la misma programación dos veces con un desfase de una hora; sin
+   * esto la guía pinta el mismo programa en dos carriles.
+   */
+  dedupeSameTitleOverlaps?: boolean;
+}
+
 export function selectProgrammes(
   programmes: LiveTvProgramme[],
   now = Date.now(),
   window?: LiveTvGuideWindow,
+  options: SelectProgrammesOptions = {},
 ): LiveTvProgramme[] {
   const seen = new Set<string>();
-  return programmes
+  const sorted = programmes
     .filter((programme) => {
       const start = Date.parse(programme.start);
       const end = Date.parse(programme.end);
@@ -87,8 +97,31 @@ export function selectProgrammes(
       (a, b) =>
         Date.parse(a.start) - Date.parse(b.start) ||
         Date.parse(a.end) - Date.parse(b.end),
-    )
-    .slice(0, LIVE_TV_MAX_PROGRAMMES);
+    );
+
+  if (!options.dedupeSameTitleOverlaps) {
+    return sorted.slice(0, LIVE_TV_MAX_PROGRAMMES);
+  }
+
+  const lastEndByTitle = new Map<string, number>();
+  const kept: LiveTvProgramme[] = [];
+  for (const programme of sorted) {
+    const start = Date.parse(programme.start);
+    const end = Date.parse(programme.end);
+    const lastEnd = lastEndByTitle.get(programme.title);
+    // Nos quedamos con la primera entrada del título. La siguiente, si solapa,
+    // es la copia desplazada del proveedor; la que empieza justo al terminar la
+    // anterior sí se conserva (programación contigua real).
+    if (lastEnd !== undefined && start < lastEnd) {
+      continue;
+    }
+    lastEndByTitle.set(programme.title, end);
+    kept.push(programme);
+    if (kept.length >= LIVE_TV_MAX_PROGRAMMES) {
+      break;
+    }
+  }
+  return kept;
 }
 
 /** DOM parsing, never regex extraction. DTD/entity declarations are forbidden before parsing. */

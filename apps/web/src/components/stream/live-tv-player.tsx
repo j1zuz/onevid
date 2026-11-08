@@ -9,6 +9,7 @@ import {
 import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
 import { AlertCircleIcon, RefreshCwIcon } from "lucide-react";
+import posthog from "posthog-js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLiveTvPlayback } from "@/hooks/use-live-tv-playback";
 import { useMediaTracks } from "@/hooks/use-media-tracks";
@@ -36,6 +37,28 @@ export const LIVE_TV_STARTUP_TIMEOUT_MS = 60_000;
  * imagen, mostramos el error con reintento.
  */
 export const LIVE_TV_BUFFERING_TIMEOUT_MS = 30_000;
+
+/** Un reintento automático antes de enseñar la alerta; el botón queda después. */
+const MAX_AUTO_RETRIES = 1;
+const LIVE_AUTO_RETRY_DELAY_MS = 700;
+
+export function describeLiveFailure(details: string | null): string {
+  if (!details) {
+    return "El canal puede estar desconectado o el proveedor no respondió. Reintenta o elige otro canal.";
+  }
+  if (/stalled|hole/i.test(details)) {
+    return "La señal se cortó. Reintenta o elige otro canal.";
+  }
+  // `fragParsingError` suele ser contenedor/códec del segmento; los errores de
+  // manifiesto/playlist son del proveedor y no deben culpar al navegador.
+  if (/Codec|Append|mediaDecode|fragParsing/i.test(details)) {
+    return "El canal usa un formato de vídeo o audio que este navegador no puede decodificar. Prueba con otro navegador o pide una fuente compatible.";
+  }
+  if (/Parsing|Load|TimeOut|timeout/i.test(details)) {
+    return "El proveedor no respondió a tiempo o la lista de reproducción no es válida. Reintenta o elige otro canal.";
+  }
+  return "El canal puede estar desconectado o el proveedor no respondió. Reintenta o elige otro canal.";
+}
 
 export function isLiveTvPlaybackUrl(src: string): boolean {
   try {
@@ -118,8 +141,16 @@ function ChannelLoadingLogo({ channel }: { channel: LiveTvChannel }) {
 
 function LiveTvSession({
   channel,
+  attempt,
+  lastFailureDetails,
+  onPlayed,
   onRetry,
-}: LiveTvPlayerProps & { onRetry: () => void }) {
+}: LiveTvPlayerProps & {
+  attempt: number;
+  lastFailureDetails: string | null;
+  onPlayed: () => void;
+  onRetry: (details?: string) => void;
+}) {
   const { t: rawT } = useTranslation();
   const t = (key: string, options?: Record<string, unknown>) =>
     rawT(key as never, options as never) as unknown as string;
@@ -129,6 +160,10 @@ function LiveTvSession({
   const [failure, setFailure] = useState<
     "error" | "stalled" | "timeout" | null
   >(null);
+  // Detalle de hls.js (`bufferAppendError`, `manifestLoadError`…) para explicar
+  // el fallo sin culpar siempre a HTTP/HTTPS.
+  const [failureReason, setFailureReason] = useState<string | null>(null);
+  const retryTimerRef = useRef<number | null>(null);
   const [loadingChannel, setLoadingChannel] = useState(true);
   // hls.js puede dejar de recibir segmentos sin emitir un error fatal; el skin
   // mostraría su propio spinner para siempre. Con esto usamos el loader del
@@ -145,7 +180,74 @@ function LiveTvSession({
     [],
   );
   const handleError = useCallback(
-    () => setFailure((current) => current ?? "error"),
+    (error?: Error) => {
+      // El primer error suele traer el detalle real (`bufferAppendError`,
+      // `manifestLoadError`…). Al remontar se perdería, así que lo pasamos al
+      // padre y lo recuperamos en el siguiente intento si este no lo trae.
+      const details =
+        (error as { details?: string } | undefined)?.details ??
+        lastFailureDetails ??
+        null;
+      // Primer fallo: en vez de rendirnos, remontamos la sesión una vez. Un
+      // segmento corrupto o un corte de red se suele resolver al reconectar.
+      if (attempt < MAX_AUTO_RETRIES) {
+        try {
+          posthog.capture("live_playback_retry", {
+            attempt,
+            auto: true,
+            channel_group: channel.group,
+            channel_name: channel.name,
+            content_type: "live",
+            details,
+          });
+        } catch {
+          // La analítica nunca debe romper la reproducción.
+        }
+        setLoadingChannel(true);
+        setBuffering(false);
+        if (retryTimerRef.current !== null) {
+          window.clearTimeout(retryTimerRef.current);
+        }
+        retryTimerRef.current = window.setTimeout(() => {
+          retryTimerRef.current = null;
+          onRetry(details ?? undefined);
+        }, LIVE_AUTO_RETRY_DELAY_MS);
+        return;
+      }
+      setFailureReason(details);
+      setFailure((current) => current ?? "error");
+    },
+    [
+      attempt,
+      channel.group,
+      channel.name,
+      lastFailureDetails,
+      onRetry,
+    ],
+  );
+
+  const handleManualRetry = useCallback(() => {
+    try {
+      posthog.capture("live_playback_retry", {
+        attempt,
+        auto: false,
+        channel_group: channel.group,
+        channel_name: channel.name,
+        content_type: "live",
+        details: failureReason,
+      });
+    } catch {
+      // La analítica nunca debe romper la reproducción.
+    }
+    onRetry(failureReason ?? undefined);
+  }, [attempt, channel.group, channel.name, failureReason, onRetry]);
+
+  useEffect(
+    () => () => {
+      if (retryTimerRef.current !== null) {
+        window.clearTimeout(retryTimerRef.current);
+      }
+    },
     [],
   );
   // El skin muestra su propio spinner de buffering si el proveedor deja de
@@ -155,7 +257,8 @@ function LiveTvSession({
   const handlePlaying = useCallback(() => {
     setBuffering(false);
     setLoadingChannel(false);
-  }, []);
+    onPlayed();
+  }, [onPlayed]);
   const tracks = useMediaTracks(playerRefs.video, playerRefs.media);
   const validSource = isLiveTvPlaybackUrl(channel.url);
   // Canales con audio que MSE no soporta (AC-3/DTS/TrueHD) van por MediaBunny:
@@ -295,14 +398,17 @@ function LiveTvSession({
                         ? t(
                             "No empezó a reproducir a tiempo. El proveedor puede estar saturado o el canal desconectado. Reintenta o elige otro canal.",
                           )
-                        : t(
-                            "El canal puede estar desconectado. Si el proveedor solo lo entrega por HTTP, el navegador lo bloquea desde una página HTTPS.",
-                          )}
+                        : t(describeLiveFailure(failureReason))}
                   </p>
+                  {process.env.NODE_ENV === "development" && failureReason ? (
+                    <p className="basis-full font-mono text-[10px] text-white/30">
+                      {failureReason}
+                    </p>
+                  ) : null}
                   <Button
                     className="shrink-0"
                     data-dpad-focusable
-                    onClick={onRetry}
+                    onClick={handleManualRetry}
                     size="sm"
                     variant="secondary"
                   >
@@ -330,6 +436,12 @@ function LiveTvSession({
             onWaiting={handleWaiting}
             preload="auto"
             src={playbackSrc}
+            ttffProperties={{
+              attempt,
+              channel_group: channel.group,
+              channel_name: channel.name,
+              content_type: "live",
+            }}
           />
         </I18nProvider>
       )}
@@ -340,11 +452,28 @@ function LiveTvSession({
 /** Key the entire session, not just the video, to release adapters and track subscriptions. */
 export function LiveTvPlayer({ channel }: LiveTvPlayerProps) {
   const [attempt, setAttempt] = useState(0);
+  const [lastFailureDetails, setLastFailureDetails] = useState<string | null>(
+    null
+  );
+  useEffect(() => {
+    setAttempt(0);
+    setLastFailureDetails(null);
+  }, [channel.id]);
+  const retry = useCallback((details?: string) => {
+    if (details) {
+      setLastFailureDetails(details);
+    }
+    setAttempt((value) => value + 1);
+  }, []);
+  const handlePlayed = useCallback(() => setLastFailureDetails(null), []);
   return (
     <LiveTvSession
+      attempt={attempt}
       channel={channel}
       key={`${channel.id}:${attempt}`}
-      onRetry={() => setAttempt((value) => value + 1)}
+      lastFailureDetails={lastFailureDetails}
+      onPlayed={handlePlayed}
+      onRetry={retry}
     />
   );
 }

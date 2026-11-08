@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckCircle2Icon, DownloadIcon, XIcon } from "lucide-react";
+import posthog from "posthog-js";
 import {
   Tooltip,
   TooltipContent,
@@ -75,7 +76,14 @@ export function PlayerDownloadButton({
       })
       .catch((error: unknown) => {
         if (active) {
-          console.error("Could not inspect offline media:", error);
+          try {
+            posthog.capture("offline_media_error", {
+              error_name: error instanceof Error ? error.name : "unknown",
+              stage: "inspect",
+            });
+          } catch {
+            // La analítica nunca debe romper la reproducción.
+          }
         }
       });
     return () => {
@@ -96,7 +104,14 @@ export function PlayerDownloadButton({
     const remaining = state.expiresAt - Date.now();
     if (remaining <= 0) {
       void deleteOfflineMediaFile(storageKey).catch((error: unknown) => {
-        console.error("Could not expire offline media:", error);
+        try {
+          posthog.capture("offline_media_error", {
+            error_name: error instanceof Error ? error.name : "unknown",
+            stage: "expire",
+          });
+        } catch {
+          // La analítica nunca debe romper la reproducción.
+        }
       });
       setState({ status: "idle" });
       return;
@@ -104,7 +119,14 @@ export function PlayerDownloadButton({
     const timer = setTimeout(() => {
       void deleteOfflineMediaFile(storageKey)
         .catch((error: unknown) => {
-          console.error("Could not expire offline media:", error);
+          try {
+            posthog.capture("offline_media_error", {
+              error_name: error instanceof Error ? error.name : "unknown",
+              stage: "expire",
+            });
+          } catch {
+            // La analítica nunca debe romper la reproducción.
+          }
         })
         .finally(() => setState({ status: "idle" }));
     }, remaining);

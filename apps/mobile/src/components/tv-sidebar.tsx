@@ -8,8 +8,12 @@ import { tvFocusRing } from '@/hooks/use-tv-focus';
 import { COLORS } from '@/lib/theme';
 
 // Cerrado: franja invisible (overlay transparente, NO inseta el contenido, así
-// no se ve nada). Solo sirve para que el D-pad pueda enfocar el rail.
-const CLOSED_WIDTH = 24;
+// no se ve nada). Solo sirve para que el D-pad pueda enfocar el rail con LEFT.
+//
+// IMPORTANTE: 12 (no 24) para que la franja quede por debajo del padding
+// izquierdo del contenido (16). Con 24 se solapaba con las tarjetas/buscador y
+// Android la elegía al pulsar ARRIBA/ABAJO, abriendo el menú sin querer.
+const CLOSED_WIDTH = 12;
 const OPEN_WIDTH = 210;
 
 type TabHref = '/home' | '/discover' | '/live' | '/library' | '/settings';
@@ -73,7 +77,12 @@ export function TvSidebar() {
       }}
     >
       {items.map((item) => {
-        const active = pathname === item.href || pathname.startsWith(item.href);
+        // `usePathname()` devuelve '/' en la pestaña inicial, así que sin esto
+        // no se marcaba ninguna como activa y todas parecían iguales.
+        const active =
+          pathname === item.href ||
+          pathname.startsWith(`${item.href}/`) ||
+          (pathname === '/' && item.href === '/home');
         return (
           <Pressable
             key={item.href}
@@ -109,7 +118,7 @@ export function TvSidebar() {
                   type="body"
                   weight={active ? 'semibold' : 'medium'}
                   numberOfLines={1}
-                  style={{ color: '#fff' }}
+                  style={{ color: active ? '#fff' : '#83838d' }}
                 >
                   {item.label}
                 </Typography>

@@ -1098,6 +1098,7 @@ function SourcePicker({
  * los dos sitios, sin duplicar UI ni audio.
  */
 export function Player({
+  embedded = false,
   url,
   title,
   subtitle,
@@ -1163,6 +1164,13 @@ export function Player({
   onFullscreen?: () => void;
   /** Si está a pantalla completa (cambia el icono del botón). */
   fullscreen?: boolean;
+  /**
+   * Player embebido (Live TV arriba de la guía). En TV los controles NO deben
+   * robar el foco al aparecer: con `hasTVPreferredFocus` el D-pad volvía al
+   * botón de play cada vez que se pulsaba una flecha y no se podía bajar a la
+   * guía.
+   */
+  embedded?: boolean;
   /** Episodio que sigue al actual, o null si es el último de la serie. */
   nextEpisode?: NextEpisodeRef | null;
   onPlayNextEpisode?: (next: NextEpisodeRef) => Promise<void> | void;
@@ -1923,6 +1931,9 @@ export function Player({
           normal: en error los controles quedan fijos). */}
       {!showLoading && !errorMsg ? (
         <Pressable
+          // No enfocable: en TV esta capa táctil cubre el vídeo y el D-pad
+          // caía en ella en vez de en los controles (play, pantalla completa).
+          focusable={false}
           style={StyleSheet.absoluteFill}
           onPress={() =>
             controlsVisible ? setControlsVisible(false) : showControls()
@@ -2244,7 +2255,7 @@ export function Player({
                 style={withRing(styles.playBtn)}
                 onPress={togglePlay}
                 hitSlop={8}
-                hasTVPreferredFocus
+                hasTVPreferredFocus={!embedded}
               >
                 {playing ? (
                   <Pause size={32} color="#fff" fill="#fff" />

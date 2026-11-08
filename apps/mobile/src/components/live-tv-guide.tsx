@@ -23,6 +23,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  TVFocusGuideView,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -184,8 +185,16 @@ export function LiveTvGuide({
   // menos tramos pero más grandes, como la guía de la web.
   const channelWidth = isTV ? 230 : 160;
   const visibleCells = isTV ? GUIDE_TICKS : 2;
+  // En TV la guía se alinea con la barra de búsqueda (16px por lado), como el
+  // resto de la pantalla; si no, la rejilla iba de borde a borde.
+  const horizontalInset = isTV ? 16 : 0;
   const cellWidth = isTV
-    ? Math.max(120, Math.round((width - channelWidth) / visibleCells))
+    ? Math.max(
+        120,
+        Math.round(
+          (width - channelWidth - horizontalInset * 2) / visibleCells,
+        ),
+      )
     : 150;
   const timelineWidth = cellWidth * GUIDE_TICKS;
   const rowBaseHeight = isTV ? 96 : 84;
@@ -366,6 +375,9 @@ export function LiveTvGuide({
         horizontal
         nestedScrollEnabled
         showsHorizontalScrollIndicator={false}
+        style={
+          horizontalInset > 0 ? { marginHorizontal: horizontalInset } : undefined
+        }
       >
         <View style={{ width: channelWidth + timelineWidth }}>
           <View
@@ -836,6 +848,33 @@ function ProgrammeBlock({
   );
 }
 
+/**
+ * Panel del modal de programa. En TV el foco se limita al panel: al llegar al
+ * último botón (o arriba/abajo) Android podía saltar a la guía de atrás, que
+ * sigue siendo enfocable aunque el modal esté encima.
+ */
+function TvModalPanel({
+  children,
+  style,
+}: {
+  children: ReactNode;
+  style?: ComponentProps<typeof View>['style'];
+}) {
+  if (!Platform.isTV) return <View style={style}>{children}</View>;
+  return (
+    <TVFocusGuideView
+      autoFocus
+      style={style}
+      trapFocusDown
+      trapFocusLeft
+      trapFocusRight
+      trapFocusUp
+    >
+      {children}
+    </TVFocusGuideView>
+  );
+}
+
 function ProgrammeModal({
   selected,
   onClose,
@@ -871,7 +910,7 @@ function ProgrammeModal({
           onPress={onClose}
           style={StyleSheet.absoluteFill}
         />
-        <View
+        <TvModalPanel
           style={{
             alignSelf: 'center',
             width: '100%',
@@ -917,7 +956,7 @@ function ProgrammeModal({
               {t('Ver canal en vivo')}
             </Button>
           </View>
-        </View>
+        </TvModalPanel>
       </View>
     </Modal>
   );

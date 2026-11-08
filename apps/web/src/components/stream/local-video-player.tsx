@@ -113,6 +113,7 @@ function LocalPlayerStage({
               playsInline={true}
               preload="auto"
               src={activeSrc}
+              ttffProperties={{ content_type: "local" }}
             />
           ) : null}
           {isLive && activeSrc && (
