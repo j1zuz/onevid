@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import { networkErrorKind, track } from './analytics';
 
 export const API_URL =
   process.env.EXPO_PUBLIC_API_URL ?? 'https://onevid.hackw.tech';
@@ -110,15 +111,30 @@ export type PollOutcome =
   | { kind: 'error'; message: string };
 
 export async function pollDeviceToken(deviceCode: string): Promise<PollOutcome> {
-  const res = await fetch(`${API_URL}/api/auth/device/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...appClientHeaders() },
-    body: JSON.stringify({
-      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-      device_code: deviceCode,
-      client_id: CLIENT_ID,
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/auth/device/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...appClientHeaders() },
+      body: JSON.stringify({
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        device_code: deviceCode,
+        client_id: CLIENT_ID,
+      }),
+    });
+  } catch (e) {
+    // Un fallo de red puntual (p. ej. DNS en TV) no debe cortar el polling: si
+    // la promesa rechazaba, el hook no programaba el siguiente intento y el
+    // login se quedaba colgado mostrando el código. Lo tratamos como pendiente.
+    const message = e instanceof Error ? e.message : String(e);
+    track('api_error', {
+      path: '/api/auth/device/token',
+      reason: 'network',
+      message,
+      errorKind: networkErrorKind(message),
+    });
+    return { kind: 'pending', intervalDelta: 0 };
+  }
   // Cloudflare puede interponer un "managed challenge" (HTML, no JSON) a esta
   // petición de polling: el token nunca llega y la sesión no se guarda. Lo
   // detectamos para mostrar un error claro en vez de uno genérico.

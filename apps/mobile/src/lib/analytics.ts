@@ -43,3 +43,11 @@ export function track(
     /* noop: no romper la app por telemetría */
   }
 }
+
+// Clasifica un fallo de red por su mensaje: 'dns' (no resuelve el host),
+// 'timeout' (abortado o vencido) u 'other'.
+export function networkErrorKind(message: string): 'dns' | 'timeout' | 'other' {
+  if (/UnknownHost|Unable to resolve|ENOTFOUND/i.test(message)) return 'dns';
+  if (/abort|timeout|timed out/i.test(message)) return 'timeout';
+  return 'other';
+}

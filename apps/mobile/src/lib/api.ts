@@ -1,6 +1,6 @@
 import i18next from 'i18next';
 import { getActiveProfileId } from './active-profile';
-import { track } from './analytics';
+import { networkErrorKind, track } from './analytics';
 import {
   API_URL,
   appClientHeaders,
@@ -194,11 +194,7 @@ export async function apiFetch<T = unknown>(
       // sin asumir la causa: 'dns' (no resuelve el host), 'timeout' (abortado,
       // incluye los que nosotros mismos cortamos a los API_TIMEOUT_MS), u
       // 'other'. Nos deja ver QUÉ errores pasan y con qué frecuencia real.
-      errorKind: /UnknownHost|Unable to resolve|ENOTFOUND/i.test(message)
-        ? 'dns'
-        : /abort|timeout|timed out/i.test(message)
-          ? 'timeout'
-          : 'other',
+      errorKind: networkErrorKind(message),
     });
     throw e;
   } finally {
