@@ -94,7 +94,7 @@
         "@videojs/react": "^10.2.0",
         "@vinext/cloudflare": "^1.3.3",
         "@workspace/ui": "workspace:*",
-        "@xmldom/xmldom": "0.9.10",
+        "@xmldom/xmldom": "0.9.12",
         "better-auth": "1.7.15",
         "dotenv": "18.0.9",
         "drizzle-orm": "0.45.4",
@@ -1339,7 +1339,7 @@
 
     "@workspace/ui": ["@workspace/ui@workspace:packages/ui"],
 
-    "@xmldom/xmldom": ["@xmldom/xmldom@0.9.10", "", {}, "sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw=="],
+    "@xmldom/xmldom": ["@xmldom/xmldom@0.9.12", "", {}, "sha512-5AXjrcMClTryPe9LgZrygpB1lj7s0S9E0+W+AHaVKAVyHanafK86iPSvG5xHVSp/jC+VH1UXu0TAEmY279xH7A=="],
 
     "@xtuc/ieee754": ["@xtuc/ieee754@1.2.0", "", {}, "sha512-DX8nKgqcGwsc0eJSqYt5lwP4DH5FlHnmuWWBRy7X0NcaGR0ZtuyeESgMwTYVEtxmsNGY+qit4QYT/MIYTOTPeA=="],
 
