@@ -318,13 +318,18 @@ export function offlineStorageKey(
  * `unhandledrejection`.
  *
  * The `fetchFn` wrapper intercepts every read so a genuine failure is re-thrown
- * as an `Error` that carries the URL. That travels the normal conversion-error
- * path (→ `setState({ status: "error" })`) with real context. A read that fails
- * only because the component unmounted mid-request keeps its original bare shape,
- * so the `before_send` filter in instrumentation-client.ts drops it as noise
- * instead of it becoming a stack-carrying issue of its own.
+ * as an `Error` with a stable, sanitized message. The stream URL is deliberately
+ * NOT included: it carries the debrid credentials and the message is rendered in
+ * the player overlay and sent to analytics. A read that fails only because the
+ * component unmounted mid-request keeps its original bare shape, so the
+ * `before_send` filter in instrumentation-client.ts drops it as noise.
+ *
+ * `handleUnhandledError` catches failures seen only by mediabunny's background
+ * prefetch (no awaited read is waiting for them), which would otherwise surface
+ * as an unhandled rejection. A real connection drop still fails an awaited read
+ * and takes the normal error path.
  */
-function urlSourceOptions(url: string, abortedRef: { current: boolean }) {
+function urlSourceOptions(abortedRef: { current: boolean }) {
   return {
     fetchFn: async (input: RequestInfo | URL, init?: RequestInit) => {
       try {
@@ -334,10 +339,11 @@ function urlSourceOptions(url: string, abortedRef: { current: boolean }) {
           throw error;
         }
         const cause = error instanceof Error ? error : new Error(String(error));
-        throw new Error(`Range read failed for ${url}: ${cause.message}`, {
-          cause,
-        });
+        throw new Error(`Range read failed: ${cause.message}`, { cause });
       }
+    },
+    handleUnhandledError: (error: unknown) => {
+      console.warn("[mediabunny] background read failed", error);
     },
   };
 }
@@ -622,7 +628,7 @@ async function transcodeToMp4(
   // avoids the "Read is before the cached region" error.
   const inputSource =
     typeof source === "string"
-      ? new UrlSource(source, urlSourceOptions(source, abortedRef))
+      ? new UrlSource(source, urlSourceOptions(abortedRef))
       : new BlobSource(source);
 
   const root = await navigator.storage.getDirectory();
@@ -731,7 +737,7 @@ async function transcodeToWritable(
   registerAacEncoder();
 
   const input = new Input({
-    source: new UrlSource(source, urlSourceOptions(source, abortedRef)),
+    source: new UrlSource(source, urlSourceOptions(abortedRef)),
     formats: ALL_FORMATS,
   });
 
@@ -894,7 +900,7 @@ async function runProgressivePlayback(opts: {
     new Input({
       source:
         typeof source === "string"
-          ? new UrlSource(source, urlSourceOptions(source, abortedRef))
+          ? new UrlSource(source, urlSourceOptions(abortedRef))
           : new BlobSource(source),
       formats: ALL_FORMATS,
       // En HLS, los timestamps anclados al epoch (por `#EXT-X-PROGRAM-DATE-TIME`)
