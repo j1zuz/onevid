@@ -1,8 +1,3 @@
-import dns from "node:dns/promises";
-import type { LookupAddress } from "node:dns";
-import type { IncomingMessage } from "node:http";
-import https from "node:https";
-import { BlockList, isIP, type TcpSocketConnectOpts } from "node:net";
 import { and, asc, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { oneVidLiveTvSource, user } from "./auth-schema";
@@ -21,6 +16,7 @@ import {
   type LiveTvProgramme,
 } from "./live-tv";
 import { isSafeFetchUrl, SAFE_FETCH_MAX_BODY_BYTES } from "../utils/ssrf-guard";
+import { assertPublicHostname } from "../utils/network-policy";
 import { LruTtlCache } from "./lru-ttl-cache";
 import { checkRateLimit, rateLimitResponse } from "./rate-limit";
 import { parseXmltvAll, selectProgrammes } from "./xmltv";
@@ -61,57 +57,18 @@ const xmltvCache = new LruTtlCache<
   string,
   Map<string, LiveTvProgramme[]>
 >(XMLTV_CACHE_MAX_SOURCES);
-const blocked = new BlockList();
-for (const [address, prefix] of [
-  ["0.0.0.0", 8],
-  ["10.0.0.0", 8],
-  ["100.64.0.0", 10],
-  ["127.0.0.0", 8],
-  ["169.254.0.0", 16],
-  ["172.16.0.0", 12],
-  ["192.0.0.0", 24],
-  ["192.0.2.0", 24],
-  ["192.168.0.0", 16],
-  ["198.18.0.0", 15],
-  ["198.51.100.0", 24],
-  ["203.0.113.0", 24],
-  ["224.0.0.0", 3],
-] as const)
-  blocked.addSubnet(address, prefix, "ipv4");
-const globalV6 = new BlockList();
-globalV6.addSubnet("2000::", 3, "ipv6");
-blocked.addSubnet("2001::", 32, "ipv6");
-blocked.addSubnet("2001:db8::", 32, "ipv6");
-blocked.addSubnet("2002::", 16, "ipv6");
-
-function publicAddress(address: string): boolean {
-  const family = isIP(address);
-  if (family === 4) return !blocked.check(address, "ipv4");
-  return (
-    family === 6 &&
-    globalV6.check(address, "ipv6") &&
-    !blocked.check(address, "ipv6")
-  );
-}
-
-async function validateFetchTarget(url: string): Promise<LookupAddress[]> {
+function validateFetchTarget(url: string): void {
   if (!isSafeFetchUrl(url).ok)
     throw new LiveTvError(
       "La URL de la lista de reproducción debe usar un servidor público.",
     );
-  const hostname = new URL(url).hostname.replace(/^\[|\]$/g, "");
-  const addresses = isIP(hostname)
-    ? [{ address: hostname, family: isIP(hostname) }]
-    : await dns.lookup(hostname, { all: true, verbatim: true });
-  if (
-    !addresses.length ||
-    addresses.some(({ address }) => !publicAddress(address))
-  ) {
+  try {
+    assertPublicHostname(new URL(url).hostname);
+  } catch {
     throw new LiveTvError(
       "La URL de la lista de reproducción debe usar un servidor público.",
     );
   }
-  return addresses;
 }
 
 interface PlaylistResponse {
@@ -120,116 +77,61 @@ interface PlaylistResponse {
   text: string;
 }
 
-/** A fresh direct TLS connection can only resolve to this already-validated IP. */
-function requestPinnedPlaylist(
+async function requestTextResource(
   url: string,
-  pinned: LookupAddress,
   signal: AbortSignal,
   max: number,
   accept: string,
 ): Promise<PlaylistResponse> {
   signal.throwIfAborted();
-  const target = new URL(url);
-  const hostname = target.hostname.replace(/^\[|\]$/g, "");
-
-  return new Promise((resolve, reject) => {
-    let response: IncomingMessage | undefined;
-    let settled = false;
-    const finish = (error: unknown, result?: PlaylistResponse) => {
-      if (settled) return;
-      settled = true;
-      signal.removeEventListener("abort", abort);
-      response?.destroy();
-      request.destroy();
-      if (error) {
-        reject(error);
-        return;
-      }
-      if (result === undefined) {
-        reject(new Error("Live TV response was empty."));
-        return;
-      }
-      resolve(result);
-    };
-    const abort = () => finish(signal.reason ?? new Error("Aborted"));
-    const options: https.RequestOptions &
-      Pick<TcpSocketConnectOpts, "autoSelectFamily"> = {
-      method: "GET",
-      agent: false,
-      family: pinned.family,
-      autoSelectFamily: false,
-      // Keep the original hostname for Host, SNI and certificate verification.
-      // Neither the TLS connector nor a shared agent can resolve it again.
-      servername: isIP(hostname) ? undefined : hostname,
-      rejectUnauthorized: true,
-      lookup: (_hostname, options, callback) => {
-        if (options.all) callback(null, [pinned]);
-        else callback(null, pinned.address, pinned.family);
-      },
-      maxHeaderSize: 16 * 1024,
-      headers: {
-        accept,
-        "accept-encoding": "identity",
-      },
-    };
-    const onResponse = (incoming: IncomingMessage) => {
-      if (settled) {
-        incoming.destroy();
-        return;
-      }
-      response = incoming;
-      incoming.once("error", (error) => finish(error));
-      incoming.once("aborted", () => finish(new Error("Incomplete response")));
-      const status = incoming.statusCode ?? 0;
-      if (status < 200 || status >= 300) {
-        finish(null, {
-          status,
-          location: incoming.headers.location,
-          text: "",
-        });
-        return;
-      }
-      const declaredLength = incoming.headers["content-length"];
-      if (declaredLength && Number(declaredLength) > max) {
-        finish(
-          new LiveTvError(
-            `La respuesta de Live TV supera el límite de ${max / (1024 * 1024)} MiB.`,
-          ),
-        );
-        return;
-      }
-      const encoding = incoming.headers["content-encoding"];
-      if (encoding && encoding.trim().toLowerCase() !== "identity") {
-        finish(
-          new LiveTvError("No se admiten listas de reproducción comprimidas."),
-        );
-        return;
-      }
-      let bytes = 0;
-      let text = "";
-      const decoder = new TextDecoder();
-      incoming.on("data", (chunk: Buffer) => {
-        if (settled) return;
-        bytes += chunk.byteLength;
-        if (bytes > max) {
-          finish(new LiveTvError("El contenido supera el tamaño permitido."));
-          return;
-        }
-        text += decoder.decode(chunk, { stream: true });
-      });
-      incoming.once("end", () =>
-        finish(null, {
-          status,
-          text: text + decoder.decode(),
-        }),
-      );
-    };
-    const request = https.request(target, options, onResponse);
-    request.once("error", (error) => finish(error));
-    signal.addEventListener("abort", abort, { once: true });
-    if (signal.aborted) abort();
-    else request.end();
+  const response = await fetch(url, {
+    headers: { accept, "accept-encoding": "identity" },
+    redirect: "manual",
+    signal,
   });
+
+  if (response.status >= 300 && response.status < 400) {
+    return {
+      status: response.status,
+      location: response.headers.get("location") ?? undefined,
+      text: "",
+    };
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    return { status: response.status, text: "" };
+  }
+
+  const declaredLength = response.headers.get("content-length");
+  if (declaredLength && Number(declaredLength) > max) {
+    throw new LiveTvError(
+      `La respuesta de Live TV supera el límite de ${max / (1024 * 1024)} MiB.`,
+    );
+  }
+
+  if (!response.body) {
+    throw new LiveTvError("La respuesta no contiene datos.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > max) {
+        throw new LiveTvError("El contenido supera el tamaño permitido.");
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return { status: response.status, text: text + decoder.decode() };
 }
 
 async function readBoundedBody(
@@ -300,11 +202,10 @@ export async function fetchLiveTvResource(
   const load = async () => {
     let url = initialUrl;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      const addresses = await validateFetchTarget(url);
+      validateFetchTarget(url);
       controller.signal.throwIfAborted();
-      const response = await requestPinnedPlaylist(
+      const response = await requestTextResource(
         url,
-        addresses[0],
         controller.signal,
         max,
         options.accept ?? "application/x-mpegURL, audio/x-mpegurl, text/plain",
