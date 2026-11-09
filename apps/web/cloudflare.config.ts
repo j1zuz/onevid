@@ -49,9 +49,6 @@ export default defineConfig({
 
       RESEND_FROM: text(process.env.RESEND_FROM),
 
-      APPLE_CLIENT_ID: bindings.secret(),
-      APPLE_CLIENT_SECRET: bindings.secret(),
-      AUTH_SECRET: bindings.secret(),
       BASE_URL: bindings.secret(),
       BETTER_AUTH_API_KEY: bindings.secret(),
       BETTER_AUTH_SECRET: bindings.secret(),
