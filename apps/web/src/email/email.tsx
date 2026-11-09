@@ -11,7 +11,7 @@ import {
   Tailwind,
   Text,
 } from "@react-email/components";
-import { render } from "@react-email/render";
+import { MAGIC_LINK_HTML, PIN_RESET_HTML } from "./email-html.generated";
 
 const heroBackgroundImage = [
   "radial-gradient(ellipse 130% 120% at 0% 0%, rgba(251, 191, 36, 0.85) 0%, rgba(253, 186, 116, 0.5) 35%, transparent 60%)",
@@ -151,6 +151,8 @@ function logoImageSrc(): string {
 
 const PLUS_SUFFIX_REGEX = /\+.*/;
 
+export const EMAIL_LOCALES = Object.keys(EMAIL_STRINGS);
+
 function greetingFromEmail(email: string): string {
   let local = email.trim().split("@")[0]?.trim() ?? "";
   if (!local) {
@@ -162,6 +164,7 @@ function greetingFromEmail(email: string): string {
 
 interface MagicLinkEmailProps {
   email?: string;
+  greetingOverride?: string;
   locale?: string;
   url: string;
 }
@@ -169,6 +172,7 @@ interface MagicLinkEmailProps {
 export const MagicLinkEmail = ({
   url,
   email = "",
+  greetingOverride,
   locale = "es-419",
 }: MagicLinkEmailProps) => {
   const strings = EMAIL_STRINGS[locale] ?? EMAIL_STRINGS["es-419"];
@@ -199,7 +203,7 @@ export const MagicLinkEmail = ({
 
             <Section className="m-0 bg-white px-6 pt-3 pb-2 text-left">
               <Text className="m-0 mb-4 p-0 text-neutral-600 text-sm leading-normal">
-                {strings.greeting(who)}
+                {greetingOverride ?? strings.greeting(who)}
               </Text>
               <Text className="m-0 mb-4 text-neutral-600 text-sm leading-normal">
                 {strings.body}
@@ -223,22 +227,51 @@ export const MagicLinkEmail = ({
 
 export default MagicLinkEmail;
 
-export async function renderMagicLinkEmail(
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function fillTemplate(
+  template: string,
+  values: Record<string, string>
+): string {
+  let html = template.replaceAll("__BASE_URL__", process.env.BASE_URL ?? "");
+  for (const [key, value] of Object.entries(values)) {
+    html = html.replaceAll(key, value);
+  }
+  return html;
+}
+
+export function renderMagicLinkEmail(
   url: string,
   email: string,
   locale = "es-419"
-): Promise<{ html: string; subject: string }> {
+): { html: string; subject: string } {
   const strings = EMAIL_STRINGS[locale] ?? EMAIL_STRINGS["es-419"];
-  const html = await render(MagicLinkEmail({ url, email, locale }));
+  const template = MAGIC_LINK_HTML[locale] ?? MAGIC_LINK_HTML["es-419"] ?? "";
+  const html = fillTemplate(template, {
+    __GREETING__: escapeHtml(strings.greeting(greetingFromEmail(email))),
+    __MAGIC_LINK__: url,
+  });
   return { html, subject: strings.subject };
 }
 
 interface PinResetEmailProps {
   code: string;
   email?: string;
+  greetingOverride?: string;
 }
 
-export const PinResetEmail = ({ code, email = "" }: PinResetEmailProps) => {
+export const PinResetEmail = ({
+  code,
+  email = "",
+  greetingOverride,
+}: PinResetEmailProps) => {
   const who = greetingFromEmail(email);
 
   return (
@@ -266,7 +299,7 @@ export const PinResetEmail = ({ code, email = "" }: PinResetEmailProps) => {
 
             <Section className="m-0 bg-white px-6 pt-3 pb-2 text-left">
               <Text className="m-0 mb-4 p-0 text-neutral-600 text-sm leading-normal">
-                Hola{who ? ` ${who}` : ""},
+                {greetingOverride ?? `Hola${who ? ` ${who}` : ""},`}
               </Text>
               <Text className="m-0 mb-4 text-neutral-600 text-sm leading-normal">
                 Usa este código para restablecer el PIN de tu perfil principal.
@@ -286,10 +319,15 @@ export const PinResetEmail = ({ code, email = "" }: PinResetEmailProps) => {
   );
 };
 
-export async function renderPinResetEmail(
+export function renderPinResetEmail(
   code: string,
   email: string
-): Promise<{ html: string; subject: string }> {
-  const html = await render(PinResetEmail({ code, email }));
+): { html: string; subject: string } {
+  const who = greetingFromEmail(email);
+  const template = PIN_RESET_HTML["es-419"] ?? "";
+  const html = fillTemplate(template, {
+    __GREETING__: escapeHtml(`Hola${who ? ` ${who}` : ""},`),
+    __PIN__: code,
+  });
   return { html, subject: "Código para restablecer tu PIN" };
 }
