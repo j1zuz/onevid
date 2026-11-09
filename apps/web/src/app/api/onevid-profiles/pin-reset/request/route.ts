@@ -2,12 +2,11 @@ import { headers } from "next/headers";
 import { Resend } from "resend";
 import { renderPinResetEmail } from "@/email/email";
 import { auth } from "@/lib/auth";
+import { getEmailBinding } from "@/lib/cloudflare-email";
 import {
   createPinResetCode,
   getPrimaryProfilePinHash,
 } from "@/lib/onevid-profile";
-
-const resend = new Resend(process.env.RESEND_API_KEY ?? "");
 
 // Emails a one-time code to the account owner to reset the primary profile PIN.
 export async function POST() {
@@ -30,13 +29,24 @@ export async function POST() {
   const code = await createPinResetCode(session.user.id);
   const { html, subject } = await renderPinResetEmail(code, email);
   const from = process.env.RESEND_FROM ?? "";
-  const { error } = await resend.emails.send({
-    from,
-    to: email,
-    subject,
-    html,
-  });
-  if (error) {
+
+  try {
+    const emailBinding = getEmailBinding();
+    if (emailBinding) {
+      await emailBinding.send({ from, to: email, subject, html });
+    } else {
+      const resend = new Resend(process.env.RESEND_API_KEY ?? "");
+      const { error } = await resend.emails.send({
+        from,
+        to: email,
+        subject,
+        html,
+      });
+      if (error) {
+        return Response.json({ error: "email_failed" }, { status: 502 });
+      }
+    }
+  } catch {
     return Response.json({ error: "email_failed" }, { status: 502 });
   }
 
