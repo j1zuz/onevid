@@ -1,8 +1,10 @@
 import handler from "vinext/server/fetch-handler";
 
+import { setEmailBinding } from "../src/lib/cloudflare-email";
 import { runWithDatabase } from "../src/lib/db";
 
 interface WorkerEnv {
+  EMAIL?: unknown;
   HYPERDRIVE?: { connectionString: string };
   [key: string]: unknown;
 }
@@ -33,6 +35,7 @@ export default {
       );
     }
 
+    setEmailBinding(env.EMAIL);
     return runWithDatabase(connectionString, () =>
       handler.fetch(request, env as Parameters<HandlerFetch>[1], ctx)
     );

@@ -21,6 +21,7 @@ import {
   userRelations,
   verification,
 } from "./auth-schema";
+import { getEmailBinding } from "./cloudflare-email";
 import { db } from "./db";
 import { deviceSessionCookie } from "./device-session-cookie";
 
@@ -43,8 +44,6 @@ function parseLocaleFromMagicLinkUrl(url: string): SupportedLanguage {
   }
   return DEFAULT_LANGUAGE;
 }
-
-const resend = new Resend(process.env.RESEND_API_KEY ?? "");
 
 export const auth = betterAuth({
   appName: "onevid",
@@ -117,6 +116,17 @@ export const auth = betterAuth({
           locale
         );
         const from = process.env.RESEND_FROM ?? "";
+        const emailBinding = getEmailBinding();
+        if (emailBinding) {
+          await emailBinding.send({
+            from,
+            to: email,
+            subject,
+            html,
+          });
+          return;
+        }
+        const resend = new Resend(process.env.RESEND_API_KEY ?? "");
         const { error } = await resend.emails.send({
           from,
           to: email,

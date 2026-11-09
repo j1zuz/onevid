@@ -10,6 +10,7 @@ export default defineConfig({
     name: "onevid",
     entrypoint: "./worker/index.ts",
     compatibilityDate: "2026-11-09",
+    compatibilityFlags: ["nodejs_compat"],
     domains: ["onevid.hackw.tech"],
     observability: {
       enabled: true,
@@ -37,6 +38,8 @@ export default defineConfig({
     env: {
       ASSETS: bindings.assets(),
       IMAGES: bindings.images(),
+      // Email Sending nativo de Cloudflare (dominio hackw.tech onboarded).
+      EMAIL: bindings.sendEmail(),
       // Misma base de datos que hackw (el SSO comparte user/session), así que
       // se reutiliza su configuración de Hyperdrive. Query caching off:
       // sesiones y perfiles necesitan read-after-write.
