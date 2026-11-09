@@ -996,7 +996,11 @@ export function StreamOnevid({
                     "Esta fuente usa HTTP y el navegador la bloquea en una página HTTPS. Pide una fuente HTTPS al proveedor.",
                   )
                 : (playbackError ??
-                  (mediaBunny.status === "error" ? mediaBunny.message : ""))}
+                  (mediaBunny.status === "error"
+                    ? t(
+                        "No se pudo reproducir esta fuente. Puedes reintentar o elegir otra.",
+                      )
+                    : ""))}
             </p>
             {!mixedContentBlocked && (
               <Button onClick={retryPlayback} size="sm" variant="outline">
