@@ -251,8 +251,8 @@ function LiveTvSession({
     [],
   );
   // El skin muestra su propio spinner de buffering si el proveedor deja de
-  // enviar segmentos; en Live TV preferimos el loader con el logo del canal y
-  // un plazo máximo antes de avisar del fallo.
+  // enviar segmentos; el logo del canal es solo para el arranque. `buffering`
+  // se mantiene para el watchdog que detecta cortes prolongados.
   const handleWaiting = useCallback(() => setBuffering(true), []);
   const handlePlaying = useCallback(() => {
     setBuffering(false);
@@ -356,7 +356,7 @@ function LiveTvSession({
       className="onevid-live-player relative aspect-video w-full overflow-hidden bg-black text-white"
       ref={root}
     >
-      {validSource && !failure && (live.probing || loadingChannel || buffering) ? (
+      {validSource && !failure && loadingChannel ? (
         <div
           className="pointer-events-none absolute inset-0 z-20 flex animate-pulse items-center justify-center motion-reduce:animate-none"
           role="status"

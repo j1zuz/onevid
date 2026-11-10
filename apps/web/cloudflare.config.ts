@@ -60,6 +60,8 @@ export default defineConfig({
       GOOGLE_CLIENT_SECRET: bindings.secret(),
       ONEVID_SECRET_KEY: bindings.secret(),
       RESEND_API_KEY: bindings.secret(),
+      STREAM_API_KEY: bindings.secret(),
+      STREAM_API_SECRET: bindings.secret(),
       TMDB_APP_READ_TOKEN: bindings.secret(),
     },
   }),

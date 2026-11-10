@@ -5,6 +5,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  real,
   text,
   timestamp,
   uniqueIndex,
@@ -380,3 +381,74 @@ export const deviceCode = pgTable(
     index("device_code_deviceCode_idx").on(table.deviceCode),
   ]
 );
+
+// ─── Watch party ────────────────────────────────────────────────────────────
+// Salas privadas de co-visualización. El video NO pasa por Stream: cada
+// cliente reproduce su propia fuente y solo se sincroniza play/pause/seek por
+// el canal de Chat. `rawId` conserva temporada/episodio para abrir el mismo
+// episodio, y `contentId` el id base del catálogo/addon.
+
+export const watchRoom = pgTable(
+  "watch_room",
+  {
+    id: text("id").primaryKey(),
+    hostUserId: text("host_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    contentType: text("content_type").notNull(), // 'movie' | 'series'
+    contentId: text("content_id").notNull(),
+    rawId: text("raw_id").notNull(),
+    isAddon: boolean("is_addon").default(false).notNull(),
+    season: integer("season").default(0).notNull(),
+    episode: integer("episode").default(0).notNull(),
+    title: text("title").notNull(),
+    poster: text("poster"),
+    background: text("background"),
+    status: text("status").default("open").notNull(), // 'open' | 'ended'
+    maxParticipants: integer("max_participants").default(5).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("watch_room_host").on(table.hostUserId),
+    index("watch_room_status").on(table.status, table.createdAt),
+  ]
+);
+
+export const watchRoomMember = pgTable(
+  "watch_room_member",
+  {
+    id: text("id").primaryKey(),
+    roomId: text("room_id")
+      .notNull()
+      .references(() => watchRoom.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    image: text("image"),
+    role: text("role").default("guest").notNull(), // 'host' | 'guest'
+    joinedAt: timestamp("joined_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("watch_room_member_unique").on(table.roomId, table.userId),
+    index("watch_room_member_room").on(table.roomId, table.joinedAt),
+  ]
+);
+
+export const watchRoomState = pgTable("watch_room_state", {
+  roomId: text("room_id")
+    .primaryKey()
+    .references(() => watchRoom.id, { onDelete: "cascade" }),
+  positionSec: integer("position_sec").default(0).notNull(),
+  isPlaying: boolean("is_playing").default(false).notNull(),
+  rate: real("rate").default(1).notNull(),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => /* @__PURE__ */ new Date())
+    .notNull(),
+});

@@ -9,10 +9,11 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
 import { TransitionLink } from "glimm/next";
-import { ArrowLeftIcon } from "lucide-react";
+import { ArrowLeftIcon, LoaderIcon, MessageCircleIcon, UsersIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   type NextEpisodeRef,
   StreamNextEpisode,
@@ -25,6 +26,7 @@ import {
   type SubtitleTrackSource,
   VideoJsStreamPlayer,
 } from "@/components/stream/video-js-stream-player";
+import { WatchPartyRoom } from "@/components/watch/watch-party-room";
 import { useIsTv } from "@/hooks/use-is-tv";
 import { trackLabel, useMediaTracks } from "@/hooks/use-media-tracks";
 import {
@@ -39,6 +41,7 @@ import { useTranslation } from "@/lib/onevid-i18n-context";
 import { tmdbImage } from "@/lib/tmdb";
 import { getTmdbLogo } from "@/lib/tmdb-logo-client";
 import type { MimeType, StreamWithAddon } from "@/types/stream";
+import type { WatchJoinData } from "@/lib/watch-party-types";
 import { getMimeType, needsMediaBunny } from "@/utils/stream-codec";
 
 // Isolated so the back button/title don't re-render on every mediabunny
@@ -47,14 +50,18 @@ import { getMimeType, needsMediaBunny } from "@/utils/stream-codec";
 const PlayerTopBar = memo(function PlayerTopBar({
   backHref,
   contentTitle,
+  chatButton,
   handleBack,
   downloadButton,
   episodePicker,
   sourcePicker,
   trackPicker,
   visible,
+  watchPartyButton,
+  showBack = true,
 }: {
   backHref: string;
+  chatButton?: React.ReactNode;
   contentTitle: string;
   handleBack: (e: React.MouseEvent<HTMLAnchorElement>) => void;
   downloadButton?: React.ReactNode;
@@ -62,6 +69,8 @@ const PlayerTopBar = memo(function PlayerTopBar({
   sourcePicker?: React.ReactNode;
   trackPicker?: React.ReactNode;
   visible: boolean;
+  watchPartyButton?: React.ReactNode;
+  showBack?: boolean;
 }) {
   // Los controles de video.js se auto-ocultan por inactividad. Si el cursor
   // está sobre esta barra, la mantenemos visible para que no parpadee al
@@ -86,21 +95,23 @@ const PlayerTopBar = memo(function PlayerTopBar({
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <TransitionLink
-                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-                href={backHref}
-                onClick={handleBack}
-                aria-label="Volver"
-              >
-                <ArrowLeftIcon className="size-5" />
-              </TransitionLink>
-            }
-          />
-          <TooltipContent>Volver</TooltipContent>
-        </Tooltip>
+        {showBack ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <TransitionLink
+                  className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+                  href={backHref}
+                  onClick={handleBack}
+                  aria-label="Volver"
+                >
+                  <ArrowLeftIcon className="size-5" />
+                </TransitionLink>
+              }
+            />
+            <TooltipContent>Volver</TooltipContent>
+          </Tooltip>
+        ) : null}
         <h1 className="min-w-0 flex-1 truncate font-medium text-base text-white">
           {contentTitle}
         </h1>
@@ -110,6 +121,8 @@ const PlayerTopBar = memo(function PlayerTopBar({
           {downloadButton}
           {sourcePicker}
         </div>
+        {chatButton}
+        {watchPartyButton}
       </div>
     </TooltipProvider>
   );
@@ -148,32 +161,24 @@ function nextEpisodeLead(durationSec: number): number {
 
 /**
  * Loader de la app para VOD: el logo del título suelto (sin marco) con pulso.
- * Si el contenido no tiene logo (p. ej. addons), muestra la inicial dentro de
- * la tarjeta. Se usa solo antes del primer fotograma; después el player pinta
- * su propio buffering.
+ * Sin logo no pintamos la inicial: el fondo/póster ya está visible y la "L"
+ * suelta encima del vídeo sobraba. Se usa solo antes del primer fotograma.
  */
-function LoadingArt({ logo, name }: { logo?: string; name: string }) {
-  if (logo) {
-    return (
-      <span
-        aria-hidden="true"
-        className="flex h-24 w-60 animate-pulse items-center justify-center motion-reduce:animate-none"
-      >
-        {/* biome-ignore lint/performance/noImgElement: logo externo de TMDB */}
-        <img
-          alt=""
-          className="max-h-full max-w-full object-contain drop-shadow-lg"
-          src={logo}
-        />
-      </span>
-    );
+function LoadingArt({ logo }: { logo?: string }) {
+  if (!logo) {
+    return null;
   }
   return (
     <span
       aria-hidden="true"
-      className="flex size-24 animate-pulse items-center justify-center rounded-2xl border border-white/15 bg-white/5 font-semibold text-3xl text-white/80 uppercase motion-reduce:animate-none"
+      className="flex h-24 w-60 animate-pulse items-center justify-center motion-reduce:animate-none"
     >
-      {name.trim().charAt(0) || "?"}
+      {/* biome-ignore lint/performance/noImgElement: logo externo de TMDB */}
+      <img
+        alt=""
+        className="max-h-full max-w-full object-contain drop-shadow-lg"
+        src={logo}
+      />
     </span>
   );
 }
@@ -194,7 +199,17 @@ interface StreamOnevidProps {
   directSource?: StreamWithAddon | null;
   /** Item de un catálogo de addon con id propio: sin TMDB, logo ni siguiente episodio. */
   isAddon?: boolean;
+  /** Sala de watch party a la que pertenece este reproductor. */
+  onWatchRoomLeave?: () => void;
   rawId: string;
+  /** Aún estamos entrando a la sala: misma UI del player, sin botones de sala. */
+  watchPartyJoining?: boolean;
+  watchRoom?: {
+    id: string;
+    isHost: boolean;
+    join: WatchJoinData;
+    maxParticipants: number;
+  };
 }
 
 export function StreamOnevid({
@@ -206,7 +221,10 @@ export function StreamOnevid({
   contentLogo,
   directSource,
   isAddon = false,
+  onWatchRoomLeave,
   rawId,
+  watchPartyJoining = false,
+  watchRoom,
 }: StreamOnevidProps) {
   const isDirect = directSource !== undefined;
   // For series rawId is "seriesId:season:episode"; movies have no suffix.
@@ -245,6 +263,8 @@ export function StreamOnevid({
   // error para no dejar al usuario sin pistas.
   const [sourceErrors, setSourceErrors] = useState<string[]>([]);
   const [sourcesAttempt, setSourcesAttempt] = useState(0);
+  const [creatingWatchRoom, setCreatingWatchRoom] = useState(false);
+  const latestProgressRef = useRef(0);
 
   // Logo: start from server prop, fetch client-side as fallback
   const [logo, setLogo] = useState<string | undefined>(contentLogo);
@@ -267,6 +287,13 @@ export function StreamOnevid({
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [arePlayerControlsVisible, setArePlayerControlsVisible] =
     useState(false);
+  const [watchChatOpen, setWatchChatOpen] = useState(true);
+  const [watchChatUnread, setWatchChatUnread] = useState(0);
+
+  useEffect(() => {
+    setWatchChatOpen(true);
+    setWatchChatUnread(0);
+  }, [watchRoom?.id]);
   const handleControlsVisibility = useCallback((visible: boolean) => {
     setArePlayerControlsVisible(visible);
   }, []);
@@ -609,7 +636,7 @@ export function StreamOnevid({
     contentId,
     season,
     episode,
-    isSeries && !isAddon
+    isSeries && !isAddon && !watchRoom
   );
   // Booleano y no el tiempo restante: el `timeupdate` llega ~4 veces por
   // segundo y guardar los segundos aquí re-renderizaría el player entero en
@@ -617,6 +644,7 @@ export function StreamOnevid({
   const [nearEnd, setNearEnd] = useState(false);
   const handleTimeUpdate = useCallback(
     (currentSec: number, durationSec: number) => {
+      latestProgressRef.current = currentSec;
       onTimeUpdate(currentSec, durationSec);
       const remaining = durationSec - currentSec;
       setNearEnd(
@@ -657,6 +685,67 @@ export function StreamOnevid({
     },
     [router]
   );
+
+  const createWatchRoom = useCallback(async () => {
+    if (creatingWatchRoom) {
+      return;
+    }
+    setCreatingWatchRoom(true);
+    try {
+      const video = playerRefs.video;
+      const response = await fetch("/api/watch-rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          background: contentBackground,
+          contentId,
+          contentType,
+          episode,
+          isAddon,
+          playing: video ? !video.paused : false,
+          positionSec:
+            video && Number.isFinite(video.currentTime)
+              ? video.currentTime
+              : latestProgressRef.current,
+          poster: _contentPoster,
+          rawId,
+          season,
+          title: contentTitle,
+        }),
+      });
+      const data = (await response.json().catch(() => null)) as {
+        error?: string;
+        id?: string;
+      } | null;
+      if (!(response.ok && data?.id)) {
+        toast.error(data?.error ?? t("No se pudo crear la watch party."));
+        return;
+      }
+      posthog.capture("watch_party_created", {
+        content_id: contentId,
+        content_type: contentType,
+        is_addon: isAddon,
+      });
+      router.push(`/watch/${data.id}`);
+    } catch {
+      toast.error(t("No se pudo crear la watch party."));
+    } finally {
+      setCreatingWatchRoom(false);
+    }
+  }, [
+    _contentPoster,
+    contentBackground,
+    contentId,
+    contentType,
+    creatingWatchRoom,
+    episode,
+    isAddon,
+    playerRefs.video,
+    rawId,
+    router,
+    season,
+    contentTitle,
+  ]);
 
   // Posición a la que saltar cuando arranque un medio recién elegido desde el
   // selector (cambio de medio en caliente): se guarda el currentTime justo
@@ -873,7 +962,7 @@ export function StreamOnevid({
         }
       >
         <div aria-hidden className="absolute inset-0 bg-black/45" />
-        <LoadingArt logo={logo} name={contentTitle} />
+        <LoadingArt logo={logo} />
         <span className="sr-only">{t("Cargando fuente")}</span>
       </div>
     );
@@ -911,15 +1000,62 @@ export function StreamOnevid({
             </TransitionLink>
           </div>
         </div>
+        {watchRoom || watchPartyJoining ? (
+          <WatchPartyRoom
+            contentLogo={logo}
+            contentPoster={_contentPoster}
+            contentTitle={contentTitle}
+            join={watchRoom?.join ?? null}
+            onLeave={
+              onWatchRoomLeave ??
+              (() => {
+                router.replace(backHref);
+              })
+            }
+            onUnreadChange={setWatchChatUnread}
+            video={null}
+          />
+        ) : null}
       </div>
     );
   }
 
-  // Player
-  return (
-    <div className="group/player fixed inset-0 z-50 flex flex-col bg-black">
+  const playerStage = (
+    <div className={cn("relative min-h-0 w-full", watchRoom ? "size-full" : "flex-1")}>
+
       <PlayerTopBar
         backHref={backHref}
+        chatButton={
+          watchRoom || watchPartyJoining ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    aria-label={
+                      watchChatOpen ? "Ocultar chat" : "Abrir chat"
+                    }
+                    aria-pressed={watchChatOpen}
+                    className="relative bg-blue-950 text-blue-300 shadow-[0_0_0_2px_rgba(59,130,246,0.2)] backdrop-blur-sm hover:bg-blue-900"
+                    data-dpad-focusable
+                    onClick={() => setWatchChatOpen((open) => !open)}
+                    size="icon"
+                    variant="secondary"
+                  >
+                    <MessageCircleIcon className="size-4" />
+                    {!watchChatOpen && watchChatUnread > 0 ? (
+                      <span className="absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 font-medium text-[10px] text-white leading-4">
+                        {watchChatUnread > 9 ? "9+" : watchChatUnread}
+                      </span>
+                    ) : null}
+                  </Button>
+                }
+              />
+              <TooltipContent>
+                {watchChatOpen ? "Ocultar chat" : "Abrir chat"}
+              </TooltipContent>
+            </Tooltip>
+          ) : null
+        }
         contentTitle={contentTitle}
         downloadButton={
           !isTv && sourceUrl ? (
@@ -936,7 +1072,34 @@ export function StreamOnevid({
           ) : null
         }
         handleBack={handleBack}
+        showBack
         visible={arePlayerControlsVisible}
+        watchPartyButton={
+          watchRoom || watchPartyJoining || isDirect ? null : (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    aria-label={t("Crear watch party")}
+                    className="bg-white/10 text-white backdrop-blur-sm hover:bg-white/20"
+                    data-dpad-focusable
+                    disabled={creatingWatchRoom}
+                    onClick={createWatchRoom}
+                    size="icon"
+                    variant="secondary"
+                  >
+                    {creatingWatchRoom ? (
+                      <LoaderIcon className="size-4 animate-spin" />
+                    ) : (
+                      <UsersIcon className="size-4" />
+                    )}
+                  </Button>
+                }
+              />
+              <TooltipContent>{t("Ver juntos")}</TooltipContent>
+            </Tooltip>
+          )
+        }
         trackPicker={
           <StreamTrackPicker
             activeAudioId={activeAudioId}
@@ -969,14 +1132,12 @@ export function StreamOnevid({
           )
         }
       />
-
-      <div className="relative min-h-0 w-full flex-1">
         {/* Fondo oscuro de carga: solo cuando hay trabajo real pendiente —
             transcodificación en curso o buffering activo — no al montar el
             player (si el medio es nativo y arranca al instante, no se muestra). */}
         {showLoadingOverlay && (
           <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/40">
-            <LoadingArt logo={logo} name={contentTitle} />
+            <LoadingArt logo={logo} />
             <span className="sr-only">{t("Cargando video")}</span>
             {mediaBunny.status === "processing" && mediaBunny.progress > 0 ? (
               <span className="text-white/80 text-xs tabular-nums">
@@ -1015,7 +1176,7 @@ export function StreamOnevid({
             // montarse: sin `key` React reutiliza el elemento y el arranque
             // del nuevo src queda a merced de cómo lo propague videojs.
             key={`${activeSrc}:${playbackRetry}`}
-            autoPlay={true}
+            autoPlay={!watchRoom && !watchPartyJoining}
             controls={false}
             isPlayMode={true}
             mimeType={
@@ -1070,10 +1231,38 @@ export function StreamOnevid({
             <div className="absolute inset-0 bg-black/45" />
           </div>
         ) : null}
-        {nearEnd && nextEpisode && (
+        {!watchRoom && nearEnd && nextEpisode && (
           <StreamNextEpisode next={nextEpisode} onPlay={handlePlayNext} />
         )}
-      </div>
+    </div>
+  );
+
+  // Player
+  return (
+    <div className="group/player fixed inset-0 z-50 flex flex-col bg-black">
+
+      {watchRoom || watchPartyJoining ? (
+        <WatchPartyRoom
+          chatOpen={watchChatOpen}
+          contentLogo={logo}
+          contentPoster={_contentPoster}
+          contentTitle={contentTitle}
+          join={watchRoom?.join ?? null}
+          onChatOpenChange={setWatchChatOpen}
+          onLeave={
+            onWatchRoomLeave ??
+            (() => {
+              router.replace(backHref);
+            })
+          }
+          onUnreadChange={setWatchChatUnread}
+          video={playerRefs.video}
+        >
+          {playerStage}
+        </WatchPartyRoom>
+      ) : (
+        playerStage
+      )}
     </div>
   );
 }
