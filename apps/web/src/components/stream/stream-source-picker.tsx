@@ -15,6 +15,7 @@ import {
 } from "@workspace/ui/components/tooltip";
 import { CheckIcon, LayersIcon, Loader } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "@/lib/onevid-i18n-context";
 import { QUALITY_LABELS } from "@/lib/stream-quality";
 import type { StreamType, StreamWithAddon } from "@/types/stream";
 
@@ -114,6 +115,7 @@ export function StreamSourcePicker({
   contentType,
   onSelect,
 }: StreamSourcePickerProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [sources, setSources] = useState<StreamWithAddon[]>([]);
   const [loading, setLoading] = useState(true);
@@ -211,6 +213,12 @@ export function StreamSourcePicker({
                 <p className="text-muted-foreground text-xs">
                   No hay otros medios disponibles.
                 </p>
+                <a
+                  className="mt-2 inline-flex rounded-md bg-muted px-3 py-1.5 text-foreground text-xs transition-colors hover:bg-accent"
+                  href="/home/account"
+                >
+                  {t("Configurar")}
+                </a>
               </div>
             )}
 

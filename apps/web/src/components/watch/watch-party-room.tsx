@@ -41,6 +41,20 @@ type PartyOverlayState = {
  * join) para no duplicar una pantalla de "Entrando…" ni remontar el player:
  * solo el contenido del panel de chat pasa de "conectando" a conectado.
  */
+function useIsNarrow() {
+  const [narrow, setNarrow] = useState(false);
+
+  useEffect(() => {
+    const mql = window.matchMedia("(max-width: 1100px)");
+    const update = () => setNarrow(mql.matches);
+    mql.addEventListener("change", update);
+    update();
+    return () => mql.removeEventListener("change", update);
+  }, []);
+
+  return narrow;
+}
+
 export function WatchPartyRoom({
   chatOpen = true,
   children,
@@ -66,6 +80,7 @@ export function WatchPartyRoom({
 }) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
+  const isNarrow = useIsNarrow();
   const chatPanelRef = useRef<PanelImperativeHandle | null>(null);
   const [overlay, setOverlay] = useState<PartyOverlayState | null>(null);
   const [forcedEnded, setForcedEnded] = useState(false);
@@ -87,6 +102,9 @@ export function WatchPartyRoom({
   const chat = join ? (
     <WatchPartyConnectedChat
       chatOpen={chatOpen}
+      contentLogo={contentLogo}
+      contentPoster={contentPoster}
+      contentTitle={contentTitle}
       join={join}
       onLeave={onLeave}
       onEnded={() => setForcedEnded(true)}
@@ -132,8 +150,8 @@ export function WatchPartyRoom({
         >
           <ResizablePanel
             className="relative min-w-0"
-            defaultSize={isMobile ? "78" : "82"}
-            minSize={isMobile ? "32" : "40"}
+            defaultSize={isMobile ? "55" : isNarrow ? "66" : "82"}
+            minSize={isMobile ? "30" : "40"}
           >
             {children}
 
@@ -152,7 +170,9 @@ export function WatchPartyRoom({
                       title={contentTitle}
                     />
                     <div className="space-y-1">
-                      <CardTitle>{t("Únete a la reproducción")}</CardTitle>
+                      <CardTitle>
+                        {t("Únete a la watch party")}
+                      </CardTitle>
                       <CardDescription>
                         {t(
                           "El host ya está reproduciendo. Pulsa para sincronizarte."
@@ -166,7 +186,7 @@ export function WatchPartyRoom({
                       size="lg"
                     >
                       <PlayIcon className="size-4 fill-current" />
-                      {t("Unirse a la reproducción")}
+                      {t("Unirse a la watch party")}
                     </Button>
                   </CardContent>
                 </Card>
@@ -193,9 +213,9 @@ export function WatchPartyRoom({
             className="min-h-0 overflow-hidden bg-background"
             collapsedSize="0"
             collapsible
-            defaultSize={isMobile ? "22" : "18"}
-            maxSize={isMobile ? "68" : "55"}
-            minSize={isMobile ? "22" : "18"}
+            defaultSize={isMobile ? "45" : isNarrow ? "34" : "18"}
+            maxSize={isMobile ? "70" : "55"}
+            minSize={isMobile ? "35" : isNarrow ? "30" : "18"}
             onResize={(size) => onChatOpenChange?.(size.asPercentage >= 1)}
             panelRef={chatPanelRef}
           >
@@ -216,6 +236,9 @@ export function WatchPartyRoom({
 /** Chat conectado: único punto donde vive `useWatchParty`. */
 function WatchPartyConnectedChat({
   chatOpen,
+  contentLogo,
+  contentPoster,
+  contentTitle,
   join,
   onEnded,
   onLeave,
@@ -224,6 +247,9 @@ function WatchPartyConnectedChat({
   video,
 }: {
   chatOpen: boolean;
+  contentLogo?: string;
+  contentPoster?: string;
+  contentTitle?: string;
   join: WatchJoinData;
   onEnded: () => void;
   onLeave: () => void;
@@ -273,8 +299,6 @@ function WatchPartyConnectedChat({
   useEffect(() => {
     onOverlay({
       ended: party.ended,
-      // El host no ve el aviso de "únete": si el autoplay fue bloqueado, usa
-      // el botón de play del propio reproductor.
       needsGesture: party.needsGesture && !party.isHost,
       reactions: party.reactions,
       resumePlayback: party.resumePlayback,
@@ -333,6 +357,9 @@ function WatchPartyConnectedChat({
   return (
     <WatchPartyChat
       busy={busy}
+      contentLogo={contentLogo}
+      contentPoster={contentPoster}
+      contentTitle={contentTitle}
       error={party.error}
       hostId={party.hostId}
       isHost={party.isHost}

@@ -5,6 +5,7 @@ import { DoorClosedIcon, TriangleAlertIcon, UsersIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { StreamOnevid } from "@/components/stream/stream-onevid";
+import { getTmdbLogo } from "@/lib/tmdb-logo-client";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { WatchJoinData, WatchRoomDTO } from "@/lib/watch-party-types";
 
@@ -42,6 +43,7 @@ export function WatchRoomClient({ room }: { room: WatchRoomDTO }) {
   const router = useRouter();
   const [join, setJoin] = useState<WatchJoinData | null>(null);
   const [error, setError] = useState<JoinError | null>(null);
+  const [logo, setLogo] = useState<string | undefined>();
 
   useEffect(() => {
     let cancelled = false;
@@ -81,6 +83,25 @@ export function WatchRoomClient({ room }: { room: WatchRoomDTO }) {
     };
   }, [room.id]);
 
+  useEffect(() => {
+    if (room.isAddon) {
+      return;
+    }
+    let cancelled = false;
+    getTmdbLogo(room.contentType, room.contentId)
+      .then((result) => {
+        if (!cancelled && result) {
+          setLogo(result);
+        }
+      })
+      .catch(() => {
+        /* sin logo: cae al póster */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [room.contentId, room.contentType, room.isAddon]);
+
   const back = () => router.replace(roomBackHref(room));
   const ErrorIcon =
     error === "full"
@@ -92,10 +113,10 @@ export function WatchRoomClient({ room }: { room: WatchRoomDTO }) {
   if (error) {
     const title =
       error === "full"
-        ? t("La sala está llena")
+        ? t("La watch party está llena")
         : error === "ended"
-          ? t("La sala terminó")
-          : t("No se pudo entrar a la sala");
+          ? t("La watch party terminó")
+          : t("No se pudo entrar a la watch party");
     const description =
       error === "full"
         ? t("Esta watch party ya tiene {{max}} personas.", {
@@ -108,14 +129,30 @@ export function WatchRoomClient({ room }: { room: WatchRoomDTO }) {
       <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden bg-background px-6">
         <RoomBackdrop poster={room.poster} />
         <div className="relative flex w-full max-w-sm flex-col items-center gap-4 rounded-3xl border border-border/60 bg-card/90 px-8 py-10 text-center shadow-2xl backdrop-blur-xl">
-          <div className="flex size-12 items-center justify-center rounded-full bg-muted">
-            <ErrorIcon className="size-6 text-muted-foreground" />
-          </div>
+          {logo ? (
+            // biome-ignore lint/performance/noImgElement: logo externo de TMDB
+            <img
+              alt={room.title}
+              className="max-h-14 max-w-56 object-contain"
+              src={logo}
+            />
+          ) : room.poster ? (
+            // biome-ignore lint/performance/noImgElement: póster externo de TMDB
+            <img
+              alt={room.title}
+              className="h-24 w-16 rounded-xl object-cover shadow-lg"
+              src={room.poster}
+            />
+          ) : (
+            <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+              <ErrorIcon className="size-6 text-muted-foreground" />
+            </div>
+          )}
           <div className="space-y-1">
             <p className="font-medium text-lg">{title}</p>
             <p className="text-muted-foreground text-sm">{description}</p>
           </div>
-          <Button onClick={back} variant="secondary">
+          <Button className="btn-primary" onClick={back}>
             {t("Volver")}
           </Button>
         </div>

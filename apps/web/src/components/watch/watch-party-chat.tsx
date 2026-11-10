@@ -1,6 +1,16 @@
 "use client";
 
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@workspace/ui/components/alert-dialog";
+import {
   Avatar,
   AvatarFallback,
   AvatarImage,
@@ -206,6 +216,9 @@ function MessageAttachment({
  */
 export function WatchPartyChat({
   busy,
+  contentLogo,
+  contentPoster,
+  contentTitle,
   error,
   hostId,
   isHost,
@@ -226,6 +239,9 @@ export function WatchPartyChat({
   syncStatus,
 }: {
   busy: "leave" | "end" | null;
+  contentLogo?: string;
+  contentPoster?: string;
+  contentTitle?: string;
   error: string | null;
   hostId: string;
   isHost: boolean;
@@ -249,6 +265,9 @@ export function WatchPartyChat({
   const [tab, setTab] = useState<"chat" | "people">("chat");
   const [draft, setDraft] = useState("");
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<"end" | "leave" | null>(
+    null
+  );
   const [gifPreview, setGifPreview] = useState<{
     attachments: unknown[];
     query: string;
@@ -510,7 +529,7 @@ export function WatchPartyChat({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-background">
-      <header className="flex items-center gap-3 px-3 py-3">
+      <header className="flex items-center gap-2 px-2 py-2.5 sm:gap-3 sm:px-3 sm:py-3">
         {members.length > 0 ? (
           <div className="flex shrink-0 -space-x-1.5">
             {members.slice(0, 3).map((member) => (
@@ -534,7 +553,7 @@ export function WatchPartyChat({
 
         {ready || error ? (
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
-            <p className="truncate font-medium text-sm">
+            <p className="truncate font-medium text-sm max-[1100px]:text-xs">
               {t("{{count}} de {{max}}", {
                 count: members.length,
                 max: join.room.maxParticipants,
@@ -587,13 +606,13 @@ export function WatchPartyChat({
         onValueChange={(value) => setTab(value as "chat" | "people")}
         value={tab}
       >
-        <div className="px-3 pt-3">
+        <div className="px-2 pt-2 sm:px-3 sm:pt-3">
           <TabsList className="w-full">
-            <TabsTrigger data-dpad-focusable value="chat">
+            <TabsTrigger className="max-[1100px]:text-xs" data-dpad-focusable value="chat">
               <MessageCircleIcon className="size-4" />
               {t("Chat")}
             </TabsTrigger>
-            <TabsTrigger data-dpad-focusable value="people">
+            <TabsTrigger className="max-[1100px]:text-xs" data-dpad-focusable value="people">
               <UsersIcon className="size-4" />
               {t("Personas")}
               <Badge
@@ -606,11 +625,11 @@ export function WatchPartyChat({
           </TabsList>
         </div>
 
-        <TabsContent className="mt-3 flex min-h-0 flex-1 flex-col" value="chat">
+        <TabsContent className="mt-2 flex min-h-0 flex-1 flex-col sm:mt-3" value="chat">
           <div
             aria-live="polite"
             aria-relevant="additions"
-            className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 pb-3"
+            className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-2 pb-2 sm:px-3 sm:pb-3"
             ref={listRef}
             role="log"
           >
@@ -657,7 +676,7 @@ export function WatchPartyChat({
                 <div className="flex size-10 items-center justify-center rounded-full bg-muted">
                   <MessageCircleIcon className="size-5 text-muted-foreground" />
                 </div>
-                <p className="font-medium text-sm">
+                <p className="font-medium text-sm max-[1100px]:text-xs">
                   {t("Sé el primero en escribir")}
                 </p>
                 <p className="max-w-56 text-muted-foreground text-xs">
@@ -705,7 +724,7 @@ export function WatchPartyChat({
                     {message.text ? (
                       <div
                         className={cn(
-                          "rounded-2xl px-3 py-2 text-sm",
+                          "rounded-2xl px-3 py-2 text-sm max-[1100px]:text-[13px]",
                           own
                             ? "rounded-br-md bg-primary text-primary-foreground"
                             : "rounded-bl-md bg-muted text-foreground"
@@ -780,11 +799,11 @@ export function WatchPartyChat({
 
           <Separator />
 
-          <div className="flex flex-nowrap items-center justify-between gap-1 px-2 py-2">
+          <div className="flex flex-nowrap items-center justify-between gap-0.5 px-1 py-2 sm:gap-1 sm:px-2">
             {REACTIONS.map((emoji) => (
               <button
                 aria-label={t("Reaccionar {{emoji}}", { emoji })}
-                className="rounded-full px-2 py-1 text-lg transition-transform hover:scale-110 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="rounded-full px-1 py-1 text-base transition-transform hover:scale-110 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:text-lg"
                 data-dpad-focusable
                 key={emoji}
                 onClick={() => onReaction(emoji)}
@@ -842,7 +861,7 @@ export function WatchPartyChat({
                   render={
                     <Button
                       aria-label={t("Adjuntar")}
-                      className="size-11 shrink-0 rounded-full bg-white/10 text-white hover:bg-white/20"
+                      className="size-9 shrink-0 rounded-full bg-white/10 text-white hover:bg-white/20 sm:size-11"
                       data-dpad-focusable
                       disabled={!ready || sending}
                       size="icon"
@@ -877,7 +896,7 @@ export function WatchPartyChat({
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <div className="flex min-w-0 flex-1 flex-col gap-1 rounded-3xl bg-white/10 p-1.5">
+              <div className="flex min-w-0 flex-1 flex-col gap-1 rounded-3xl bg-white/10 p-1 sm:p-1.5">
                 {filePreview ? (
                   <div className="relative mt-1 ml-1 w-fit">
                     {filePreview.url ? (
@@ -905,14 +924,14 @@ export function WatchPartyChat({
                     </button>
                   </div>
                 ) : null}
-                <div className="flex h-8 items-center gap-0.5 px-0.5">
+                <div className="flex h-7 items-center gap-0.5 px-0.5 sm:h-8">
                 <Input
                   aria-label={t("Mensaje")}
-                  className="h-8 min-w-0 flex-1 border-0 bg-transparent px-2 shadow-none focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
+                  className="h-7 min-w-0 flex-1 border-0 bg-transparent px-2 text-sm shadow-none focus-visible:border-0 focus-visible:ring-0 max-[1100px]:text-[13px] sm:h-8 dark:bg-transparent"
                   data-dpad-focusable
                   maxLength={500}
                   onChange={(event) => setDraft(event.target.value)}
-                  placeholder={t("Escribe un mensaje…")}
+                  placeholder={t("Mensaje…")}
                   ref={inputRef}
                   value={draft}
                 />
@@ -922,7 +941,7 @@ export function WatchPartyChat({
                     render={
                       <Button
                         aria-label={t("Emojis")}
-                        className="shrink-0"
+                        className="size-7 shrink-0 sm:size-8"
                         data-dpad-focusable
                         disabled={!ready || sending}
                         size="icon-sm"
@@ -954,7 +973,7 @@ export function WatchPartyChat({
                     render={
                       <Button
                         aria-label={t("Grabar audio")}
-                        className="shrink-0"
+                        className="size-7 shrink-0 sm:size-8"
                         data-dpad-focusable
                         disabled={!ready || sending}
                         onClick={startRecording}
@@ -972,7 +991,7 @@ export function WatchPartyChat({
                 {draft.trim() || filePreview ? (
                   <Button
                     aria-label={t("Enviar")}
-                    className="shrink-0 rounded-full"
+                    className="size-7 shrink-0 rounded-full sm:size-8"
                     data-dpad-focusable
                     disabled={sending}
                     size="icon-sm"
@@ -1013,7 +1032,7 @@ export function WatchPartyChat({
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <p className="truncate font-medium text-sm">
+                      <p className="truncate font-medium text-sm max-[1100px]:text-xs">
                         {member.name}
                       </p>
                       {member.userId === hostId ? (
@@ -1039,7 +1058,7 @@ export function WatchPartyChat({
 
       <Separator />
 
-      <footer className="space-y-2 p-3">
+      <footer className="space-y-2 p-2 sm:p-3">
         {isHost ? null : (
           <div className="flex justify-end">
             <Button
@@ -1057,10 +1076,10 @@ export function WatchPartyChat({
         <div className="flex gap-2">
           {isHost ? (
             <Button
-              className="flex-1 gap-1.5"
+              className="flex-1 gap-1.5 max-[1100px]:text-xs"
               data-dpad-focusable
               disabled={busy !== null}
-              onClick={onEnd}
+              onClick={() => setConfirmAction("end")}
               size="sm"
               variant="destructive"
             >
@@ -1073,10 +1092,10 @@ export function WatchPartyChat({
             </Button>
           ) : null}
           <Button
-            className="flex-1 gap-1.5"
+            className="flex-1 gap-1.5 max-[1100px]:text-xs"
             data-dpad-focusable
             disabled={busy !== null}
-            onClick={onLeave}
+            onClick={() => setConfirmAction("leave")}
             size="sm"
             variant="secondary"
           >
@@ -1089,6 +1108,65 @@ export function WatchPartyChat({
           </Button>
         </div>
       </footer>
+
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmAction(null);
+          }
+        }}
+        open={confirmAction !== null}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader className="place-items-center text-center sm:group-data-[size=default]/alert-dialog-content:place-items-center sm:group-data-[size=default]/alert-dialog-content:text-center">
+            {contentLogo ? (
+              // biome-ignore lint/performance/noImgElement: logo externo de TMDB
+              <img
+                alt={contentTitle ?? ""}
+                className="mx-auto mb-1 max-h-14 max-w-56 object-contain"
+                src={contentLogo}
+              />
+            ) : contentPoster ? (
+              // biome-ignore lint/performance/noImgElement: póster externo de TMDB
+              <img
+                alt={contentTitle ?? ""}
+                className="mx-auto mb-1 h-20 w-14 rounded-xl object-cover shadow-lg"
+                src={contentPoster}
+              />
+            ) : null}
+            <AlertDialogTitle>
+              {confirmAction === "end"
+                ? t("¿Terminar la watch party?")
+                : t("¿Salir de la watch party?")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmAction === "end"
+                ? t("Se cerrará para todos y se borrará el chat.")
+                : t("Dejarás de ver y chatear con el grupo.")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Cancelar")}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy !== null}
+              onClick={() => {
+                const action = confirmAction;
+                setConfirmAction(null);
+                if (action === "end") {
+                  onEnd();
+                } else if (action === "leave") {
+                  onLeave();
+                }
+              }}
+              variant={confirmAction === "end" ? "destructive" : "default"}
+            >
+              {confirmAction === "end"
+                ? t("Sí, terminar")
+                : t("Sí, salir")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

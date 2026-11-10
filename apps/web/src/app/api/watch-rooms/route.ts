@@ -108,7 +108,7 @@ export async function POST(request: Request) {
   const title = requiredText(body.title, 200);
   if (!(contentType && contentId && rawId && title)) {
     return Response.json(
-      { error: "Datos de la sala inválidos." },
+      { error: "Datos de la watch party inválidos." },
       { status: 400 }
     );
   }
@@ -200,7 +200,7 @@ export async function POST(request: Request) {
     });
     await db.delete(watchRoom).where(eq(watchRoom.id, roomId));
     return Response.json(
-      { error: "No se pudo crear la sala. Inténtalo de nuevo." },
+      { error: "No se pudo crear la watch party. Inténtalo de nuevo." },
       { status: 503 }
     );
   }

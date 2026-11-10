@@ -25,7 +25,7 @@ export async function POST(
   const { id: roomId } = await context.params;
   const room = await getWatchRoom(roomId);
   if (!room) {
-    return Response.json({ error: "Sala no encontrada" }, { status: 404 });
+    return Response.json({ error: "Watch party no encontrada" }, { status: 404 });
   }
 
   const limit = checkRateLimit(

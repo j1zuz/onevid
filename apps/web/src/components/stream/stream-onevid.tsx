@@ -120,9 +120,9 @@ const PlayerTopBar = memo(function PlayerTopBar({
           {episodePicker}
           {downloadButton}
           {sourcePicker}
+          {watchPartyButton}
         </div>
         {chatButton}
-        {watchPartyButton}
       </div>
     </TooltipProvider>
   );
@@ -275,6 +275,9 @@ export function StreamOnevid({
   const [isBuffering, setIsBuffering] = useState(false);
   const [isSeeking, setIsSeeking] = useState(false);
   const [hasPlayed, setHasPlayed] = useState(false);
+  // El vídeo ya tiene un frame listo (aunque esté en pausa): quitamos el póster
+  // de carga para que se vea el reproductor, no el fondo de la peli.
+  const [canPlay, setCanPlay] = useState(false);
   const [playbackRetry, setPlaybackRetry] = useState(0);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   // Una fuente http:// dentro de una página https:// la bloquea el navegador
@@ -421,6 +424,7 @@ export function StreamOnevid({
   const retryPlayback = useCallback(() => {
     setPlaybackError(null);
     setHasPlayed(false);
+    setCanPlay(false);
     setIsBuffering(true);
     setPlaybackRetry((current) => current + 1);
   }, []);
@@ -1183,14 +1187,19 @@ export function StreamOnevid({
               shouldUseMediaBunny ? "video/mp4" : selectedMimeType
             }
             onEnded={onEnded}
-            onLoadStart={() => setIsBuffering(true)}
+            onLoadStart={() => {
+              setCanPlay(false);
+              setIsBuffering(true);
+            }}
             onMediaRef={handleMediaRef}
             onError={handlePlaybackError}
             onCanPlay={() => {
+              setCanPlay(true);
               setIsBuffering(false);
               setIsSeeking(false);
             }}
             onPlaying={() => {
+              setCanPlay(true);
               setIsBuffering(false);
               setIsSeeking(false);
               setHasPlayed(true);
@@ -1219,7 +1228,7 @@ export function StreamOnevid({
             hasta el primer fotograma y, al ser un hermano posterior, tapaba
             este backdrop si lo pintábamos antes. `pointer-events-none` deja
             pasar los clics (autoplay bloqueado, gesto para reproducir). */}
-        {!hasPlayed && loadingArt ? (
+        {!hasPlayed && !canPlay && loadingArt ? (
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0 z-10"

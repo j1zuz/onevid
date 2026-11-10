@@ -659,7 +659,13 @@ function MovieDialogContent({
       if (source) {
         handlePlay(source, episode);
       } else {
-        toast.error(t("No hay medios disponibles para reproducir"));
+        toast.error(t("No hay medios disponibles para reproducir"), {
+          action: {
+            label: t("Configurar"),
+            onClick: () => push("/home/account"),
+          },
+          duration: 10_000,
+        });
       }
     } finally {
       setStartingPlayback(false);
@@ -670,6 +676,7 @@ function MovieDialogContent({
     loadSeriesMeta,
     loadSources,
     movie.id,
+    push,
     sources,
     sourcesLoaded,
     t,
@@ -685,7 +692,13 @@ function MovieDialogContent({
       if (source) {
         handlePlay(source, episode);
       } else {
-        toast.error(t("No hay medios disponibles para este episodio"));
+        toast.error(t("No hay medios disponibles para este episodio"), {
+          action: {
+            label: t("Configurar"),
+            onClick: () => push("/home/account"),
+          },
+          duration: 10_000,
+        });
       }
     } finally {
       setStartingEpisodeId(null);

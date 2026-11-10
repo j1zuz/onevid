@@ -110,7 +110,7 @@ export async function POST(
 
   const { id: roomId } = await context.params;
   if (!roomId) {
-    return Response.json({ error: "Sala inválida" }, { status: 400 });
+    return Response.json({ error: "Watch party inválida" }, { status: 400 });
   }
 
   const limit = checkRateLimit(
@@ -124,10 +124,10 @@ export async function POST(
 
   const room = await getWatchRoom(roomId);
   if (!room) {
-    return Response.json({ error: "Sala no encontrada" }, { status: 404 });
+    return Response.json({ error: "Watch party no encontrada" }, { status: 404 });
   }
   if (room.status !== "open") {
-    return Response.json({ error: "La sala terminó" }, { status: 410 });
+    return Response.json({ error: "La watch party terminó" }, { status: 410 });
   }
 
   const userId = session.user.id;
@@ -186,7 +186,7 @@ export async function POST(
   } catch (error) {
     if (error instanceof RoomFullError) {
       return Response.json(
-        { error: "La sala está llena", code: "room_full" },
+        { error: "La watch party está llena", code: "room_full" },
         { status: 409 }
       );
     }
@@ -195,12 +195,12 @@ export async function POST(
 
   if (outcome === "full") {
     return Response.json(
-      { error: "La sala está llena", code: "room_full" },
+      { error: "La watch party está llena", code: "room_full" },
       { status: 409 }
     );
   }
   if (outcome === "ended") {
-    return Response.json({ error: "La sala terminó" }, { status: 410 });
+    return Response.json({ error: "La watch party terminó" }, { status: 410 });
   }
 
   const client = getStreamServerClient();
@@ -229,7 +229,7 @@ export async function POST(
       type: error instanceof Error ? error.constructor.name : typeof error,
     });
     return Response.json(
-      { error: "No se pudo entrar a la sala. Inténtalo de nuevo." },
+      { error: "No se pudo entrar a la watch party. Inténtalo de nuevo." },
       { status: 503 }
     );
   }
@@ -238,7 +238,7 @@ export async function POST(
   const member = await getWatchRoomMember(roomId, userId);
   if (!(fresh && member)) {
     return Response.json(
-      { error: "No se pudo cargar la sala." },
+      { error: "No se pudo cargar la watch party." },
       { status: 503 }
     );
   }
