@@ -8,6 +8,10 @@ web-build/
 .next/
 out/
 .turbo/
+.vinext/
+
+# generado por Next.js / vinext en cada build — no versionar
+next-env.d.ts
 
 # Metro
 .metro-health-check*
