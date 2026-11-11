@@ -63,6 +63,21 @@ export interface WatchChatAttachment {
   giphy?: Record<string, { url?: string } | undefined>;
 }
 
+export interface WatchChatReaction {
+  emoji: string;
+  count: number;
+  /** El usuario actual reaccionó con este emoji. */
+  mine: boolean;
+}
+
+/** Cita de otro mensaje, tal como la devuelve Stream (`quoted_message`). */
+export interface WatchChatQuotedMessage {
+  id: string;
+  text: string;
+  userName: string;
+  hasAttachment: boolean;
+}
+
 export interface WatchChatMessage {
   id: string;
   text: string;
@@ -72,6 +87,11 @@ export interface WatchChatMessage {
   /** Avatar del perfil de onevid: clave de gradiente o `sticker:<id>`. */
   avatar: string | null;
   attachments: WatchChatAttachment[];
+  reactions: WatchChatReaction[];
+  /** Mensaje al que responde, si es una respuesta citada. */
+  quoted: WatchChatQuotedMessage | null;
+  /** Fijado por el host (o por quien tenga permiso). */
+  pinned: boolean;
   createdAt: string;
 }
 
@@ -81,6 +101,8 @@ export interface WatchMember {
   image: string | null;
   /** Avatar del perfil de onevid: clave de gradiente o `sticker:<id>`. */
   avatar: string | null;
+  /** Presencia de Stream: `null` si la app no la expone. */
+  online: boolean | null;
 }
 
 export type WatchSyncAction = "play" | "pause" | "seek" | "rate" | "heartbeat";

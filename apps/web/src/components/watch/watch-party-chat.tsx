@@ -35,12 +35,6 @@ import {
 import { Separator } from "@workspace/ui/components/separator";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@workspace/ui/components/tabs";
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -55,22 +49,29 @@ import {
   Link2Icon,
   LoaderIcon,
   LogOutIcon,
+  CopyIcon,
   MessageCircleIcon,
   MicIcon,
+  MoreHorizontalIcon,
   PaperclipIcon,
+  PinIcon,
+  PinOffIcon,
   PlusIcon,
   RefreshCwIcon,
+  ReplyIcon,
   SendIcon,
   SmilePlusIcon,
   StopCircleIcon,
   TerminalIcon,
+  UserMinusIcon,
   UsersIcon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { OneVidProfileAvatar } from "@/components/stream/onevid-profile-avatar";
 import { useTranslation } from "@/lib/onevid-i18n-context";
+import { MESSAGE_REACTIONS } from "@/lib/watch-party-reactions";
 import type {
   WatchChatAttachment,
   WatchChatMessage,
@@ -90,6 +91,30 @@ function formatTime(iso: string): string {
     return "";
   }
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+/** Etiqueta del separador de día: Hoy / Ayer / "lun, 28 sep". */
+function formatDayLabel(iso: string, todayLabel: string, yesterdayLabel: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const startOfDay = (value: Date) =>
+    new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const days = Math.round(
+    (startOfDay(new Date()) - startOfDay(date)) / (24 * 60 * 60 * 1000)
+  );
+  if (days === 0) {
+    return todayLabel;
+  }
+  if (days === 1) {
+    return yesterdayLabel;
+  }
+  return date.toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
 }
 
 function formatDuration(totalSeconds: number): string {
@@ -226,6 +251,7 @@ export function WatchPartyChat({
   members,
   messages,
   onEnd,
+  onKick,
   onLeave,
   onReaction,
   onRequestSync,
@@ -234,6 +260,8 @@ export function WatchPartyChat({
   onSendFile,
   onSendGif,
   onSendVoice,
+  onTogglePin,
+  onToggleReaction,
   ready,
   sending,
   syncStatus,
@@ -249,20 +277,29 @@ export function WatchPartyChat({
   members: WatchMember[];
   messages: WatchChatMessage[];
   onEnd: () => void;
+  /** Solo lo usa el host: saca a un participante de la sala. */
+  onKick: (userId: string) => Promise<boolean>;
   onLeave: () => void;
   onReaction: (emoji: string) => void;
   onRequestSync: () => void;
   onPreviewGif: (query: string) => Promise<unknown[] | null>;
-  onSend: (text: string) => Promise<boolean>;
+  onSend: (text: string, quotedMessageId?: string) => Promise<boolean>;
   onSendFile: (file: File) => Promise<boolean>;
   onSendGif: (attachments: unknown[]) => Promise<boolean>;
   onSendVoice: (blob: Blob, durationSec: number) => Promise<boolean>;
+  /** Fija o desfija un mensaje en la sala. */
+  onTogglePin: (messageId: string, pinned: boolean) => Promise<boolean>;
+  /** Alterna una reacción del usuario en un mensaje concreto. */
+  onToggleReaction: (
+    messageId: string,
+    emoji: string,
+    alreadyReacted: boolean
+  ) => Promise<boolean>;
   ready: boolean;
   sending: boolean;
   syncStatus: "synced" | "drifting";
 }) {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<"chat" | "people">("chat");
   const [draft, setDraft] = useState("");
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"end" | "leave" | null>(
@@ -276,6 +313,9 @@ export function WatchPartyChat({
     file: File;
     url: string | null;
   } | null>(null);
+  // Mensaje al que se está respondiendo (cita); se limpia al enviar.
+  const [replyTo, setReplyTo] = useState<WatchChatMessage | null>(null);
+  const [kickTarget, setKickTarget] = useState<WatchMember | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -289,14 +329,11 @@ export function WatchPartyChat({
   const cancelRecordingRef = useRef(false);
 
   useEffect(() => {
-    if (tab !== "chat") {
-      return;
-    }
     const node = listRef.current;
     if (node) {
       node.scrollTop = node.scrollHeight;
     }
-  }, [gifPreview, messages, tab]);
+  }, [gifPreview, messages]);
 
   useEffect(
     () => () => {
@@ -501,8 +538,10 @@ export function WatchPartyChat({
     }
 
     setDraft("");
-    const ok = await onSend(text);
-    if (!ok) {
+    const ok = await onSend(text, replyTo?.id);
+    if (ok) {
+      setReplyTo(null);
+    } else {
       setDraft(text);
     }
   };
@@ -521,11 +560,9 @@ export function WatchPartyChat({
     : null;
 
   const synced = syncStatus === "synced";
-  const syncLabel = isHost
-    ? t("Tú controlas la reproducción")
-    : synced
-      ? t("Sincronizado con el host")
-      : t("Desincronizado");
+  const syncLabel = synced
+    ? t("Sincronizado con el host")
+    : t("Desincronizado");
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-background">
@@ -553,26 +590,123 @@ export function WatchPartyChat({
 
         {ready || error ? (
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
-            <p className="truncate font-medium text-sm max-[1100px]:text-xs">
-              {t("{{count}} de {{max}}", {
-                count: members.length,
-                max: join.room.maxParticipants,
-              })}
-            </p>
-            <Badge className="gap-1.5 font-normal" variant="outline">
-              <span
-                aria-hidden
-                className={cn(
-                  "size-1.5 rounded-full",
-                  isHost
-                    ? "bg-primary"
-                    : synced
-                      ? "bg-emerald-400"
-                      : "bg-amber-400"
-                )}
+            <Popover>
+              <PopoverTrigger
+                render={
+                  <Button
+                    aria-label={t("Ver participantes")}
+                    className="h-7 gap-1.5 rounded-full px-2 text-xs"
+                    data-dpad-focusable
+                    size="sm"
+                    variant="ghost"
+                  >
+                    {t("Personas")}
+                    <Badge
+                      className="h-5 bg-background/40 px-1.5 text-[10px]"
+                      variant="secondary"
+                    >
+                      {members.length}
+                    </Badge>
+                  </Button>
+                }
               />
-              {syncLabel}
-            </Badge>
+              <PopoverContent align="start" className="w-64 p-1" side="bottom">
+                {members.length === 0 ? (
+            <p className="px-2 py-6 text-center text-muted-foreground text-sm">
+              {t("Conectando con los participantes…")}
+            </p>
+          ) : (
+            <ul className="max-h-64 space-y-0.5 overflow-y-auto overscroll-contain">
+              {members.map((member) => (
+                <li
+                  className="group/row flex items-center gap-2.5 rounded-xl px-2 py-2 transition-colors hover:bg-muted/50"
+                  key={member.userId}
+                >
+                  <MemberAvatar
+                    avatar={member.avatar}
+                    image={member.image}
+                    name={member.name}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <p className="truncate font-medium text-sm max-[1100px]:text-xs">
+                        {member.name}
+                      </p>
+                      {member.userId === hostId ? (
+                        <Badge
+                          className="h-5 border-blue-400/20 bg-blue-500/15 px-1.5 text-[10px] text-blue-300"
+                          variant="secondary"
+                        >
+                          {t("Anfitrión")}
+                        </Badge>
+                      ) : null}
+                    </div>
+                  </div>
+                  {/* Conectado: siempre visible. El menú de acciones ocupa su
+                      hueco fijo y solo se pinta al pasar por la fila (o al
+                      enfocar con el teclado), así no desplaza nada. */}
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "size-2 shrink-0 rounded-full",
+                      // `null` = la app de Stream no expone presencia: no
+                      // pintamos un estado que no sabemos.
+                      member.online === false
+                        ? "bg-muted-foreground/40"
+                        : member.online
+                          ? "bg-emerald-400"
+                          : "bg-muted-foreground/25"
+                    )}
+                    title={
+                      member.online === false
+                        ? t("Desconectado")
+                        : t("Conectado")
+                    }
+                  />
+                  {isHost && member.userId !== hostId ? (
+                    <div className="flex w-7 shrink-0 justify-center opacity-0 transition-opacity [@media(hover:none)]:opacity-100 group-focus-within/row:opacity-100 group-hover/row:opacity-100">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <button
+                              aria-label={t("Acciones del participante")}
+                              className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                              type="button"
+                            />
+                          }
+                        >
+                          <MoreHorizontalIcon className="size-4" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => setKickTarget(member)}
+                            variant="destructive"
+                          >
+                            <UserMinusIcon className="size-4" />
+                            {t("Sacar de la sala")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+              </PopoverContent>
+            </Popover>
+            {isHost ? null : (
+              <Badge className="gap-1.5 font-normal" variant="outline">
+                <span
+                  aria-hidden
+                  className={cn(
+                    "size-1.5 rounded-full",
+                    synced ? "bg-emerald-400" : "bg-amber-400"
+                  )}
+                />
+                {syncLabel}
+              </Badge>
+            )}
           </div>
         ) : (
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -601,38 +735,17 @@ export function WatchPartyChat({
 
       <Separator />
 
-      <Tabs
-        className="flex min-h-0 flex-1 flex-col gap-0"
-        onValueChange={(value) => setTab(value as "chat" | "people")}
-        value={tab}
-      >
-        <div className="px-2 pt-2 sm:px-3 sm:pt-3">
-          <TabsList className="w-full">
-            <TabsTrigger className="max-[1100px]:text-xs" data-dpad-focusable value="chat">
-              <MessageCircleIcon className="size-4" />
-              {t("Chat")}
-            </TabsTrigger>
-            <TabsTrigger className="max-[1100px]:text-xs" data-dpad-focusable value="people">
-              <UsersIcon className="size-4" />
-              {t("Personas")}
-              <Badge
-                className="h-5 bg-background/40 px-1.5 text-[10px]"
-                variant="secondary"
-              >
-                {members.length}
-              </Badge>
-            </TabsTrigger>
-          </TabsList>
-        </div>
-
-        <TabsContent className="mt-2 flex min-h-0 flex-1 flex-col sm:mt-3" value="chat">
+      <div className="flex min-h-0 flex-1 flex-col">
           <div
             aria-live="polite"
             aria-relevant="additions"
-            className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-2 pb-2 sm:px-3 sm:pb-3"
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2 sm:px-3 sm:pb-3"
             ref={listRef}
             role="log"
           >
+            {/* Los mensajes empiezan arriba (con aire, no pegados al borde) y
+                bajan en orden; el estado vacío ocupa el alto y se centra. */}
+            <div className="flex min-h-full flex-col gap-3 pt-3">
             {!ready && !error ? (
               <div className="space-y-3 py-2">
                 {[0, 1, 2].map((index) => (
@@ -672,7 +785,7 @@ export function WatchPartyChat({
               </div>
             ) : null}
             {ready && messages.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 py-10 text-center">
+              <div className="flex flex-1 flex-col items-center justify-center gap-2 py-10 text-center">
                 <div className="flex size-10 items-center justify-center rounded-full bg-muted">
                   <MessageCircleIcon className="size-5 text-muted-foreground" />
                 </div>
@@ -687,20 +800,87 @@ export function WatchPartyChat({
                 </p>
               </div>
             ) : null}
-            {messages.map((message) => {
+            {messages.map((message, index) => {
+              const day = new Date(message.createdAt).toDateString();
+              const previous = messages[index - 1];
+              const showDay =
+                !previous ||
+                new Date(previous.createdAt).toDateString() !== day;
               const own = message.userId === join.userId;
               const authorAvatar =
                 message.avatar ??
                 members.find((member) => member.userId === message.userId)
                   ?.avatar ??
                 null;
+              const hasReacted = (emoji: string) =>
+                message.reactions.some(
+                  (reaction) => reaction.emoji === emoji && reaction.mine
+                );
+              // Los chips van dentro de la burbuja (montados en su borde de
+              // arriba) para que queden en su esquina y no se salgan hacia los
+              // botones de acciones, que van al otro lado.
+              const reactionChips =
+                message.reactions.length > 0 ? (
+                      <div
+                        className={cn(
+                          // Pegadas al borde de arriba de la burbuja, del lado
+                          // del mensaje: derecha en los tuyos, izquierda en los
+                          // ajenos.
+                          "absolute -top-3.5 z-10 flex max-w-[85%] flex-wrap gap-1",
+                          own ? "right-2 justify-end" : "left-2"
+                        )}
+                      >
+                        {message.reactions.map((reaction) => {
+                          const mine = reaction.mine;
+                          return (
+                            <button
+                              aria-pressed={mine}
+                              className={cn(
+                                // Fondo sólido: el chip se monta sobre el
+                                // borde de la burbuja y con transparencia se
+                                // mezclaba con el azul de los mensajes propios.
+                                "flex items-center gap-1 rounded-full border bg-card px-1.5 py-0.5 text-[11px] shadow-sm transition-colors",
+                                mine
+                                  ? "border-primary/70 text-foreground"
+                                  : "border-border/70 text-muted-foreground hover:bg-muted"
+                              )}
+                              key={reaction.emoji}
+                              onClick={() =>
+                                void onToggleReaction(
+                                  message.id,
+                                  reaction.emoji,
+                                  mine
+                                )
+                              }
+                              type="button"
+                            >
+                              <span>{reaction.emoji}</span>
+                              <span className="tabular-nums">
+                                {reaction.count}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null;
               return (
+                <Fragment key={message.id}>
+                {showDay ? (
+                  <div className="flex justify-center py-1">
+                    <span className="rounded-full bg-muted/70 px-2.5 py-1 font-medium text-[11px] text-muted-foreground">
+                      {formatDayLabel(
+                        message.createdAt,
+                        t("Hoy"),
+                        t("Ayer")
+                      )}
+                    </span>
+                  </div>
+                ) : null}
                 <div
                   className={cn(
-                    "flex gap-2",
+                    "group/msg flex gap-2",
                     own ? "flex-row-reverse" : "flex-row"
                   )}
-                  key={message.id}
                 >
                   {own ? null : (
                     <MemberAvatar
@@ -721,31 +901,197 @@ export function WatchPartyChat({
                         {message.userName}
                       </p>
                     )}
-                    {message.text ? (
-                      <div
-                        className={cn(
-                          "rounded-2xl px-3 py-2 text-sm max-[1100px]:text-[13px]",
-                          own
-                            ? "rounded-br-md bg-primary text-primary-foreground"
-                            : "rounded-bl-md bg-muted text-foreground"
-                        )}
-                      >
-                        <p className="whitespace-pre-wrap break-words">
-                          {message.text}
-                        </p>
+                    <div
+                      className={cn(
+                        "flex flex-col gap-1.5",
+                        own ? "items-end" : "items-start"
+                      )}
+                    >
+                    {/* Acciones al lado de la burbuja: solo reaccionar y
+                        responder. En táctil se ven siempre; con ratón,
+                        aparecen al pasar por encima del mensaje. */}
+                    {/* Cada mensaje en su lado, con las acciones hacia el
+                        centro: los tuyos a la derecha (iconos a la izquierda) y
+                        los ajenos a la izquierda (iconos a la derecha). */}
+                    <div
+                      className={cn(
+                        "flex items-end gap-1",
+                        own ? "flex-row" : "flex-row-reverse"
+                      )}
+                    >
+                      <div className="flex items-center gap-0.5 pb-1 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover/msg:opacity-100">
+                        <Popover>
+                          <PopoverTrigger
+                            render={
+                              <button
+                                aria-label={t("Reaccionar al mensaje")}
+                                className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                data-dpad-focusable
+                                disabled={!ready || sending}
+                                type="button"
+                              />
+                            }
+                          >
+                            <SmilePlusIcon className="size-3.5" />
+                          </PopoverTrigger>
+                          <PopoverContent
+                            align="center"
+                            className="w-auto p-1"
+                            side="top"
+                          >
+                            <div className="flex items-center gap-0.5">
+                              {MESSAGE_REACTIONS.map(({ emoji, label }) => (
+                                <button
+                                  aria-label={t("Reaccionar {{emoji}}", {
+                                    emoji,
+                                  })}
+                                  aria-pressed={hasReacted(emoji)}
+                                  className={cn(
+                                    "rounded-full px-1.5 py-1 text-base transition-transform hover:scale-110 hover:bg-muted",
+                                    hasReacted(emoji) && "bg-muted"
+                                  )}
+                                  key={emoji}
+                                  title={label}
+                                  onClick={() =>
+                                    void onToggleReaction(
+                                      message.id,
+                                      emoji,
+                                      hasReacted(emoji)
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={
+                              <button
+                                aria-label={t("Acciones del mensaje")}
+                                className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                data-dpad-focusable
+                                type="button"
+                              />
+                            }
+                          >
+                            <MoreHorizontalIcon className="size-3.5" />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align={own ? "end" : "start"}
+                            side="top"
+                          >
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setReplyTo(message);
+                                requestAnimationFrame(() =>
+                                  inputRef.current?.focus()
+                                );
+                              }}
+                            >
+                              <ReplyIcon className="size-4" />
+                              {t("Responder")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                void onTogglePin(
+                                  message.id,
+                                  message.pinned
+                                ).then((ok) => {
+                                  if (!ok) {
+                                    toast.error(
+                                      t("No se pudo fijar el mensaje.")
+                                    );
+                                  }
+                                });
+                              }}
+                            >
+                              {message.pinned ? (
+                                <PinOffIcon className="size-4" />
+                              ) : (
+                                <PinIcon className="size-4" />
+                              )}
+                              {message.pinned
+                                ? t("Desfijar mensaje")
+                                : t("Fijar mensaje")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                void navigator.clipboard
+                                  .writeText(message.text)
+                                  .then(() =>
+                                    toast.success(t("Mensaje copiado."))
+                                  )
+                                  .catch(() =>
+                                    toast.error(t("No se pudo copiar."))
+                                  );
+                              }}
+                            >
+                              <CopyIcon className="size-4" />
+                              {t("Copiar mensaje")}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
-                    ) : null}
+
+                      {message.text || message.quoted ? (
+                        <div
+                          className={cn(
+                            "relative rounded-2xl px-3 py-2 text-sm max-[1100px]:text-[13px]",
+                            own
+                              ? "rounded-br-md bg-primary text-primary-foreground"
+                              : "rounded-bl-md bg-muted text-foreground"
+                          )}
+                        >
+                          {reactionChips}
+                          {message.quoted ? (
+                            <div
+                              className={cn(
+                                "mb-1 rounded-lg border-l-2 px-2 py-1",
+                                own
+                                  ? "border-primary-foreground/50 bg-black/15"
+                                  : "border-primary/50 bg-background/50"
+                              )}
+                            >
+                              <p className="truncate font-medium text-[11px]">
+                                {message.quoted.userName}
+                              </p>
+                              <p className="line-clamp-2 text-[11px] opacity-80">
+                                {message.quoted.text || t("Adjunto")}
+                              </p>
+                            </div>
+                          ) : null}
+                          {message.text ? (
+                            <p className="whitespace-pre-wrap break-words">
+                              {message.text}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                    {message.text || message.quoted ? null : reactionChips}
                     {message.attachments.map((attachment, index) => (
                       <MessageAttachment
                         attachment={attachment}
                         key={`${message.id}-${index}`}
                       />
                     ))}
-                    <p className="px-1 text-[10px] text-muted-foreground">
-                      {formatTime(message.createdAt)}
+                    </div>
+                    <p className="flex items-center gap-1 px-1 text-[10px] text-muted-foreground">
+                      {message.pinned ? (
+                        <>
+                          <PinIcon className="size-3" />
+                          {t("Fijado")}
+                        </>
+                      ) : null}
+                      <span>{formatTime(message.createdAt)}</span>
                     </p>
                   </div>
                 </div>
+                </Fragment>
               );
             })}
 
@@ -795,6 +1141,7 @@ export function WatchPartyChat({
                 </div>
               </div>
             ) : null}
+            </div>
           </div>
 
           <Separator />
@@ -861,7 +1208,7 @@ export function WatchPartyChat({
                   render={
                     <Button
                       aria-label={t("Adjuntar")}
-                      className="size-9 shrink-0 rounded-full bg-white/10 text-white hover:bg-white/20 sm:size-11"
+                      className="size-9 shrink-0 rounded-full bg-white/10 text-white hover:bg-white/20 [@media(min-width:768px)_and_(min-height:600px)]:size-11"
                       data-dpad-focusable
                       disabled={!ready || sending}
                       size="icon"
@@ -896,7 +1243,7 @@ export function WatchPartyChat({
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <div className="flex min-w-0 flex-1 flex-col gap-1 rounded-3xl bg-white/10 p-1 sm:p-1.5">
+              <div className="flex min-w-0 flex-1 flex-col gap-1 rounded-3xl bg-white/10 p-1 [@media(min-width:768px)_and_(min-height:600px)]:p-1.5">
                 {filePreview ? (
                   <div className="relative mt-1 ml-1 w-fit">
                     {filePreview.url ? (
@@ -924,10 +1271,34 @@ export function WatchPartyChat({
                     </button>
                   </div>
                 ) : null}
-                <div className="flex h-7 items-center gap-0.5 px-0.5 sm:h-8">
+                {replyTo ? (
+                  <div className="mt-1 ml-1 flex items-center gap-2 rounded-xl bg-black/25 px-2 py-1.5">
+                    <ReplyIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-[11px]">
+                        {replyTo.userName}
+                      </p>
+                      <p className="truncate text-[11px] text-muted-foreground">
+                        {replyTo.text ||
+                          (replyTo.attachments.length > 0
+                            ? t("Adjunto")
+                            : t("Mensaje"))}
+                      </p>
+                    </div>
+                    <button
+                      aria-label={t("Cancelar respuesta")}
+                      className="flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+                      onClick={() => setReplyTo(null)}
+                      type="button"
+                    >
+                      <XIcon className="size-3.5" />
+                    </button>
+                  </div>
+                ) : null}
+                <div className="flex h-7 items-center gap-0.5 px-0.5 [@media(min-width:768px)_and_(min-height:600px)]:h-8">
                 <Input
                   aria-label={t("Mensaje")}
-                  className="h-7 min-w-0 flex-1 border-0 bg-transparent px-2 text-sm shadow-none focus-visible:border-0 focus-visible:ring-0 max-[1100px]:text-[13px] sm:h-8 dark:bg-transparent"
+                  className="h-7 min-w-0 flex-1 border-0 bg-transparent px-2 text-sm shadow-none focus-visible:border-0 focus-visible:ring-0 max-[1100px]:text-[13px] [@media(min-width:768px)_and_(min-height:600px)]:h-8 dark:bg-transparent"
                   data-dpad-focusable
                   maxLength={500}
                   onChange={(event) => setDraft(event.target.value)}
@@ -941,7 +1312,7 @@ export function WatchPartyChat({
                     render={
                       <Button
                         aria-label={t("Emojis")}
-                        className="size-7 shrink-0 sm:size-8"
+                        className="size-7 shrink-0 [@media(min-width:768px)_and_(min-height:600px)]:size-8"
                         data-dpad-focusable
                         disabled={!ready || sending}
                         size="icon-sm"
@@ -973,7 +1344,7 @@ export function WatchPartyChat({
                     render={
                       <Button
                         aria-label={t("Grabar audio")}
-                        className="size-7 shrink-0 sm:size-8"
+                        className="size-7 shrink-0 [@media(min-width:768px)_and_(min-height:600px)]:size-8"
                         data-dpad-focusable
                         disabled={!ready || sending}
                         onClick={startRecording}
@@ -991,7 +1362,7 @@ export function WatchPartyChat({
                 {draft.trim() || filePreview ? (
                   <Button
                     aria-label={t("Enviar")}
-                    className="size-7 shrink-0 rounded-full sm:size-8"
+                    className="size-7 shrink-0 rounded-full [@media(min-width:768px)_and_(min-height:600px)]:size-8"
                     data-dpad-focusable
                     disabled={sending}
                     size="icon-sm"
@@ -1008,53 +1379,7 @@ export function WatchPartyChat({
               </div>
             </form>
           )}
-        </TabsContent>
-
-        <TabsContent
-          className="mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3"
-          value="people"
-        >
-          {members.length === 0 ? (
-            <p className="px-2 py-8 text-center text-muted-foreground text-sm">
-              Conectando con los participantes…
-            </p>
-          ) : (
-            <ul className="space-y-0.5">
-              {members.map((member) => (
-                <li
-                  className="flex items-center gap-2.5 rounded-xl px-2 py-2 transition-colors hover:bg-muted/50"
-                  key={member.userId}
-                >
-                  <MemberAvatar
-                    avatar={member.avatar}
-                    image={member.image}
-                    name={member.name}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <p className="truncate font-medium text-sm max-[1100px]:text-xs">
-                        {member.name}
-                      </p>
-                      {member.userId === hostId ? (
-                        <Badge
-                          className="h-5 border-blue-400/20 bg-blue-500/15 px-1.5 text-[10px] text-blue-300"
-                          variant="secondary"
-                        >
-                          {t("Anfitrión")}
-                        </Badge>
-                      ) : null}
-                    </div>
-                  </div>
-                  <span
-                    aria-hidden
-                    className="size-2 shrink-0 rounded-full bg-emerald-400"
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
-        </TabsContent>
-      </Tabs>
+      </div>
 
       <Separator />
 
@@ -1163,6 +1488,48 @@ export function WatchPartyChat({
               {confirmAction === "end"
                 ? t("Sí, terminar")
                 : t("Sí, salir")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open) {
+            setKickTarget(null);
+          }
+        }}
+        open={kickTarget !== null}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader className="place-items-center text-center sm:group-data-[size=default]/alert-dialog-content:place-items-center sm:group-data-[size=default]/alert-dialog-content:text-center">
+            <AlertDialogTitle>
+              {t("¿Sacar a {{name}}?", { name: kickTarget?.name ?? "" })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                "Saldrá de la sala y no podrá volver a esta watch party."
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Cancelar")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const target = kickTarget;
+                setKickTarget(null);
+                if (!target) {
+                  return;
+                }
+                void onKick(target.userId).then((ok) => {
+                  if (!ok) {
+                    toast.error(t("No se pudo sacar al usuario."));
+                  }
+                });
+              }}
+              variant="destructive"
+            >
+              {t("Sí, sacar")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
