@@ -4,6 +4,7 @@ import {
   createPlayer,
   Gesture,
   selectControls,
+  selectPlayback,
   useMedia,
   videoFeatures,
 } from "@videojs/react";
@@ -12,6 +13,7 @@ import {
   type HlsEngineConfig,
 } from "@videojs/react/media/hlsjs-video";
 import { Video, VideoSkin } from "@videojs/react/video";
+import { PlayIcon } from "lucide-react";
 import posthog from "posthog-js";
 import {
   useCallback,
@@ -354,6 +356,36 @@ function PlayerControlsBridge({
     onVisibilityChange?.(controls?.controlsVisible ?? false);
   }, [controls?.controlsVisible, onVisibilityChange]);
   return null;
+}
+
+/**
+ * Algunos navegadores dejan el vídeo pausado con la barra de controles
+ * oculta (p. ej. al entrar desde otra página). En ese caso mostramos el botón
+ * de play del propio reproductor, sin pantallas intermedias.
+ */
+function PausedPlayFallback() {
+  const controls = usePlayer(selectControls);
+  const playback = usePlayer(selectPlayback);
+
+  if (!playback?.paused || controls?.controlsVisible) {
+    return null;
+  }
+
+  return (
+    <button
+      aria-label="Reproducir"
+      className="absolute inset-0 z-30 flex items-center justify-center bg-black/20 text-white"
+      onClick={(event) => {
+        event.stopPropagation();
+        void playback.play();
+      }}
+      type="button"
+    >
+      <span className="flex size-16 items-center justify-center rounded-full bg-black/60 backdrop-blur-md transition-transform hover:scale-105 motion-reduce:transition-none">
+        <PlayIcon className="size-7 fill-current" />
+      </span>
+    </button>
+  );
 }
 
 function LivePlaybackErrorBridge({
@@ -725,6 +757,7 @@ export function VideoJsStreamPlayer({
           <MediaBridge onMedia={handleMedia} />
           <PlayerControlsBridge onVisibilityChange={onControlsVisibility} />
           <Gesture type="tap" action="togglePaused" pointer="touch" region="center" />
+          <PausedPlayFallback />
         </VideoSkin>
       </Player>
     </div>

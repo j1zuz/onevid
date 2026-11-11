@@ -528,6 +528,22 @@ function mapTvToMeta(
 const KIDS_TV_GENRE_IDS = [10762];
 const KIDS_MOVIE_GENRE_IDS = [10751];
 
+/** Fecha de hoy (YYYY-MM-DD) para comparar con TMDB. */
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * TMDB devuelve títulos anunciados con fecha futura (o sin fecha). No los
+ * mostramos en catálogo/búsqueda hasta que su estreno ya pasó.
+ */
+export function isTmdbReleasedDate(value?: string): boolean {
+  if (!value) {
+    return false;
+  }
+  return value <= todayIsoDate();
+}
+
 function hasAnyGenre(
   item: TmdbMovieResult | TmdbTvResult,
   genreIds: number[]
@@ -563,12 +579,18 @@ export async function discoverMovies(
     "vote_count.gte": sortBy === "vote_average.desc" ? "200" : "0",
     // Excluye películas para niños (género "Family") del catálogo de populares.
     without_genres: KIDS_MOVIE_GENRE_IDS.join("|"),
+    // Solo títulos ya estrenados en la región y sin quedarnos con premieres.
+    region: region || "MX",
+    "release_date.lte": todayIsoDate(),
+    with_release_type: "2|3|4|5|6",
   };
 
   if (sortBy === "primary_release_date.desc") {
     const year = new Date().getFullYear();
     baseParams["primary_release_date.gte"] = `${year}-01-01`;
     baseParams["primary_release_date.lte"] = `${year}-12-31`;
+    // Aunque ordenemos por estrenos del año, nunca mostramos fechas futuras.
+    baseParams["release_date.lte"] = todayIsoDate();
   }
 
   const runDiscover = async (
@@ -580,9 +602,11 @@ export async function discoverMovies(
       { ...baseParams, ...extraParams },
       CATALOG_REVALIDATE_SECONDS
     );
-    return (data.results ?? []).map((item) =>
-      mapMovieToMeta(item as TmdbMovieResult, genreMap)
-    );
+    return (data.results ?? [])
+      .filter((item) =>
+        isTmdbReleasedDate((item as TmdbMovieResult).release_date)
+      )
+      .map((item) => mapMovieToMeta(item as TmdbMovieResult, genreMap));
   };
 
   // No network selected: plain discover.
@@ -629,6 +653,7 @@ export async function discoverTv(
     "vote_count.gte": sortBy === "vote_average.desc" ? "200" : "0",
     // Excluye series para niños (género "Kids") del catálogo de populares.
     without_genres: KIDS_TV_GENRE_IDS.join("|"),
+    "first_air_date.lte": todayIsoDate(),
   };
 
   if (networkId) {
@@ -639,6 +664,8 @@ export async function discoverTv(
     const year = new Date().getFullYear();
     params["first_air_date.gte"] = `${year}-01-01`;
     params["first_air_date.lte"] = `${year}-12-31`;
+    // Aunque ordenemos por estrenos del año, nunca mostramos fechas futuras.
+    params["first_air_date.lte"] = todayIsoDate();
   }
 
   const data = await tmdbFetch<TmdbDiscoverResponse>(
@@ -648,9 +675,11 @@ export async function discoverTv(
     CATALOG_REVALIDATE_SECONDS
   );
 
-  return (data.results ?? []).map((item) =>
-    mapTvToMeta(item as TmdbTvResult, genreMap)
-  );
+  return (data.results ?? [])
+    .filter((item) =>
+      isTmdbReleasedDate((item as TmdbTvResult).first_air_date)
+    )
+    .map((item) => mapTvToMeta(item as TmdbTvResult, genreMap));
 }
 
 // ─── Trending ────────────────────────────────────────────────────────
@@ -672,6 +701,7 @@ export async function trendingMovies(
   return (data.results ?? [])
     .map((item) => item as TmdbMovieResult)
     .filter((item) => !isKidsMovie(item))
+    .filter((item) => isTmdbReleasedDate(item.release_date))
     .map((item) => mapMovieToMeta(item, genreMap));
 }
 
@@ -692,6 +722,7 @@ export async function trendingTv(
   return (data.results ?? [])
     .map((item) => item as TmdbTvResult)
     .filter((item) => !isKidsTv(item))
+    .filter((item) => isTmdbReleasedDate(item.first_air_date))
     .map((item) => mapTvToMeta(item, genreMap));
 }
 
@@ -712,6 +743,15 @@ export async function trendingAll(
     CATALOG_REVALIDATE_SECONDS
   );
   return (data.results ?? [])
+    .filter((item) => {
+      if (item.media_type === "movie") {
+        return isTmdbReleasedDate(item.release_date);
+      }
+      if (item.media_type === "tv") {
+        return isTmdbReleasedDate(item.first_air_date);
+      }
+      return false;
+    })
     .map((item) =>
       item.media_type === "movie"
         ? mapMovieToMeta(item, movieGenres)
@@ -799,6 +839,11 @@ export async function fetchRelated(
   );
 
   return (data.results ?? [])
+    .filter((item) =>
+      type === "movie"
+        ? isTmdbReleasedDate((item as TmdbMovieResult).release_date)
+        : isTmdbReleasedDate((item as TmdbTvResult).first_air_date)
+    )
     .map((item) =>
       type === "movie"
         ? mapMovieToMeta(item as TmdbMovieResult, genreMap)
@@ -1219,7 +1264,9 @@ export async function fetchTvSeason(
     300
   );
 
-  return (data.episodes ?? []).map((ep) => ({
+  return (data.episodes ?? [])
+    .filter((ep) => !ep.air_date || ep.air_date <= todayIsoDate())
+    .map((ep) => ({
     id: imdbId
       ? `${imdbId}:${seasonNumber}:${ep.episode_number ?? 0}`
       : `${tmdbId}:${seasonNumber}:${ep.episode_number ?? 0}`,
@@ -1305,9 +1352,9 @@ export async function searchMovies(
     }),
   ]);
 
-  return (data.results ?? []).map((item) =>
-    mapMovieToMeta(item as TmdbMovieResult, genreMap)
-  );
+  return (data.results ?? [])
+    .filter((item) => isTmdbReleasedDate((item as TmdbMovieResult).release_date))
+    .map((item) => mapMovieToMeta(item as TmdbMovieResult, genreMap));
 }
 
 export async function searchTv(
@@ -1327,9 +1374,11 @@ export async function searchTv(
     }),
   ]);
 
-  return (data.results ?? []).map((item) =>
-    mapTvToMeta(item as TmdbTvResult, genreMap)
-  );
+  return (data.results ?? [])
+    .filter((item) =>
+      isTmdbReleasedDate((item as TmdbTvResult).first_air_date)
+    )
+    .map((item) => mapTvToMeta(item as TmdbTvResult, genreMap));
 }
 
 // ─── IMDb ID resolution ─────────────────────────────────────────────

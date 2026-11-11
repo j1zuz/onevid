@@ -93,7 +93,7 @@ export default async function RootLayout({
             </NuqsAdapter>
           </OnevidI18nProvider>
           <SearchRestoreScript />
-          <Toaster />
+          <Toaster position="bottom-center" />
         </GlimmProvider>
       </body>
     </html>

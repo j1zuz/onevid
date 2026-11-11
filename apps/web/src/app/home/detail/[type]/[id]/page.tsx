@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import { cookies, headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import DetailLoading from "@/app/home/detail/[type]/[id]/loading";
 import { MovieDetailPage } from "@/components/explore-movie-dialog";
@@ -22,6 +22,7 @@ import {
   fetchMovieDetail,
   fetchTvDetail,
   getTmdbLocale,
+  isTmdbReleasedDate,
   type MediaMeta,
 } from "@/lib/tmdb";
 
@@ -116,6 +117,12 @@ async function StreamDetailContent({
 
   if (!meta) {
     redirect("/home");
+  }
+
+  // Un título anunciado con fecha futura no está disponible todavía: no
+  // exponemos su detalle aunque alguien entre por un link directo.
+  if (meta.releaseDate && !isTmdbReleasedDate(meta.releaseDate)) {
+    notFound();
   }
 
   const cookieStore = await cookies();
