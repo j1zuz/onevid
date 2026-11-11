@@ -30,6 +30,8 @@ type PartyReaction = { emoji: string; id: number };
 
 type PartyOverlayState = {
   ended: boolean;
+  /** El host sacó a este usuario de la sala. */
+  kicked: boolean;
   needsGesture: boolean;
   reactions: PartyReaction[];
   resumePlayback: () => void;
@@ -118,7 +120,7 @@ export function WatchPartyRoom({
 
   return (
     <TooltipProvider>
-      {overlay?.ended || forcedEnded ? (
+      {overlay?.ended || overlay?.kicked || forcedEnded ? (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 p-6 backdrop-blur-md">
           <Card className="w-full max-w-sm rounded-3xl border border-border/60 bg-card/95 py-0 text-center shadow-2xl animate-in fade-in-0 zoom-in-95 duration-200 [--card-spacing:1.5rem]">
             <CardContent className="flex flex-col items-center gap-4 py-7">
@@ -133,7 +135,11 @@ export function WatchPartyRoom({
                 title={contentTitle}
               />
               <div className="space-y-1">
-                <CardTitle>{t("La sala terminó")}</CardTitle>
+                <CardTitle>
+                  {overlay?.kicked
+                    ? t("Te sacaron de la sala")
+                    : t("La sala terminó")}
+                </CardTitle>
               </div>
               <Button className="btn-primary" onClick={onLeave}>
                 {t("Volver al título")}
@@ -299,6 +305,7 @@ function WatchPartyConnectedChat({
   useEffect(() => {
     onOverlay({
       ended: party.ended,
+      kicked: party.kicked,
       needsGesture: party.needsGesture && !party.isHost,
       reactions: party.reactions,
       resumePlayback: party.resumePlayback,
@@ -307,6 +314,7 @@ function WatchPartyConnectedChat({
     onOverlay,
     party.ended,
     party.isHost,
+    party.kicked,
     party.needsGesture,
     party.reactions,
     party.resumePlayback,
@@ -367,6 +375,7 @@ function WatchPartyConnectedChat({
       members={party.members}
       messages={party.messages}
       onEnd={handleEnd}
+      onKick={party.kickMember}
       onLeave={handleLeave}
       onReaction={party.sendReaction}
       onRequestSync={party.requestSync}
@@ -375,6 +384,8 @@ function WatchPartyConnectedChat({
       onSendFile={party.sendFile}
       onSendGif={party.sendGif}
       onSendVoice={party.sendVoice}
+      onTogglePin={party.togglePin}
+      onToggleReaction={party.toggleReaction}
       ready={party.ready}
       sending={party.sending}
       syncStatus={party.syncStatus}

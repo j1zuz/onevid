@@ -187,6 +187,23 @@ export async function sendWatchHostEvent(roomId: string, hostId: string) {
   } as unknown as Parameters<typeof channel.sendEvent>[0]);
 }
 
+/**
+ * Avisa al cliente expulsado (y al resto) de que ese usuario ya no está en la
+ * sala. El cliente que coincide con `userId` cierra el reproductor.
+ */
+export async function sendWatchKickEvent(roomId: string, userId: string) {
+  const client = getStreamServerClient();
+  if (!client) {
+    return;
+  }
+  const channel = client.channel(WATCH_CHANNEL_TYPE, watchChannelId(roomId));
+  await channel.sendEvent({
+    type: "watch_kick",
+    userId,
+    user_id: userId,
+  } as unknown as Parameters<typeof channel.sendEvent>[0]);
+}
+
 /** Avisa a los invitados de que la sala terminó. */
 export async function sendWatchEndEvent(roomId: string, userId: string) {
   const client = getStreamServerClient();

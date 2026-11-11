@@ -3,10 +3,17 @@
 import { StreamChat } from "stream-chat";
 import { connectWatchClient } from "@/components/watch/watch-chat";
 import { useTranslation } from "@/lib/onevid-i18n-context";
+import {
+  reactionEmoji,
+  reactionType,
+} from "@/lib/watch-party-reactions";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import type {
   WatchChatAttachment,
   WatchChatMessage,
+  WatchChatQuotedMessage,
+  WatchChatReaction,
   WatchJoinData,
   WatchMember,
   WatchSyncAction,
@@ -24,6 +31,17 @@ type StreamEventLike = {
     attachments?: unknown[];
     created_at?: string | Date;
     id?: string;
+    quoted_message?: {
+      attachments?: unknown[];
+      id?: string;
+      text?: string;
+      user?: { id?: string; name?: string } | null;
+    } | null;
+    own_reactions?: unknown[] | null;
+    pinned?: boolean;
+    reaction_counts?: Record<string, number> | null;
+    reaction_groups?: Record<string, { count?: number }> | null;
+    reactions?: unknown[];
     text?: string;
     type?: string;
     user?: {
@@ -33,8 +51,11 @@ type StreamEventLike = {
       onevid_avatar?: string;
     } | null;
   };
+  reaction?: { message_id?: string; type?: string };
   positionSec?: number;
   playing?: boolean;
+  userId?: string;
+  user?: { id?: string; name?: string; online?: boolean };
   rate?: number;
   type?: string;
 };
@@ -84,6 +105,75 @@ function toAttachments(raw: unknown): WatchChatAttachment[] {
   });
 }
 
+/**
+ * Reacciones de un mensaje. La doc de Stream recomienda `reaction_groups` +
+ * `own_reactions` en implementaciones propias (y no `reaction_counts`, que está
+ * deprecado). `reactions` queda como último recurso para payloads antiguos.
+ */
+function toReactions(
+  message: NonNullable<StreamEventLike["message"]>
+): WatchChatReaction[] {
+  const ownTypes = new Set(
+    (Array.isArray(message.own_reactions) ? message.own_reactions : [])
+      .map((reaction) =>
+        reaction && typeof reaction === "object"
+          ? stringField(reaction as Record<string, unknown>, "type")
+          : undefined
+      )
+      .filter((type): type is string => Boolean(type))
+  );
+
+  const groups = message.reaction_groups ?? message.reaction_counts;
+  if (groups && typeof groups === "object" && !Array.isArray(groups)) {
+    return Object.entries(groups as Record<string, unknown>).flatMap(
+      ([type, value]) => {
+        const count =
+          typeof value === "number"
+            ? value
+            : typeof value === "object" && value
+              ? Number((value as { count?: unknown }).count) || 0
+              : 0;
+        return count > 0
+          ? [{ emoji: reactionEmoji(type), count, mine: ownTypes.has(type) }]
+          : [];
+      }
+    );
+  }
+
+  if (!Array.isArray(message.reactions)) {
+    return [];
+  }
+  const byType = new Map<string, number>();
+  for (const item of message.reactions) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const type = stringField(item as Record<string, unknown>, "type");
+    if (type) {
+      byType.set(type, (byType.get(type) ?? 0) + 1);
+    }
+  }
+  return [...byType].map(([type, count]) => ({
+    emoji: reactionEmoji(type),
+    count,
+    mine: ownTypes.has(type),
+  }));
+}
+
+function toQuotedMessage(
+  raw: NonNullable<StreamEventLike["message"]>["quoted_message"]
+): WatchChatQuotedMessage | null {
+  if (!raw || typeof raw !== "object" || !raw.id) {
+    return null;
+  }
+  return {
+    id: raw.id,
+    text: raw.text ?? "",
+    userName: raw.user?.name ?? raw.user?.id ?? "",
+    hasAttachment: Array.isArray(raw.attachments) && raw.attachments.length > 0,
+  };
+}
+
 function toChatMessage(
   message: NonNullable<StreamEventLike["message"]>
 ): WatchChatMessage | null {
@@ -112,6 +202,9 @@ function toChatMessage(
     userImage: message.user?.image ?? null,
     avatar: message.user?.onevid_avatar ?? null,
     attachments,
+    reactions: toReactions(message),
+    quoted: toQuotedMessage(message.quoted_message),
+    pinned: message.pinned === true,
     createdAt,
   };
 }
@@ -128,6 +221,9 @@ function toMembers(
       avatar:
         (member.user as { onevid_avatar?: string } | null | undefined)
           ?.onevid_avatar ?? null,
+      // Presencia de Stream: `null` cuando la app no la expone.
+      online:
+        typeof member.user?.online === "boolean" ? member.user.online : null,
     }))
     .filter((member) => member.userId);
 }
@@ -156,6 +252,7 @@ export function useWatchParty({
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ended, setEnded] = useState(join.room.status !== "open");
+  const [kicked, setKicked] = useState(false);
   const [isHost, setIsHost] = useState(join.isHost);
   const [hostId, setHostId] = useState(join.room.hostUserId);
   const [messages, setMessages] = useState<WatchChatMessage[]>([]);
@@ -181,6 +278,26 @@ export function useWatchParty({
   }, [video]);
 
   const serverNow = useCallback(() => Date.now() + serverOffsetRef.current, []);
+
+  /**
+   * Reemplaza solo la lista de reacciones de un mensaje. Los eventos y la
+   * respuesta de Stream no siempre traen el mensaje completo (a veces solo id y
+   * `reactions`), así que no se puede rehacer el mensaje entero.
+   */
+  const applyReactions = useCallback(
+    (message: NonNullable<StreamEventLike["message"]>) => {
+      if (!message.id) {
+        return;
+      }
+      const reactions = toReactions(message);
+      setMessages((current) =>
+        current.map((item) =>
+          item.id === message.id ? { ...item, reactions } : item
+        )
+      );
+    },
+    []
+  );
 
   const addReaction = useCallback((emoji: string) => {
     reactionIdRef.current += 1;
@@ -358,10 +475,35 @@ export function useWatchParty({
           setMessages((current) => current.filter((item) => item.id !== id));
         }
       });
+      // Reacciones: del evento solo nos interesan sus reacciones, no el mensaje
+      // entero (puede venir incompleto).
+      const onReaction = (event: StreamEventLike) => {
+        if (event.message) {
+          applyReactions(event.message);
+        }
+      };
+      on("reaction.new", onReaction);
+      on("reaction.updated", onReaction);
+      on("reaction.deleted", onReaction);
       const refreshMembers = () => setMembers(toMembers(nextChannel, t("Espectador")));
       on("member.added", refreshMembers);
       on("member.removed", refreshMembers);
       on("member.updated", refreshMembers);
+      // Presencia en vivo: el evento trae el usuario ya actualizado.
+      on("user.presence.changed", (rawEvent) => {
+        const event = eventPayload(rawEvent);
+        const user = event.user;
+        if (!(user?.id && typeof user.online === "boolean")) {
+          return;
+        }
+        setMembers((current) =>
+          current.map((member) =>
+            member.userId === user.id
+              ? { ...member, online: user.online === true }
+              : member
+          )
+        );
+      });
 
       on("watch_sync", applyRemote);
       on("watch_request", () => {
@@ -383,9 +525,18 @@ export function useWatchParty({
         endedRef.current = true;
         setEnded(true);
       });
+      on("watch_kick", (rawEvent) => {
+        const event = eventPayload(rawEvent);
+        if (event.userId !== join.userId) {
+          return;
+        }
+        // Expulsado: se corta el sync y el reproductor se cierra en la sala.
+        endedRef.current = true;
+        setKicked(true);
+      });
       on("watch_reaction", (rawEvent) => {
         const event = eventPayload(rawEvent);
-        if (event.emoji) {
+        if (event.emoji && event.userId !== join.userId) {
           addReaction(event.emoji);
         }
       });
@@ -413,6 +564,7 @@ export function useWatchParty({
     };
   }, [
     addReaction,
+    applyReactions,
     applyRemote,
     join.apiKey,
     join.channelId,
@@ -510,26 +662,75 @@ export function useWatchParty({
     []
   );
 
-  const sendMessage = useCallback(async (text: string) => {
-    const channel = channelRef.current;
-    const trimmed = text.trim();
-    if (!(channel && trimmed)) {
-      return false;
-    }
-    setSending(true);
-    try {
-      const response = await channel.sendMessage({ text: trimmed });
-      const message = toChatMessage(response.message);
-      if (message) {
-        setMessages((current) => upsertMessage(current, message));
+  const sendMessage = useCallback(
+    async (text: string, quotedMessageId?: string) => {
+      const channel = channelRef.current;
+      const trimmed = text.trim();
+      if (!(channel && trimmed)) {
+        return false;
       }
-      return true;
-    } catch {
-      return false;
-    } finally {
-      setSending(false);
-    }
-  }, []);
+      setSending(true);
+      try {
+        let response;
+        try {
+          response = await channel.sendMessage({
+            text: trimmed,
+            ...(quotedMessageId
+              ? { quoted_message_id: quotedMessageId }
+              : {}),
+          });
+        } catch (error) {
+          // Si el canal no admite respuestas citadas, el mensaje no se pierde:
+          // se envía suelto.
+          if (!quotedMessageId) {
+            throw error;
+          }
+          response = await channel.sendMessage({ text: trimmed });
+        }
+        const message = toChatMessage(response.message);
+        if (message) {
+          setMessages((current) => upsertMessage(current, message));
+        }
+        return true;
+      } catch {
+        return false;
+      } finally {
+        setSending(false);
+      }
+    },
+    []
+  );
+
+  /**
+   * Alterna una reacción del usuario actual en un mensaje. El estado no se toca
+   * a mano: Stream devuelve el mensaje actualizado y llega también por
+   * `reaction.new` / `reaction.deleted`.
+   */
+  const toggleReaction = useCallback(
+    async (messageId: string, emoji: string, alreadyReacted: boolean) => {
+      const channel = channelRef.current;
+      if (!channel) {
+        return false;
+      }
+      const type = reactionType(emoji);
+      try {
+        const response = alreadyReacted
+          ? await channel.deleteReaction(messageId, type)
+          : await channel.sendReaction(messageId, { type });
+        // Se pinta ya con la respuesta y no solo con el evento: así el chip
+        // aparece aunque la sala tarde en reenviar `reaction.new`.
+        if (response.message) {
+          applyReactions(response.message as never);
+        }
+        return true;
+      } catch (error) {
+        console.error("[watch-party] no se pudo reaccionar", error);
+        toast.error(t("No se pudo reaccionar."));
+        return false;
+      }
+    },
+    [applyReactions, t]
+  );
 
   const sendVoice = useCallback(
     async (blob: Blob, durationSec: number) => {
@@ -655,6 +856,56 @@ export function useWatchParty({
     }
   }, []);
 
+  /**
+   * Fija o desfija un mensaje (`client.pinMessage`/`unpinMessage`). El estado se
+   * actualiza al momento y el servidor confirma con `message.updated`.
+   */
+  const togglePin = useCallback(
+    async (messageId: string, pinned: boolean) => {
+      const client = clientRef.current;
+      if (!client) {
+        return false;
+      }
+      try {
+        if (pinned) {
+          await client.unpinMessage(messageId);
+        } else {
+          await client.pinMessage(messageId);
+        }
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === messageId ? { ...item, pinned: !pinned } : item
+          )
+        );
+        return true;
+      } catch (error) {
+        console.error("[watch-party] no se pudo fijar el mensaje", error);
+        return false;
+      }
+    },
+    []
+  );
+
+  /** Solo el host: saca a un participante de la sala. */
+  const kickMember = useCallback(
+    async (userId: string) => {
+      try {
+        const response = await fetch(
+          `/api/watch-rooms/${join.room.id}/kick`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId }),
+          }
+        );
+        return response.ok;
+      } catch {
+        return false;
+      }
+    },
+    [join.room.id]
+  );
+
   const requestSync = useCallback(() => {
     void channelRef.current
       ?.sendEvent({
@@ -681,15 +932,18 @@ export function useWatchParty({
 
   const sendReaction = useCallback(
     (emoji: string) => {
+      // Se pinta aquí y se avisa a la sala. El evento vuelve también al emisor,
+      // así que se marca con `userId` para no animarlo dos veces.
       addReaction(emoji);
       void channelRef.current
         ?.sendEvent({
           type: "watch_reaction",
           emoji,
+          userId: join.userId,
         } as unknown as Parameters<StreamChannel["sendEvent"]>[0])
         .catch(() => undefined);
     },
-    [addReaction]
+    [addReaction, join.userId]
   );
 
   const disconnect = useCallback(async () => {
@@ -705,6 +959,8 @@ export function useWatchParty({
     error,
     hostId,
     isHost,
+    kicked,
+    kickMember,
     members,
     messages,
     needsGesture,
@@ -720,5 +976,7 @@ export function useWatchParty({
     sendVoice,
     sending,
     syncStatus,
+    togglePin,
+    toggleReaction,
   };
 }

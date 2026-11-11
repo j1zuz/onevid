@@ -29,6 +29,13 @@ export function checkRateLimit(
   limit: number,
   windowMs: number
 ): RateLimitResult {
+  // Modo test: en desarrollo no se limita nada. Probar la app implica crear
+  // salas, pedir fuentes y consultar catálogos en bucle, y el limitador solo
+  // estorba. En producción se aplica igual que siempre.
+  if (process.env.NODE_ENV !== "production") {
+    return { ok: true };
+  }
+
   const now = Date.now();
 
   if (buckets.size >= MAX_TRACKED_KEYS) {

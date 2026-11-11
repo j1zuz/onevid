@@ -66,7 +66,10 @@ export function WatchRoomClient({ room }: { room: WatchRoomDTO }) {
           setError("full");
           return;
         }
-        if (response.status === 410) {
+        // 410 = terminada, 404 = la sala ya no existe (se borra al quedarse sin
+        // miembros). En ambos casos el mensaje correcto es "terminó", no un
+        // fallo de conexión.
+        if (response.status === 410 || response.status === 404) {
           setError("ended");
           return;
         }
