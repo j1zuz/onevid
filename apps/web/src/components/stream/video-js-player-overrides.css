@@ -83,3 +83,59 @@
 .stream-video-player-root.live-mode .video-controls-primary {
   flex: 1;
 }
+
+/* Los selectores del player (audio/subtítulos, episodios, descarga, fuentes y
+   ver juntos) se montan con un portal DENTRO del pill de controles de la skin
+   —cast/PiP/pantalla completa—, a su izquierda y con un separador fino. Mismo
+   tamaño de botón (36 px) que los del skin, así que se leen como parte del
+   reproductor y heredan su auto-ocultado. En horizontal ese pill vive al final
+   de la barra de abajo; en vertical de móvil la skin lo despega arriba a la
+   derecha: en los dos casos nuestros iconos van dentro. */
+.stream-video-player-root .video-controls-secondary .player-compact-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 1px;
+  order: -1;
+  margin-right: 2px;
+  padding-right: 4px;
+  border-right: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+/* Mismos botones que los del skin: tamaño, fondo, borde y desenfoque salen de
+   las variables de la skin, así que también escalan al entrar en pantalla
+   completa (--media-scale) igual que el resto de la barra. */
+.stream-video-player-root
+  .video-controls-secondary
+  .player-compact-actions
+  button {
+  width: var(--media-control-size, 2.25rem);
+  height: var(--media-control-size, 2.25rem);
+  background-color: transparent;
+  /* El `Button` de la app traía su ring azul al pasar el cursor; los nativos
+     solo cambian el fondo. */
+  border-color: transparent;
+  box-shadow: none;
+  /* El `backdrop-blur` del botón suelto dejaba un círculo borroso sobre el
+     vídeo: el pill ya tiene su propio desenfoque. */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.stream-video-player-root
+  .video-controls-secondary
+  .player-compact-actions
+  button:hover {
+  background-color: var(--media-accent);
+  color: var(--media-accent-foreground);
+}
+
+/* Iconos al tamaño de la skin (18 px), que en pantalla completa crece con
+   `--media-scale` como los suyos. */
+.stream-video-player-root
+  .video-controls-secondary
+  .player-compact-actions
+  svg {
+  width: var(--media-icon-size, calc(var(--media-spacing) * 4.5));
+  height: var(--media-icon-size, calc(var(--media-spacing) * 4.5));
+}

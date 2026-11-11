@@ -13,6 +13,7 @@ import { ArrowLeftIcon, LoaderIcon, MessageCircleIcon, UsersIcon } from "lucide-
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import {
   type NextEpisodeRef,
@@ -49,8 +50,8 @@ import { getMimeType, needsMediaBunny } from "@/utils/stream-codec";
 // a transcode; without this the whole header re-rendered along with it).
 const PlayerTopBar = memo(function PlayerTopBar({
   backHref,
-  contentTitle,
   chatButton,
+  contentTitle,
   handleBack,
   downloadButton,
   episodePicker,
@@ -58,7 +59,9 @@ const PlayerTopBar = memo(function PlayerTopBar({
   trackPicker,
   visible,
   watchPartyButton,
+  showActions = true,
   showBack = true,
+  reserveRight = 0,
 }: {
   backHref: string;
   chatButton?: React.ReactNode;
@@ -70,6 +73,13 @@ const PlayerTopBar = memo(function PlayerTopBar({
   trackPicker?: React.ReactNode;
   visible: boolean;
   watchPartyButton?: React.ReactNode;
+  /**
+   * Último recurso: si no encontramos el pill de controles del player, los
+   * selectores se quedan en esta barra en lugar de desaparecer.
+   */
+  showActions?: boolean;
+  /** Píxeles a reservar a la derecha para no quedar debajo del pill del player. */
+  reserveRight?: number;
   showBack?: boolean;
 }) {
   // Los controles de video.js se auto-ocultan por inactividad. Si el cursor
@@ -92,6 +102,11 @@ const PlayerTopBar = memo(function PlayerTopBar({
             ? "pointer-events-auto opacity-100"
             : "pointer-events-none opacity-0"
         )}
+        style={
+          // En vertical el pill de controles se monta sobre la esquina derecha:
+          // la barra termina antes para no tragarse los toques de esos iconos.
+          reserveRight > 0 ? { right: reserveRight } : undefined
+        }
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
@@ -115,14 +130,16 @@ const PlayerTopBar = memo(function PlayerTopBar({
         <h1 className="min-w-0 flex-1 truncate font-medium text-base text-white">
           {contentTitle}
         </h1>
-        <div className="hidden items-center gap-3 landscape:flex">
-          {trackPicker}
-          {episodePicker}
-          {downloadButton}
-          {sourcePicker}
-          {watchPartyButton}
-        </div>
-        {chatButton}
+        {showActions ? (
+          <div className="flex items-center gap-3">
+            {trackPicker}
+            {episodePicker}
+            {downloadButton}
+            {sourcePicker}
+            {watchPartyButton}
+            {chatButton}
+          </div>
+        ) : null}
       </div>
     </TooltipProvider>
   );
@@ -352,6 +369,13 @@ export function StreamOnevid({
   // directo, así que le pasamos la URL cruda. mediabunny queda solo para el
   // navegador de escritorio, que no sabe abrir esos formatos.
   const isTv = useIsTv();
+  // Pill de controles real de la skin, donde se montan nuestros selectores.
+  const playerStageRef = useRef<HTMLDivElement | null>(null);
+  const [controlsPill, setControlsPill] = useState<HTMLElement | null>(null);
+  // Píxeles que la barra superior debe dejar libres si el pill se despega arriba.
+  const [pillTopReserve, setPillTopReserve] = useState(0);
+  // El pill no apareció: dejamos los iconos en la barra superior como siempre.
+  const [pillFallback, setPillFallback] = useState(false);
   const shouldUseMediaBunny = Boolean(
     !offlineMediaUrl &&
       !isTv &&
@@ -373,6 +397,82 @@ export function StreamOnevid({
   }
   const mediaBunnyError =
     mediaBunny.status === "error" ? mediaBunny.message : null;
+
+  // El pill de controles lo pinta la skin y no se puede componer desde fuera,
+  // así que metemos nuestros selectores DENTRO con un portal: mismo tamaño de
+  // botón y el mismo auto-ocultado que el resto del player. En horizontal el
+  // pill vive al final de la barra de abajo; en vertical de móvil la skin lo
+  // despega a la esquina superior derecha. Se busca cada vez que cambia la
+  // fuente porque el player se remonta con `key` y el pill es un nodo nuevo.
+  useEffect(() => {
+    setControlsPill(null);
+    setPillFallback(false);
+    const stage = playerStageRef.current;
+    if (!stage) {
+      return;
+    }
+    let cancelled = false;
+    // Se busca aparte y no con un selector agrupado: `querySelector` devuelve
+    // el primero en el DOM, y la barra de abajo siempre está antes.
+    const find = () => {
+      const host =
+        stage.querySelector<HTMLElement>(".video-controls-secondary") ??
+        stage.querySelector<HTMLElement>(".video-controls-primary") ??
+        null;
+      if (host) {
+        setControlsPill(host);
+        return true;
+      }
+      return false;
+    };
+    if (find()) {
+      return;
+    }
+    // El player se monta después de resolver la fuente. Un observador del DOM
+    // engancha el pill en cuanto aparece; con `requestAnimationFrame` no
+    // bastaba (con la pestaña en segundo plano no avanza y los iconos no
+    // llegaban a montarse nunca).
+    const observer = new MutationObserver(() => {
+      if (!cancelled && find()) {
+        observer.disconnect();
+      }
+    });
+    observer.observe(stage, { childList: true, subtree: true });
+    // Red de seguridad: si el pill no aparece, los iconos vuelven a la barra
+    // superior en lugar de quedarse sin sitio donde vivir.
+    const giveUp = window.setTimeout(() => {
+      if (!cancelled) {
+        observer.disconnect();
+        setPillFallback(true);
+      }
+    }, 10_000);
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+      window.clearTimeout(giveUp);
+    };
+  }, [activeSrc]);
+
+  // Ancho del pill ya con nuestros botones dentro. Solo hay que reservar sitio
+  // en la barra superior cuando la skin lo despega al borde de arriba (pantallas
+  // estrechas): dentro de la barra de abajo no se solapa con el título.
+  useEffect(() => {
+    if (!controlsPill) {
+      setPillTopReserve(0);
+      return;
+    }
+    const measure = () => {
+      const detached =
+        getComputedStyle(controlsPill).position === "absolute";
+      setPillTopReserve(
+        detached ? Math.round(controlsPill.getBoundingClientRect().width) + 12 : 0
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(controlsPill);
+    return () => observer.disconnect();
+  }, [controlsPill]);
   // El logo/fondo de carga solo hace de placeholder hasta que el video
   // arranca por primera vez. Después de eso el player ya tiene su propio
   // loader para buffering y seeks, así que no tapamos el video.
@@ -539,8 +639,7 @@ export function StreamOnevid({
   const [playerRefs, setPlayerRefs] = useState<{
     media: unknown;
     video: HTMLVideoElement | null;
-  }>({ media: null, video: null });
-  const handleMediaRef = useCallback(
+  }>({ media: null, video: null });  const handleMediaRef = useCallback(
     (refs: { media: unknown; video: HTMLVideoElement | null }) =>
       setPlayerRefs(refs),
     []
@@ -1024,118 +1123,151 @@ export function StreamOnevid({
     );
   }
 
+  // Acciones del player: audio/subtítulos, episodios, descarga, fuentes y
+  // watch party. Se pintan en un único sitio, nunca las dos: en la barra
+  // superior cuando hay ancho (horizontal/escritorio) o dentro del pill de
+  // controles del player en vertical de móvil, donde no le quitan el ancho al
+  // título.
+  const trackPicker = (
+    <StreamTrackPicker
+      activeAudioId={activeAudioId}
+      activeSubtitleId={browserTracks.activeSubtitleId}
+      audioTracks={audioTracks}
+      onSelectAudio={handleSelectAudio}
+      onSelectSubtitle={browserTracks.selectSubtitle}
+      subtitleTracks={browserTracks.subtitleTracks}
+    />
+  );
+  const episodePicker = isSeries ? (
+    <StreamEpisodePicker
+      episode={episode}
+      onSelect={handleEpisodeSelect}
+      poster={_contentPoster}
+      season={season}
+      seriesId={contentId}
+    />
+  ) : null;
+  const downloadButton =
+    !isTv && sourceUrl ? (
+      <PlayerDownloadButton
+        audioTrackIndex={
+          usesMediaBunnyAudio ? mediaBunny.activeAudioTrack : undefined
+        }
+        codecHint={sourceCodecHint}
+        filename={sourceFilename}
+        onSaved={loadOfflineMedia}
+        storageKey={offlineKey}
+        url={sourceUrl}
+      />
+    ) : null;
+  const sourcePicker = isDirect ? null : (
+    <StreamSourcePicker
+      activeSource={selectedSource}
+      contentId={rawId}
+      contentType={contentType}
+      onSelect={handleSourceChange}
+    />
+  );
+  const watchPartyButton =
+    watchRoom || watchPartyJoining || isDirect ? null : (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            // Botón plano como los demás selectores: el `Button` de la app
+            // traía su anillo azul al pasar el cursor y desentonaba con los
+            // iconos nativos del player.
+            <button
+              aria-label={t("Crear watch party")}
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20 disabled:opacity-50"
+              data-dpad-focusable
+              disabled={creatingWatchRoom}
+              onClick={createWatchRoom}
+              type="button"
+            />
+          }
+        >
+          {creatingWatchRoom ? (
+            <LoaderIcon className="size-4 animate-spin" />
+          ) : (
+            <UsersIcon className="size-4" />
+          )}
+        </TooltipTrigger>
+        <TooltipContent>{t("Ver juntos")}</TooltipContent>
+      </Tooltip>
+    );
+
+  // Chat de la watch party: mismo botón plano que los demás selectores, con el
+  // globo de no leídos, para que viva en la fila de controles del player y no
+  // arriba en la barra del título.
+  const chatButton =
+    watchRoom || watchPartyJoining ? (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              aria-label={watchChatOpen ? "Ocultar chat" : "Abrir chat"}
+              aria-pressed={watchChatOpen}
+              className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+              data-dpad-focusable
+              onClick={() => setWatchChatOpen((open) => !open)}
+              type="button"
+            />
+          }
+        >
+          <MessageCircleIcon className="size-4" />
+          {!watchChatOpen && watchChatUnread > 0 ? (
+            <span className="absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 font-medium text-[10px] text-white leading-4">
+              {watchChatUnread > 9 ? "9+" : watchChatUnread}
+            </span>
+          ) : null}
+        </TooltipTrigger>
+        <TooltipContent>
+          {watchChatOpen ? "Ocultar chat" : "Abrir chat"}
+        </TooltipContent>
+      </Tooltip>
+    ) : null;
+
   const playerStage = (
-    <div className={cn("relative min-h-0 w-full", watchRoom ? "size-full" : "flex-1")}>
+    <div
+      className={cn(
+        "relative min-h-0 w-full",
+        watchRoom ? "size-full" : "flex-1"
+      )}
+      ref={playerStageRef}
+    >
 
       <PlayerTopBar
         backHref={backHref}
-        chatButton={
-          watchRoom || watchPartyJoining ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    aria-label={
-                      watchChatOpen ? "Ocultar chat" : "Abrir chat"
-                    }
-                    aria-pressed={watchChatOpen}
-                    className="relative bg-blue-950 text-blue-300 shadow-[0_0_0_2px_rgba(59,130,246,0.2)] backdrop-blur-sm hover:bg-blue-900"
-                    data-dpad-focusable
-                    onClick={() => setWatchChatOpen((open) => !open)}
-                    size="icon"
-                    variant="secondary"
-                  >
-                    <MessageCircleIcon className="size-4" />
-                    {!watchChatOpen && watchChatUnread > 0 ? (
-                      <span className="absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 font-medium text-[10px] text-white leading-4">
-                        {watchChatUnread > 9 ? "9+" : watchChatUnread}
-                      </span>
-                    ) : null}
-                  </Button>
-                }
-              />
-              <TooltipContent>
-                {watchChatOpen ? "Ocultar chat" : "Abrir chat"}
-              </TooltipContent>
-            </Tooltip>
-          ) : null
-        }
+        chatButton={chatButton}
         contentTitle={contentTitle}
-        downloadButton={
-          !isTv && sourceUrl ? (
-            <PlayerDownloadButton
-              audioTrackIndex={
-                usesMediaBunnyAudio ? mediaBunny.activeAudioTrack : undefined
-              }
-              codecHint={sourceCodecHint}
-              filename={sourceFilename}
-              onSaved={loadOfflineMedia}
-              storageKey={offlineKey}
-              url={sourceUrl}
-            />
-          ) : null
-        }
+        downloadButton={downloadButton}
+        episodePicker={episodePicker}
         handleBack={handleBack}
+        reserveRight={pillTopReserve}
+        showActions={pillFallback}
         showBack
+        sourcePicker={sourcePicker}
+        trackPicker={trackPicker}
         visible={arePlayerControlsVisible}
-        watchPartyButton={
-          watchRoom || watchPartyJoining || isDirect ? null : (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    aria-label={t("Crear watch party")}
-                    className="bg-white/10 text-white backdrop-blur-sm hover:bg-white/20"
-                    data-dpad-focusable
-                    disabled={creatingWatchRoom}
-                    onClick={createWatchRoom}
-                    size="icon"
-                    variant="secondary"
-                  >
-                    {creatingWatchRoom ? (
-                      <LoaderIcon className="size-4 animate-spin" />
-                    ) : (
-                      <UsersIcon className="size-4" />
-                    )}
-                  </Button>
-                }
-              />
-              <TooltipContent>{t("Ver juntos")}</TooltipContent>
-            </Tooltip>
-          )
-        }
-        trackPicker={
-          <StreamTrackPicker
-            activeAudioId={activeAudioId}
-            activeSubtitleId={browserTracks.activeSubtitleId}
-            audioTracks={audioTracks}
-            onSelectAudio={handleSelectAudio}
-            onSelectSubtitle={browserTracks.selectSubtitle}
-            subtitleTracks={browserTracks.subtitleTracks}
-          />
-        }
-        episodePicker={
-          isSeries ? (
-            <StreamEpisodePicker
-              episode={episode}
-              onSelect={handleEpisodeSelect}
-              poster={_contentPoster}
-              season={season}
-              seriesId={contentId}
-            />
-          ) : null
-        }
-        sourcePicker={
-          isDirect ? undefined : (
-            <StreamSourcePicker
-              activeSource={selectedSource}
-              contentId={rawId}
-              contentType={contentType}
-              onSelect={handleSourceChange}
-            />
-          )
-        }
+        watchPartyButton={watchPartyButton}
       />
+      {/* Nuestros selectores van DENTRO del pill de controles del player
+          (audio/subtítulos, episodios, descarga, fuentes y ver juntos): se leen
+          como parte de ella y heredan su auto-ocultado. Solo si el pill no
+          aparece vuelven a la barra superior (`pillFallback`). */}
+      {controlsPill
+        ? createPortal(
+            <div className="player-compact-actions flex items-center gap-0.5">
+              {trackPicker}
+              {episodePicker}
+              {downloadButton}
+              {sourcePicker}
+              {watchPartyButton}
+              {chatButton}
+            </div>,
+            controlsPill
+          )
+        : null}
         {/* Fondo oscuro de carga: solo cuando hay trabajo real pendiente —
             transcodificación en curso o buffering activo — no al montar el
             player (si el medio es nativo y arranca al instante, no se muestra). */}
