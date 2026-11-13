@@ -57,6 +57,15 @@ const ICON_VIEW_BOX = "0 0 24 24";
 const RING_STROKE = 2.5;
 const CROSS_PATH = "M8 8 L16 16 M16 8 L8 16";
 
+/** Mensaje de error sin URLs ni tokens: solo para diagnóstico. */
+function safeErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error ?? "");
+  return raw
+    .replace(/https?:\/\/\S+/gi, "<url>")
+    .replace(/[?&](token|key|sig|expires|exp)=[^\s&]+/gi, "$1=<redacted>")
+    .slice(0, 180);
+}
+
 /**
  * Traduce el fallo de una descarga a un motivo estable (para analítica) y a un
  * mensaje entendible. Nunca se manda la URL del medio: lleva el token del debrid.
@@ -71,10 +80,15 @@ function classifyDownloadError(error: unknown): {
   const match = raw.match(/HTTP (\d{3})/);
   const status = match ? Number(match[1]) : undefined;
 
-  if (name === "QuotaExceededError" || raw.includes("QuotaExceeded")) {
+  if (
+    name === "QuotaExceededError" ||
+    raw.includes("QuotaExceeded") ||
+    /espacio suficiente/i.test(raw)
+  ) {
     return {
       reason: "quota",
-      message: "No hay espacio suficiente en este dispositivo para guardar el video.",
+      message:
+        "No hay espacio suficiente en este dispositivo. Elimina otra descarga o libera espacio y vuelve a intentarlo.",
     };
   }
   if (name === "NotAllowedError" || name === "SecurityError") {
@@ -101,6 +115,13 @@ function classifyDownloadError(error: unknown): {
     return {
       reason: "truncated",
       message: "La descarga se cortó antes de terminar. Inténtalo otra vez.",
+    };
+  }
+  if (/archivo de origen/i.test(raw)) {
+    return {
+      reason: "source-empty",
+      message:
+        "El origen no devolvió datos. Prueba con otra fuente o inténtalo más tarde.",
     };
   }
   if (status && status >= 400) {
@@ -287,12 +308,23 @@ export function PlayerDownloadButton({
         const failure = classifyDownloadError(error);
         // Sin esto la descarga fallida volvía al icono sin explicar nada y sin
         // rastro en analítica: imposible saber si fue cuota, CORS o el debrid.
+        const storage =
+          failure.reason === "quota" && navigator.storage?.estimate
+            ? await navigator.storage.estimate().catch(() => null)
+            : null;
         try {
           posthog.capture("offline_media_error", {
             stage: "download",
             reason: failure.reason,
             error_name: error instanceof Error ? error.name : "unknown",
+            error_message: safeErrorMessage(error),
             ...(failure.status ? { http_status: failure.status } : {}),
+            ...(storage
+              ? {
+                  quota_gb: Number(((storage.quota ?? 0) / 1e9).toFixed(2)),
+                  usage_gb: Number(((storage.usage ?? 0) / 1e9).toFixed(2)),
+                }
+              : {}),
           });
         } catch {
           // La analítica nunca debe romper la reproducción.
