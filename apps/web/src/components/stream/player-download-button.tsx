@@ -87,8 +87,7 @@ function classifyDownloadError(error: unknown): {
   ) {
     return {
       reason: "quota",
-      message:
-        "No hay espacio suficiente en este dispositivo. Elimina otra descarga o libera espacio y vuelve a intentarlo.",
+      message: "No hay espacio suficiente en este dispositivo.",
     };
   }
   if (name === "NotAllowedError" || name === "SecurityError") {
