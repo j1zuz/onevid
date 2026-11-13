@@ -177,5 +177,11 @@
   "Cargando fuente": "소스를 불러오는 중",
   "Cargando video": "동영상을 불러오는 중",
   "No se pudo cargar la fuente de reproducción.": "재생 소스를 불러오지 못했습니다.",
-  "Volver al catálogo": "카탈로그로 돌아가기"
+  "Volver al catálogo": "카탈로그로 돌아가기",
+  "Descargas sin conexión": "오프라인 다운로드",
+  "Películas y episodios guardados en este dispositivo.": "이 기기에 저장된 영화 및 에피소드.",
+  "No hay descargas sin conexión.": "오프라인 다운로드가 없습니다.",
+  "Guardado hasta {{date}}": "{{date}}까지 저장됨",
+  "Temporada {{season}} · Episodio {{episode}}": "시즌 {{season}} · 에피소드 {{episode}}",
+  "No se pudo eliminar la descarga.": "다운로드를 삭제할 수 없습니다."
 }

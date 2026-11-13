@@ -177,5 +177,11 @@
   "Cargando fuente": "Carregando fonte",
   "Cargando video": "Carregando vídeo",
   "No se pudo cargar la fuente de reproducción.": "Não foi possível carregar a fonte de reprodução.",
-  "Volver al catálogo": "Voltar ao catálogo"
+  "Volver al catálogo": "Voltar ao catálogo",
+  "Descargas sin conexión": "Downloads offline",
+  "Películas y episodios guardados en este dispositivo.": "Filmes e episódios salvos neste dispositivo.",
+  "No hay descargas sin conexión.": "Nenhum download offline.",
+  "Guardado hasta {{date}}": "Salvo até {{date}}",
+  "Temporada {{season}} · Episodio {{episode}}": "Temporada {{season}} · Episódio {{episode}}",
+  "No se pudo eliminar la descarga.": "Não foi possível excluir o download."
 }

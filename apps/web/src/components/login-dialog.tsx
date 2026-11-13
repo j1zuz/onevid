@@ -304,10 +304,9 @@ export function LoginDialog() {
             <div className="flex flex-col gap-3">
               {/* Estado: cargando */}
               {codeStatus === "loading" ? (
-                <div className="flex w-full items-center gap-3 rounded-xl border border-border bg-muted/40 px-4 py-5">
-                  <Skeleton className="size-8 shrink-0 rounded-full" />
-                  <Skeleton className="h-6 w-36 rounded-md" />
-                  <Skeleton className="ml-auto size-4 rounded" />
+                <div className="flex w-full flex-col items-center gap-2 rounded-xl border border-border bg-muted/40 px-4 py-5">
+                  <Skeleton className="h-7 w-40 rounded-md" />
+                  <Skeleton className="h-3 w-24 rounded" />
                 </div>
               ) : null}
 
@@ -316,25 +315,20 @@ export function LoginDialog() {
                 <>
                   {/* Card del código — estilo similar al "Link sent!" de hackw */}
                   <button
-                    className="flex w-full flex-col items-center gap-3 rounded-xl border border-border bg-muted/40 px-4 py-5 text-left transition-colors hover:border-foreground/20 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="group flex w-full flex-col items-center gap-2 rounded-xl border border-border bg-muted/40 px-4 py-5 text-center transition-colors hover:border-foreground/20 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={copyCode}
                     type="button"
                   >
-                    <div className="flex w-full items-center gap-3">
-                      {/* Ícono de estado */}
-                      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                        {copied
-                          ? <CheckIcon className="size-4" />
-                          : <MonitorSmartphoneIcon className="size-4" />
-                        }
-                      </span>
-                      <div className="flex flex-1 flex-col gap-0.5 min-w-0">
-                        <span className="font-mono text-xl font-semibold tracking-[0.2em] text-foreground">
-                          {formatUserCode(codeData.user_code)}
-                        </span>
-                      </div>
-                      <CopyIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                    </div>
+                    <span className="pl-[0.2em] font-mono text-2xl font-semibold tracking-[0.2em] text-foreground">
+                      {formatUserCode(codeData.user_code)}
+                    </span>
+                    <span className="flex items-center gap-1.5 text-muted-foreground text-xs transition-colors group-hover:text-foreground/70">
+                      {copied
+                        ? <CheckIcon className="size-3.5 text-primary" />
+                        : <CopyIcon className="size-3.5" />
+                      }
+                      <span>{copied ? "Código copiado" : "Toca para copiar"}</span>
+                    </span>
                   </button>
 
                   {/* Cuenta regresiva */}
@@ -347,13 +341,13 @@ export function LoginDialog() {
 
               {/* Estado: aprobado */}
               {codeStatus === "approved" ? (
-                <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/40 px-4 py-5">
+                <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-muted/40 px-4 py-5 text-center">
                   <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                     <LoaderIcon className="size-4 animate-spin" />
                   </span>
                   <div className="flex flex-col gap-0.5">
-                    <span className="text-sm font-medium text-foreground">¡Activado!</span>
-                    <span className="text-xs text-muted-foreground">Entrando a tu cuenta…</span>
+                    <span className="font-medium text-foreground text-sm">¡Activado!</span>
+                    <span className="text-muted-foreground text-xs">Entrando a tu cuenta…</span>
                   </div>
                 </div>
               ) : null}

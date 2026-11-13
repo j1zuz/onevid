@@ -177,5 +177,11 @@
   "Cargando fuente": "Kaynak yükleniyor",
   "Cargando video": "Video yükleniyor",
   "No se pudo cargar la fuente de reproducción.": "Oynatma kaynağı yüklenemedi.",
-  "Volver al catálogo": "Kataloğa dön"
+  "Volver al catálogo": "Kataloğa dön",
+  "Descargas sin conexión": "Çevrimdışı indirmeler",
+  "Películas y episodios guardados en este dispositivo.": "Bu cihazda kayıtlı filmler ve bölümler.",
+  "No hay descargas sin conexión.": "Çevrimdışı indirme yok.",
+  "Guardado hasta {{date}}": "{{date}} tarihine kadar kayıtlı",
+  "Temporada {{season}} · Episodio {{episode}}": "Sezon {{season}} · Bölüm {{episode}}",
+  "No se pudo eliminar la descarga.": "İndirme silinemedi."
 }

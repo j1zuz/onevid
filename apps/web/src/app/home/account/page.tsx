@@ -35,6 +35,7 @@ function isSettingsView(value: string | undefined): value is SettingsView {
   return (
     value === "account" ||
     value === "catalog" ||
+    value === "downloads" ||
     value === "language" ||
     value === "profiles" ||
     value === "quality" ||

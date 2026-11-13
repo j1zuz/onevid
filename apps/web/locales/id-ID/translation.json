@@ -177,5 +177,11 @@
   "Cargando fuente": "Memuat sumber",
   "Cargando video": "Memuat video",
   "No se pudo cargar la fuente de reproducción.": "Tidak dapat memuat sumber pemutaran.",
-  "Volver al catálogo": "Kembali ke katalog"
+  "Volver al catálogo": "Kembali ke katalog",
+  "Descargas sin conexión": "Unduhan offline",
+  "Películas y episodios guardados en este dispositivo.": "Film dan episode yang disimpan di perangkat ini.",
+  "No hay descargas sin conexión.": "Tidak ada unduhan offline.",
+  "Guardado hasta {{date}}": "Disimpan hingga {{date}}",
+  "Temporada {{season}} · Episodio {{episode}}": "Musim {{season}} · Episode {{episode}}",
+  "No se pudo eliminar la descarga.": "Unduhan tidak dapat dihapus."
 }

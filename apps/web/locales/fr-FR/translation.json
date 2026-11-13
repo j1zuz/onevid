@@ -177,5 +177,11 @@
   "Cargando fuente": "Chargement de la source",
   "Cargando video": "Chargement de la vidéo",
   "No se pudo cargar la fuente de reproducción.": "Impossible de charger la source de lecture.",
-  "Volver al catálogo": "Retour au catalogue"
+  "Volver al catálogo": "Retour au catalogue",
+  "Descargas sin conexión": "Téléchargements hors ligne",
+  "Películas y episodios guardados en este dispositivo.": "Films et épisodes enregistrés sur cet appareil.",
+  "No hay descargas sin conexión.": "Aucun téléchargement hors ligne.",
+  "Guardado hasta {{date}}": "Enregistré jusqu'au {{date}}",
+  "Temporada {{season}} · Episodio {{episode}}": "Saison {{season}} · Épisode {{episode}}",
+  "No se pudo eliminar la descarga.": "Impossible de supprimer le téléchargement."
 }

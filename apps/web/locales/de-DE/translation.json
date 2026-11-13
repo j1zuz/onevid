@@ -177,5 +177,11 @@
   "Cargando fuente": "Quelle wird geladen",
   "Cargando video": "Video wird geladen",
   "No se pudo cargar la fuente de reproducción.": "Die Wiedergabequelle konnte nicht geladen werden.",
-  "Volver al catálogo": "Zurück zum Katalog"
+  "Volver al catálogo": "Zurück zum Katalog",
+  "Descargas sin conexión": "Offline-Downloads",
+  "Películas y episodios guardados en este dispositivo.": "Filme und Episoden, die auf diesem Gerät gespeichert sind.",
+  "No hay descargas sin conexión.": "Keine Offline-Downloads.",
+  "Guardado hasta {{date}}": "Gespeichert bis {{date}}",
+  "Temporada {{season}} · Episodio {{episode}}": "Staffel {{season}} · Folge {{episode}}",
+  "No se pudo eliminar la descarga.": "Der Download konnte nicht gelöscht werden."
 }

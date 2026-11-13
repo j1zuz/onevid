@@ -5,6 +5,7 @@ import { Switch } from "@workspace/ui/components/switch";
 import { cn } from "@workspace/ui/lib/utils";
 import { ChevronDownIcon, ChevronUpIcon, Loader } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   DEFAULT_QUALITY_ORDER,
   type QualityPref,
@@ -32,8 +33,6 @@ export function OneVidQualityOrder() {
   const [order, setOrder] = useState<QualityPref[]>(DEFAULT_QUALITY_ORDER);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -58,13 +57,10 @@ export function OneVidQualityOrder() {
 
   function update(next: QualityPref[]) {
     setOrder(next);
-    setSaved(false);
-    setFailed(false);
   }
 
   async function save() {
     setSaving(true);
-    setFailed(false);
     try {
       const res = await fetch("/api/onevid-quality", {
         method: "PUT",
@@ -74,9 +70,9 @@ export function OneVidQualityOrder() {
       if (!res.ok) {
         throw new Error(String(res.status));
       }
-      setSaved(true);
+      toast.success("Preferencias de calidad guardadas");
     } catch {
-      setFailed(true);
+      toast.error("No se pudo guardar. Inténtalo otra vez.");
     }
     setSaving(false);
   }
@@ -165,12 +161,6 @@ export function OneVidQualityOrder() {
           {saving ? <Loader className="size-4 animate-spin" /> : null}
           Guardar
         </Button>
-        {saved && <span className="text-primary text-xs">Guardado</span>}
-        {failed && (
-          <span className="text-destructive text-xs">
-            No se pudo guardar. Inténtalo otra vez.
-          </span>
-        )}
       </div>
     </div>
   );
