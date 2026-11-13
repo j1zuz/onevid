@@ -177,5 +177,11 @@
   "Cargando fuente": "स्रोत लोड हो रहा है",
   "Cargando video": "वीडियो लोड हो रहा है",
   "No se pudo cargar la fuente de reproducción.": "प्लेबैक स्रोत लोड नहीं हो सका।",
-  "Volver al catálogo": "कैटलॉग पर वापस जाएँ"
+  "Volver al catálogo": "कैटलॉग पर वापस जाएँ",
+  "Descargas sin conexión": "ऑफ़लाइन डाउनलोड",
+  "Películas y episodios guardados en este dispositivo.": "इस डिवाइस पर सहेजी गई फ़िल्में और एपिसोड।",
+  "No hay descargas sin conexión.": "कोई ऑफ़लाइन डाउनलोड नहीं।",
+  "Guardado hasta {{date}}": "{{date}} तक सहेजा गया",
+  "Temporada {{season}} · Episodio {{episode}}": "सीज़न {{season}} · एपिसोड {{episode}}",
+  "No se pudo eliminar la descarga.": "डाउनलोड हटाया नहीं जा सका।"
 }

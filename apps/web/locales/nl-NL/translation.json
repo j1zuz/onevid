@@ -177,5 +177,11 @@
   "Cargando fuente": "Bron laden",
   "Cargando video": "Video laden",
   "No se pudo cargar la fuente de reproducción.": "Kan de afspeelbron niet laden.",
-  "Volver al catálogo": "Terug naar catalogus"
+  "Volver al catálogo": "Terug naar catalogus",
+  "Descargas sin conexión": "Offline downloads",
+  "Películas y episodios guardados en este dispositivo.": "Films en afleveringen die op dit apparaat zijn opgeslagen.",
+  "No hay descargas sin conexión.": "Geen offline downloads.",
+  "Guardado hasta {{date}}": "Opgeslagen tot {{date}}",
+  "Temporada {{season}} · Episodio {{episode}}": "Seizoen {{season}} · Aflevering {{episode}}",
+  "No se pudo eliminar la descarga.": "De download kon niet worden verwijderd."
 }

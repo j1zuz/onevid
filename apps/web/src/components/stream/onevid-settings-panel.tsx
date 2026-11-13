@@ -6,6 +6,7 @@ import {
   ChevronRightIcon,
   CircleCheckIcon,
   CircleXIcon,
+  DownloadIcon,
   GaugeIcon,
   GlobeIcon,
   LockIcon,
@@ -23,6 +24,7 @@ import {
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "@/lib/languages";
 import type { OneVidFeedRow } from "@/lib/onevid-feed";
 import { useTranslation } from "@/lib/onevid-i18n-context";
+import { OfflineDownloadsManager } from "./offline-downloads-manager";
 import { OneVidProfileAvatar } from "./onevid-profile-avatar";
 import { useOneVidProfiles } from "./onevid-profile-context";
 import { OneVidQualityOrder } from "./onevid-quality-order";
@@ -39,6 +41,7 @@ function persistLocaleCookie(locale: SupportedLanguage) {
 export type SettingsView =
   | "account"
   | "catalog"
+  | "downloads"
   | "home"
   | "language"
   | "profiles"
@@ -255,6 +258,11 @@ export function OneVidSettingsPanel({
           onClick={() => setView("quality")}
         />
         <SettingsRow
+          icon={<DownloadIcon className="size-4" />}
+          label={t("Descargas sin conexión")}
+          onClick={() => setView("downloads")}
+        />
+        <SettingsRow
           icon={<GlobeIcon className="size-4" />}
           label={t("Idioma")}
           onClick={() => setView("language")}
@@ -294,6 +302,8 @@ export function OneVidSettingsPanel({
           setupCompleted={setupCompleted}
         />
       )}
+
+      {view === "downloads" && <OfflineDownloadsManager />}
 
       {view === "profiles" && <ProfilesView />}
 

@@ -54,6 +54,8 @@ type StreamEventLike = {
   reaction?: { message_id?: string; type?: string };
   positionSec?: number;
   playing?: boolean;
+  /** Marca de tiempo del host al emitir el evento (evita depender de created_at). */
+  sentAt?: number;
   userId?: string;
   user?: { id?: string; name?: string; online?: boolean };
   rate?: number;
@@ -270,6 +272,18 @@ export function useWatchParty({
   const serverOffsetRef = useRef(join.serverTime - Date.now());
   const applyingUntilRef = useRef(0);
   const initialAppliedRef = useRef(false);
+  // Última posición conocida del host. `resumePlayback` la usa para arrancar
+  // ya sincronizado aunque el usuario pulse el botón antes de que llegue un
+  // heartbeat nuevo.
+  const latestSyncRef = useRef<{
+    at: number;
+    playing: boolean;
+    positionSec: number;
+    rate: number;
+  } | null>(null);
+  // El usuario pidió reproducir y el <video> todavía no estaba montado. El
+  // efecto de abajo reintenta en cuanto aparece.
+  const resumeRequestedRef = useRef(false);
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reactionIdRef = useRef(0);
 
@@ -278,6 +292,72 @@ export function useWatchParty({
   }, [video]);
 
   const serverNow = useCallback(() => Date.now() + serverOffsetRef.current, []);
+
+  /**
+   * Arranca la reproducción en la última posición conocida del host. Se llama
+   * desde el botón "Unirse" (gesto de usuario) y, si el <video> aún no existía,
+   * en cuanto se monta. El overlay se oculta de inmediato: esperar a que
+   * resuelva `play()` hacía que el clic pareciera no hacer nada en conexiones
+   * lentas o mientras el navegador preparaba el buffer.
+   */
+  const playFromLatestSync = useCallback(
+    (player: HTMLVideoElement) => {
+      const sync = latestSyncRef.current;
+      applyingUntilRef.current = Date.now() + 1500;
+      if (sync) {
+        const elapsed = Math.max(0, (serverNow() - sync.at) / 1000);
+        const expected =
+          sync.positionSec + (sync.playing ? elapsed * sync.rate : 0);
+        try {
+          player.playbackRate = sync.rate;
+        } catch {
+          /* velocidad no soportada en este navegador */
+        }
+        try {
+          player.currentTime = Math.max(0, expected);
+        } catch {
+          /* el <video> aún no tiene metadata; el heartbeat lo corrige */
+        }
+        // El host está en pausa: no arrancamos nada, solo quitamos la tarjeta.
+        if (!sync.playing) {
+          player.pause();
+          resumeRequestedRef.current = false;
+          setNeedsGesture(false);
+          return;
+        }
+      }
+      setNeedsGesture(false);
+      const attempt = player.play();
+      if (attempt && typeof attempt.then === "function") {
+        void attempt
+          .then(() => {
+            resumeRequestedRef.current = false;
+            setNeedsGesture(false);
+          })
+          .catch(() => {
+            // Si sigue bloqueado o no puede reproducir, se vuelve a mostrar la
+            // tarjeta para reintentar con otro gesto. Se comprueba un instante
+            // después: un `play()` cancelado por un seek/heartbeat no debe
+            // tapar la reproducción que sí arrancó.
+            window.setTimeout(() => {
+              if (player.paused) {
+                setNeedsGesture(true);
+              }
+            }, 700);
+          });
+      }
+    },
+    [serverNow]
+  );
+
+  // Si el usuario pulsó "Unirse" antes de que el player publicara el <video>,
+  // reintenta en cuanto esté disponible en vez de dejar el overlay colgado.
+  useEffect(() => {
+    if (video && resumeRequestedRef.current) {
+      resumeRequestedRef.current = false;
+      playFromLatestSync(video);
+    }
+  }, [playFromLatestSync, video]);
 
   /**
    * Reemplaza solo la lista de reacciones de un mensaje. Los eventos y la
@@ -365,11 +445,23 @@ export function useWatchParty({
       const positionSec = Number(event.positionSec) || 0;
       const playing = event.playing === true;
       const rate = Number(event.rate) || 1;
-      const eventAt = Date.parse(event.created_at ?? "") || serverNow();
+      // `sentAt` viene en el payload custom; `created_at` se pierde porque
+      // Stream entrega el evento dentro de `custom`. Sin esto se calculaba un
+      // elapsed de 0 y cada heartbeat podía corregir la posición de golpe.
+      const eventAt =
+        Number(event.sentAt) ||
+        Date.parse(event.created_at ?? "") ||
+        serverNow();
       const elapsed = Math.max(0, (serverNow() - eventAt) / 1000);
       const expected = positionSec + (playing ? elapsed * rate : 0);
       const drift = player.currentTime - expected;
 
+      latestSyncRef.current = {
+        at: serverNow(),
+        playing,
+        positionSec: expected,
+        rate,
+      };
       applyingUntilRef.current = Date.now() + 1000;
 
       if (Math.abs(player.playbackRate - rate) > 0.01) {
@@ -393,7 +485,13 @@ export function useWatchParty({
           void player
             .play()
             .then(() => setNeedsGesture(false))
-            .catch(() => setNeedsGesture(true));
+            .catch(() => {
+              window.setTimeout(() => {
+                if (player.paused) {
+                  setNeedsGesture(true);
+                }
+              }, 700);
+            });
         }
       } else if (!player.paused) {
         player.pause();
@@ -594,6 +692,12 @@ export function useWatchParty({
     const expected =
       state.positionSec + (state.playing ? elapsed * state.rate : 0);
 
+    latestSyncRef.current = {
+      at: serverNow(),
+      playing: state.playing,
+      positionSec: expected,
+      rate: state.rate,
+    };
     applyingUntilRef.current = Date.now() + 1200;
     try {
       player.playbackRate = state.rate;
@@ -919,16 +1023,23 @@ export function useWatchParty({
   }, []);
 
   const resumePlayback = useCallback(() => {
+    // Pedir al host un estado fresco: si el usuario pulsó antes del primer
+    // heartbeat, la posición conocida puede ser la del join.
+    void channelRef.current
+      ?.sendEvent({
+        type: "watch_request",
+      } as unknown as Parameters<StreamChannel["sendEvent"]>[0])
+      .catch(() => undefined);
+    setNeedsGesture(false);
     const player = videoRef.current;
     if (!player) {
+      // El player todavía no está montado: el efecto de `video` reintenta.
+      resumeRequestedRef.current = true;
       return;
     }
-    applyingUntilRef.current = Date.now() + 800;
-    void player
-      .play()
-      .then(() => setNeedsGesture(false))
-      .catch(() => undefined);
-  }, []);
+    resumeRequestedRef.current = false;
+    playFromLatestSync(player);
+  }, [playFromLatestSync]);
 
   const sendReaction = useCallback(
     (emoji: string) => {

@@ -370,7 +370,10 @@ export function StreamOnevid({
   // navegador de escritorio, que no sabe abrir esos formatos.
   const isTv = useIsTv();
   // Pill de controles real de la skin, donde se montan nuestros selectores.
-  const playerStageRef = useRef<HTMLDivElement | null>(null);
+  // Es estado (no ref) para que el efecto que engancha el pill vuelva a
+  // ejecutarse cuando el escenario se monta: al montar el componente todavía
+  // no existe y los iconos se quedaban sin portal.
+  const [playerStageNode, setPlayerStageNode] = useState<HTMLDivElement | null>(null);
   const [controlsPill, setControlsPill] = useState<HTMLElement | null>(null);
   // Píxeles que la barra superior debe dejar libres si el pill se despega arriba.
   const [pillTopReserve, setPillTopReserve] = useState(0);
@@ -407,42 +410,46 @@ export function StreamOnevid({
   useEffect(() => {
     setControlsPill(null);
     setPillFallback(false);
-    const stage = playerStageRef.current;
+    const stage = playerStageNode;
     if (!stage) {
       return;
     }
     let cancelled = false;
+    let host: HTMLElement | null = null;
     // Se busca aparte y no con un selector agrupado: `querySelector` devuelve
     // el primero en el DOM, y la barra de abajo siempre está antes.
-    const find = () => {
-      const host =
-        stage.querySelector<HTMLElement>(".video-controls-secondary") ??
-        stage.querySelector<HTMLElement>(".video-controls-primary") ??
-        null;
-      if (host) {
-        setControlsPill(host);
-        return true;
+    const locate = (): HTMLElement | null =>
+      stage.querySelector<HTMLElement>(".video-controls-secondary") ??
+      stage.querySelector<HTMLElement>(".video-controls-primary") ??
+      null;
+    const attach = (next: HTMLElement | null) => {
+      if (!next || next === host) {
+        return Boolean(next);
       }
-      return false;
+      host = next;
+      setControlsPill(next);
+      return true;
     };
-    if (find()) {
-      return;
-    }
-    // El player se monta después de resolver la fuente. Un observador del DOM
-    // engancha el pill en cuanto aparece; con `requestAnimationFrame` no
-    // bastaba (con la pestaña en segundo plano no avanza y los iconos no
-    // llegaban a montarse nunca).
+    attach(locate());
+    // El player se monta después de resolver la fuente, y además se remonta al
+    // guardar la copia sin conexión (la fuente pasa al blob local). Por eso el
+    // observador no se apaga: si el pill que teníamos queda desconectado, se
+    // vuelve a enganchar al nuevo en lugar de dejar los iconos en un nodo
+    // huérfano (que es lo que los hacía desaparecer tras descargar).
     const observer = new MutationObserver(() => {
-      if (!cancelled && find()) {
-        observer.disconnect();
+      if (cancelled) {
+        return;
       }
+      if (host?.isConnected) {
+        return;
+      }
+      attach(locate());
     });
     observer.observe(stage, { childList: true, subtree: true });
     // Red de seguridad: si el pill no aparece, los iconos vuelven a la barra
     // superior en lugar de quedarse sin sitio donde vivir.
     const giveUp = window.setTimeout(() => {
-      if (!cancelled) {
-        observer.disconnect();
+      if (!cancelled && !host) {
         setPillFallback(true);
       }
     }, 10_000);
@@ -451,7 +458,7 @@ export function StreamOnevid({
       observer.disconnect();
       window.clearTimeout(giveUp);
     };
-  }, [activeSrc]);
+  }, [activeSrc, playerStageNode]);
 
   // Ancho del pill ya con nuestros botones dentro. Solo hay que reservar sitio
   // en la barra superior cuando la skin lo despega al borde de arriba (pantallas
@@ -1155,6 +1162,15 @@ export function StreamOnevid({
         }
         codecHint={sourceCodecHint}
         filename={sourceFilename}
+        metadata={{
+          title: contentTitle,
+          poster: _contentPoster,
+          contentType,
+          contentId,
+          rawId,
+          season: season > 0 ? season : undefined,
+          episode: episode > 0 ? episode : undefined,
+        }}
         onSaved={loadOfflineMedia}
         storageKey={offlineKey}
         url={sourceUrl}
@@ -1233,7 +1249,7 @@ export function StreamOnevid({
         "relative min-h-0 w-full",
         watchRoom ? "size-full" : "flex-1"
       )}
-      ref={playerStageRef}
+      ref={setPlayerStageNode}
     >
 
       <PlayerTopBar

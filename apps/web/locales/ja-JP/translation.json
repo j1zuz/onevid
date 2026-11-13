@@ -177,5 +177,11 @@
   "Cargando fuente": "ソースを読み込み中",
   "Cargando video": "動画を読み込み中",
   "No se pudo cargar la fuente de reproducción.": "再生ソースを読み込めませんでした。",
-  "Volver al catálogo": "カタログに戻る"
+  "Volver al catálogo": "カタログに戻る",
+  "Descargas sin conexión": "オフラインダウンロード",
+  "Películas y episodios guardados en este dispositivo.": "このデバイスに保存された映画とエピソード。",
+  "No hay descargas sin conexión.": "オフラインダウンロードはありません。",
+  "Guardado hasta {{date}}": "{{date}} まで保存",
+  "Temporada {{season}} · Episodio {{episode}}": "シーズン {{season}} · エピソード {{episode}}",
+  "No se pudo eliminar la descarga.": "ダウンロードを削除できませんでした。"
 }

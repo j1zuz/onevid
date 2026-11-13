@@ -20,6 +20,16 @@ const FINAL_URL_CACHE_LIMIT = 100;
 // usuario; la respuesta además se cachea en el browser.
 const finalUrlCache = new LruTtlCache<string, string>(FINAL_URL_CACHE_LIMIT);
 
+// Un torrent no cacheado puede tardar minutos en TorBox. Esperamos un poco
+// dentro del request (la mayoría arranca en segundos) y, si sigue preparándose,
+// respondemos 202 con `Retry-After` para que el cliente reintente en vez de
+// mostrar un 502 como si la fuente estuviera rota.
+const PREPARING_WAIT_MS = 8_000;
+const PREPARING_POLL_MS = 2_500;
+const PREPARING_RETRY_AFTER_S = 6;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 /**
  * Los enlaces del CDN suelen llevar su caducidad en la query (`expires`, `exp`,
  * ...). Si la conocemos, la caché no debe sobrevivirla: un 302 cacheado con un
@@ -125,16 +135,43 @@ export async function GET(request: Request) {
     return Response.json({ error: "Falta API key de TorBox" }, { status: 400 });
   }
 
-  const resolved = await resolveTorboxStream({ apiKey, magnet }).catch(
+  let resolved = await resolveTorboxStream({ apiKey, magnet }).catch(
     () => null
   );
 
-  if (!resolved) {
+  // Poll corto: si TorBox todavía está preparando el archivo, esperamos un poco
+  // antes de contestar 202. Cada vuelta reutiliza el torrent ya creado (no se
+  // crean duplicados).
+  const waitUntil = Date.now() + PREPARING_WAIT_MS;
+  while (resolved?.status === "preparing" && Date.now() < waitUntil) {
+    await sleep(PREPARING_POLL_MS);
+    resolved = await resolveTorboxStream({ apiKey, magnet }).catch(() => null);
+  }
+
+  if (!resolved || resolved.status === "unavailable") {
     return Response.json(
       { error: "No se pudo resolver el stream" },
       { status: 502 }
     );
   }
+
+  if (resolved.status === "preparing") {
+    return Response.json(
+      {
+        error: "El debrid todavía está preparando el archivo",
+        progress: resolved.progress,
+        retryAfter: PREPARING_RETRY_AFTER_S,
+        state: resolved.state,
+        status: "preparing",
+      },
+      {
+        status: 202,
+        headers: { "Retry-After": String(PREPARING_RETRY_AFTER_S) },
+      }
+    );
+  }
+
+  const stream = resolved.stream;
 
   if (wantRedirect) {
     // `final` sigue la cadena de redirects en el servidor y manda al
@@ -142,20 +179,24 @@ export async function GET(request: Request) {
     // de `requestdl`, que no refleja ACAO.
     if (wantFinalRedirect) {
       const target =
-        (await resolveTorboxRedirect(resolved.url).catch(() => null)) ??
-        resolved.url;
+        (await resolveTorboxRedirect(stream.url).catch(() => null)) ?? stream.url;
       const ttlMs = finalUrlTtlMs(target);
       finalUrlCache.set(cacheKey, target, ttlMs);
       return finalRedirectResponse(target, ttlMs);
     }
-    return Response.redirect(resolved.url, 302);
+    return Response.redirect(stream.url, 302);
   }
 
   // Modo JSON (apps nativas): si la URL sigue siendo un redirect de TorBox,
   // se resuelve aqui para no devolver al cliente el `requestdl` con `token=`.
   // Si no se puede resolver, se conserva la original para no romper el play.
   const directUrl =
-    (await resolveTorboxRedirect(resolved.url).catch(() => null)) ??
-    resolved.url;
-  return Response.json({ url: directUrl, fileName: resolved.fileName });
+    (await resolveTorboxRedirect(stream.url).catch(() => null)) ?? stream.url;
+  return Response.json({
+    url: directUrl,
+    fileName: stream.fileName,
+    // El tamaño exacto ya lo dio `mylist`: el cliente lo usa para reservar
+    // espacio antes de descargar en vez de adivinar.
+    fileSize: stream.fileSize,
+  });
 }

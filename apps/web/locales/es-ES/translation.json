@@ -274,5 +274,11 @@
   "¿Terminar la sala?": "¿Terminar la watch party?",
   "¿Terminar la watch party?": "¿Terminar la watch party?",
   "Únete a la reproducción": "Únete a la reproducción",
-  "Únete a la watch party": "Únete a la watch party"
+  "Únete a la watch party": "Únete a la watch party",
+  "Descargas sin conexión": "Descargas sin conexión",
+  "Películas y episodios guardados en este dispositivo.": "Películas y episodios guardados en este dispositivo.",
+  "No hay descargas sin conexión.": "No hay descargas sin conexión.",
+  "Guardado hasta {{date}}": "Guardado hasta {{date}}",
+  "Temporada {{season}} · Episodio {{episode}}": "Temporada {{season}} · Episodio {{episode}}",
+  "No se pudo eliminar la descarga.": "No se pudo eliminar la descarga."
 }

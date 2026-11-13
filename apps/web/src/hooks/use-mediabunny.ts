@@ -86,7 +86,87 @@ const OFFLINE_FILE_PREFIX = "onevid-offline-";
 const OFFLINE_EXTENSIONS = [".mp4", ".mkv", ".webm", ".mov", ".m4v", ".ts"];
 const OFFLINE_METADATA_PREFIX = "onevid-offline-meta:v1:";
 const OFFLINE_LRU_KEY = "onevid-offline-lru:v1";
-export const OFFLINE_RETENTION_MS = 24 * 60 * 60 * 1000;
+const OFFLINE_INFO_KEY = "onevid-offline-info:v1";
+const OFFLINE_RETENTION_DAYS_KEY = "onevid-offline-retention-days:v1";
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Días que se puede pedir que dure una copia sin conexión. */
+export const OFFLINE_RETENTION_DAYS_OPTIONS = [1, 3, 5, 7] as const;
+const DEFAULT_OFFLINE_RETENTION_DAYS = 1;
+
+/**
+ * Cuánto dura una copia sin conexión. Es una preferencia del dispositivo (no
+ * del título) para que el usuario no tenga que elegirla en cada descarga.
+ */
+export function getOfflineRetentionDays(): number {
+  try {
+    const raw = Number(localStorage.getItem(OFFLINE_RETENTION_DAYS_KEY));
+    return (OFFLINE_RETENTION_DAYS_OPTIONS as readonly number[]).includes(raw)
+      ? raw
+      : DEFAULT_OFFLINE_RETENTION_DAYS;
+  } catch {
+    return DEFAULT_OFFLINE_RETENTION_DAYS;
+  }
+}
+
+export function offlineRetentionMs(): number {
+  return getOfflineRetentionDays() * DAY_MS;
+}
+
+/**
+ * Guarda la preferencia y reajusta las copias ya guardadas: la nueva duración
+ * se cuenta desde el momento en que se descargaron, no desde cero.
+ */
+export function setOfflineRetentionDays(days: number): void {
+  const next = (OFFLINE_RETENTION_DAYS_OPTIONS as readonly number[]).includes(
+    days
+  )
+    ? days
+    : DEFAULT_OFFLINE_RETENTION_DAYS;
+  try {
+    localStorage.setItem(OFFLINE_RETENTION_DAYS_KEY, String(next));
+  } catch {
+    return;
+  }
+  const infos = readOfflineInfoMap();
+  for (const storageKey of Object.keys(infos)) {
+    const meta = readOfflineMeta(storageKey);
+    if (!meta?.complete) {
+      continue;
+    }
+    const savedAt = infos[storageKey]?.savedAt || Date.now();
+    writeOfflineMetaRaw(storageKey, {
+      complete: true,
+      expiresAt: savedAt + next * DAY_MS,
+      ...(meta.size !== undefined ? { size: meta.size } : {}),
+    });
+  }
+}
+
+/**
+ * Datos que la UI conoce al guardar un título y que el gestor de descargas
+ * necesita después (para pintar póster, título y enlazar de vuelta al player).
+ * Viven en localStorage porque OPFS solo guarda los bytes del video.
+ */
+export interface OfflineMediaInfo {
+  title: string;
+  poster?: string;
+  contentType?: "movie" | "series";
+  contentId?: string;
+  rawId?: string;
+  season?: number;
+  episode?: number;
+}
+
+export interface OfflineMediaMetadata extends OfflineMediaInfo {
+  storageKey: string;
+  savedAt: number;
+  expiresAt: number;
+  bytes: number;
+}
+
+/** Entrada del gestor de descargas, ya resuelta contra OPFS. */
+export type OfflineMediaEntry = OfflineMediaMetadata;
+
 // Margen libre que dejamos siempre en la cuota del navegador. Sin esto, la
 // última escritura puede fallar con QuotaExceeded a mitad de archivo.
 const MIN_FREE_STORAGE_BYTES = 64 * 1024 * 1024;
@@ -102,22 +182,86 @@ function offlineMetadataKey(storageKey: string): string {
   return `${OFFLINE_METADATA_PREFIX}${storageKey}`;
 }
 
-function readOfflineExpiry(storageKey: string): number | null {
+/**
+ * Metadatos de una copia offline. `complete: false` marca una escritura a
+ * medias: si la pestaña muere a mitad de la descarga el archivo queda en OPFS
+ * sin forma de distinguirlo de uno válido, así que el flag se escribe ANTES de
+ * empezar y solo se marca completo al terminar.
+ */
+interface OfflineMeta {
+  complete: boolean;
+  expiresAt: number;
+  size?: number;
+}
+
+function readOfflineMeta(storageKey: string): OfflineMeta | null {
   try {
-    const value = Number(localStorage.getItem(offlineMetadataKey(storageKey)));
-    return Number.isFinite(value) && value > 0 ? value : null;
+    const raw = localStorage.getItem(offlineMetadataKey(storageKey));
+    if (!raw) {
+      return null;
+    }
+    // Formato legacy: la entrada era un número suelto con el vencimiento.
+    const legacyExpiresAt = Number(raw);
+    if (Number.isFinite(legacyExpiresAt) && legacyExpiresAt > 0) {
+      return { complete: true, expiresAt: legacyExpiresAt };
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    const value = parsed as {
+      complete?: unknown;
+      expiresAt?: unknown;
+      size?: unknown;
+    };
+    const expiresAt = Number(value.expiresAt);
+    if (!Number.isFinite(expiresAt) || expiresAt <= 0) {
+      return null;
+    }
+    return {
+      complete: value.complete !== false,
+      expiresAt,
+      ...(typeof value.size === "number" && value.size > 0
+        ? { size: value.size }
+        : {}),
+    };
   } catch {
     return null;
   }
 }
 
-function writeOfflineExpiry(storageKey: string, expiresAt: number): void {
+function writeOfflineMetaRaw(storageKey: string, meta: OfflineMeta): void {
   try {
-    localStorage.setItem(offlineMetadataKey(storageKey), String(expiresAt));
+    localStorage.setItem(offlineMetadataKey(storageKey), JSON.stringify(meta));
   } catch {
     // OPFS remains the source of truth if browser storage is unavailable.
   }
+}
+
+function writeOfflineMeta(storageKey: string, meta: OfflineMeta): void {
+  writeOfflineMetaRaw(storageKey, meta);
   touchOfflineLru(storageKey);
+}
+
+function readOfflineExpiry(storageKey: string): number | null {
+  const meta = readOfflineMeta(storageKey);
+  return meta?.complete ? meta.expiresAt : null;
+}
+
+/** Deja constancia de que la copia empezó: sin esto, un corte no se detecta. */
+function markOfflinePending(storageKey: string): void {
+  writeOfflineMeta(storageKey, {
+    complete: false,
+    expiresAt: Date.now() + offlineRetentionMs(),
+  });
+}
+
+function markOfflineComplete(storageKey: string, size: number): void {
+  writeOfflineMeta(storageKey, {
+    complete: true,
+    expiresAt: Date.now() + offlineRetentionMs(),
+    ...(size > 0 ? { size } : {}),
+  });
 }
 
 function removeOfflineExpiry(storageKey: string): void {
@@ -126,6 +270,96 @@ function removeOfflineExpiry(storageKey: string): void {
   } catch {
     // Best-effort metadata cleanup.
   }
+}
+
+function readOfflineInfoMap(): Record<string, OfflineMediaMetadata> {
+  try {
+    const parsed: unknown = JSON.parse(
+      localStorage.getItem(OFFLINE_INFO_KEY) ?? "{}"
+    );
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const result: Record<string, OfflineMediaMetadata> = {};
+    for (const [storageKey, value] of Object.entries(
+      parsed as Record<string, unknown>
+    )) {
+      if (!value || typeof value !== "object") {
+        continue;
+      }
+      const item = value as Partial<OfflineMediaMetadata>;
+      if (typeof item.title !== "string") {
+        continue;
+      }
+      result[storageKey] = {
+        storageKey,
+        title: item.title,
+        poster: typeof item.poster === "string" ? item.poster : undefined,
+        contentType:
+          item.contentType === "movie" || item.contentType === "series"
+            ? item.contentType
+            : undefined,
+        contentId:
+          typeof item.contentId === "string" ? item.contentId : undefined,
+        rawId: typeof item.rawId === "string" ? item.rawId : undefined,
+        season: typeof item.season === "number" ? item.season : undefined,
+        episode: typeof item.episode === "number" ? item.episode : undefined,
+        savedAt: typeof item.savedAt === "number" ? item.savedAt : 0,
+        expiresAt: typeof item.expiresAt === "number" ? item.expiresAt : 0,
+        bytes: typeof item.bytes === "number" ? item.bytes : 0,
+      };
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function writeOfflineInfo(metadata: OfflineMediaMetadata): void {
+  try {
+    const map = readOfflineInfoMap();
+    map[metadata.storageKey] = metadata;
+    localStorage.setItem(OFFLINE_INFO_KEY, JSON.stringify(map));
+  } catch {
+    // Sin localStorage el gestor pierde los títulos, pero la descarga sigue
+    // siendo válida porque OPFS es la fuente de verdad.
+  }
+}
+
+function removeOfflineInfo(storageKey: string): void {
+  try {
+    const map = readOfflineInfoMap();
+    if (!(storageKey in map)) {
+      return;
+    }
+    delete map[storageKey];
+    localStorage.setItem(OFFLINE_INFO_KEY, JSON.stringify(map));
+  } catch {
+    // Best-effort metadata cleanup.
+  }
+}
+
+function markOfflineMediaSaved(
+  storageKey: string,
+  info: OfflineMediaInfo | undefined,
+  bytes: number
+): void {
+  const savedAt = Date.now();
+  const expiresAt = savedAt + offlineRetentionMs();
+  markOfflineComplete(storageKey, bytes);
+  writeOfflineInfo({
+    storageKey,
+    title: info?.title?.trim() || storageKey,
+    poster: info?.poster,
+    contentType: info?.contentType,
+    contentId: info?.contentId,
+    rawId: info?.rawId,
+    season: info?.season,
+    episode: info?.episode,
+    savedAt,
+    expiresAt,
+    bytes,
+  });
 }
 
 /**
@@ -210,8 +444,13 @@ async function ensureStorageHeadroom(expectedBytes: number): Promise<void> {
     if (quota - usage >= needed) {
       return;
     }
-    const expiresAt = readOfflineExpiry(key);
-    if (expiresAt !== null && expiresAt > Date.now()) {
+    const meta = readOfflineMeta(key);
+    // Una escritura en curso (o interrumpida) no se toca: borrarla dejaría al
+    // usuario con una descarga a medias sin que él haya pedido liberar espacio.
+    if (meta && !meta.complete) {
+      continue;
+    }
+    if (meta && meta.expiresAt > Date.now()) {
       continue;
     }
     await deleteOfflineMediaFile(key).catch(() => undefined);
@@ -238,6 +477,103 @@ export function getOfflineMediaExpiry(storageKey: string): number | null {
   return readOfflineExpiry(storageKey);
 }
 
+export function getOfflineMediaMetadata(
+  storageKey: string
+): OfflineMediaMetadata | null {
+  return readOfflineInfoMap()[storageKey] ?? null;
+}
+
+/**
+ * Lista las descargas offline reales (archivo presente en OPFS y aún vigente).
+ * Sirve al gestor de Configuración: limpia de paso las caducadas y resuelve
+ * tamaño/fecha para que no haga falta abrir cada archivo desde la UI.
+ */
+export async function listOfflineMedia(): Promise<OfflineMediaEntry[]> {
+  if (
+    typeof navigator === "undefined" ||
+    !("storage" in navigator) ||
+    !navigator.storage?.getDirectory
+  ) {
+    return [];
+  }
+  const infoMap = readOfflineInfoMap();
+  // Las claves del LRU cubren descargas hechas antes de existir el gestor.
+  const keys = new Set([...Object.keys(infoMap), ...readOfflineLru()]);
+  if (keys.size === 0) {
+    return [];
+  }
+
+  const root = await navigator.storage.getDirectory();
+  const entries: OfflineMediaEntry[] = [];
+  for (const storageKey of keys) {
+    const meta = readOfflineMeta(storageKey);
+    if (meta && !meta.complete) {
+      // Escritura en curso (o cortada): no es una entrada del gestor. Si ya
+      // venció, se limpia; si no, se deja para que el guardado la termine.
+      if (meta.expiresAt <= Date.now()) {
+        await deleteOfflineMediaFile(storageKey).catch(() => undefined);
+      }
+      continue;
+    }
+    const expiry = readOfflineExpiry(storageKey);
+    if (expiry !== null && expiry <= Date.now()) {
+      await deleteOfflineMediaFile(storageKey).catch(() => undefined);
+      continue;
+    }
+
+    let file: File | null = null;
+    for (const extension of OFFLINE_EXTENSIONS) {
+      try {
+        const handle = await root.getFileHandle(
+          offlineFileName(storageKey, extension)
+        );
+        file = await handle.getFile();
+        break;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "NotFoundError") {
+          continue;
+        }
+        throw error;
+      }
+    }
+    // Un archivo vacío es una escritura cancelada: no es una descarga válida.
+    if (!file || file.size === 0) {
+      continue;
+    }
+
+    const info = infoMap[storageKey];
+    // Compatibilidad con descargas previas al gestor: la propia clave
+    // "movie:<id>" / "series:<id>:<temporada>:<episodio>" basta para enlazar.
+    const separator = storageKey.indexOf(":");
+    const legacyType =
+      separator > 0 ? storageKey.slice(0, separator) : undefined;
+    const legacyRawId =
+      separator > 0 ? storageKey.slice(separator + 1) : undefined;
+    const contentType =
+      info?.contentType ??
+      (legacyType === "movie" || legacyType === "series"
+        ? legacyType
+        : undefined);
+
+    entries.push({
+      storageKey,
+      title: info?.title ?? legacyRawId ?? storageKey,
+      poster: info?.poster,
+      contentType,
+      contentId: info?.contentId ?? legacyRawId,
+      rawId: info?.rawId ?? legacyRawId,
+      season: info?.season,
+      episode: info?.episode,
+      savedAt: info?.savedAt ?? file.lastModified,
+      expiresAt: expiry ?? info?.expiresAt ?? 0,
+      bytes: file.size,
+    });
+  }
+
+  entries.sort((a, b) => b.savedAt - a.savedAt);
+  return entries;
+}
+
 /**
  * Returns a previously saved media file from private browser storage.
  * The video bytes never leave OPFS or become a user-visible browser download.
@@ -248,8 +584,18 @@ export async function getOfflineMediaFile(
   if (!("storage" in navigator) || !navigator.storage.getDirectory) {
     return null;
   }
-  const expiresAt = readOfflineExpiry(storageKey);
-  if (expiresAt !== null && expiresAt <= Date.now()) {
+  const meta = readOfflineMeta(storageKey);
+  // Una copia solo cuenta cuando quedó marcada como completa. Sin marca (o con
+  // la marca de "en curso") no hay descarga válida: así un archivo huérfano o
+  // una escritura a medias nunca se pinta como "guardado" en el player.
+  // Si la marca es de una descarga EN CURSO y no venció, se ignora sin borrar.
+  if (!meta?.complete) {
+    if (meta && meta.expiresAt <= Date.now()) {
+      await deleteOfflineMediaFile(storageKey);
+    }
+    return null;
+  }
+  if (meta.expiresAt <= Date.now()) {
     await deleteOfflineMediaFile(storageKey);
     return null;
   }
@@ -267,8 +613,11 @@ export async function getOfflineMediaFile(
         forgetOfflineLru(storageKey);
         continue;
       }
-      if (expiresAt === null) {
-        writeOfflineExpiry(storageKey, Date.now() + OFFLINE_RETENTION_MS);
+      // Si conocemos el tamaño final, un archivo distinto es una escritura
+      // truncada que se quedó sin marcar como incompleta (p. ej. OOM del tab).
+      if (meta.size !== undefined && meta.size !== file.size) {
+        await deleteOfflineMediaFile(storageKey);
+        return null;
       }
       touchOfflineLru(storageKey);
       return file;
@@ -286,18 +635,24 @@ export async function getOfflineMediaFile(
 export async function deleteOfflineMediaFile(storageKey: string): Promise<void> {
   removeOfflineExpiry(storageKey);
   forgetOfflineLru(storageKey);
+  removeOfflineInfo(storageKey);
   if (!("storage" in navigator) || !navigator.storage.getDirectory) {
     return;
   }
   const root = await navigator.storage.getDirectory();
   for (const extension of OFFLINE_EXTENSIONS) {
-    try {
-      await root.removeEntry(offlineFileName(storageKey, extension));
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "NotFoundError") {
-        continue;
+    for (const name of [
+      offlineFileName(storageKey, extension),
+      `${offlineFileName(storageKey, extension)}${SOURCE_SUFFIX}`,
+    ]) {
+      try {
+        await root.removeEntry(name);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "NotFoundError") {
+          continue;
+        }
+        throw error;
       }
-      throw error;
     }
   }
 }
@@ -696,7 +1051,12 @@ async function transcodeToMp4(
  * StreamTarget cierra el writable al terminar y lo aborta al cancelar.
  */
 async function transcodeToWritable(
-  source: string,
+  /**
+   * `File` cuando el original ya está en OPFS (camino de descarga: se baja
+   * entero primero y se convierte desde disco, sin depender del link firmado) y
+   * `string` para el camino de streaming desde la URL remota.
+   */
+  source: File | string,
   writeStream: WritableStream,
   onProgress: ((progress: number) => void) | undefined,
   conversionRef: { current: CancellableConversion | null },
@@ -715,6 +1075,7 @@ async function transcodeToWritable(
       Input,
       Output,
       Conversion,
+      BlobSource,
       UrlSource,
       ALL_FORMATS,
       Mp4OutputFormat,
@@ -737,7 +1098,13 @@ async function transcodeToWritable(
   registerAacEncoder();
 
   const input = new Input({
-    source: new UrlSource(source, urlSourceOptions(abortedRef)),
+    // Random-access en ambos casos: `BlobSource` no vuelve a tocar la red y
+    // `UrlSource` pide rangos HTTP. Evita el "Read is before the cached region"
+    // de los streams secuenciales.
+    source:
+      typeof source === "string"
+        ? new UrlSource(source, urlSourceOptions(abortedRef))
+        : new BlobSource(source),
     formats: ALL_FORMATS,
   });
 
@@ -1621,11 +1988,169 @@ export function startLivePlayback(opts: {
 /** Resultado de una descarga, para que la UI distinga cancelar de fallar. */
 export type DownloadOutcome = "done" | "canceled";
 
+// Cuánto esperamos a que el debrid tenga el archivo listo antes de rendirnos.
+const PREPARING_TIMEOUT_MS = 3 * 60 * 1000;
+const PREPARING_POLL_MS = 5_000;
+// Fracción del progreso que ocupa bajar el original antes de transcodificar.
+// El resto es la conversión local, que es la parte lenta.
+const SOURCE_DOWNLOAD_SHARE = 0.45;
+const SOURCE_SUFFIX = ".source";
+
+function isMagnetResolveEndpoint(raw: string): boolean {
+  try {
+    return (
+      new URL(raw, window.location.href).pathname === "/api/torbox/resolve"
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Igual que `ensureStorageHeadroom` pero sin borrar nada: solo responde. */
+async function hasStorageHeadroom(expectedBytes: number): Promise<boolean> {
+  if (typeof navigator === "undefined" || !navigator.storage?.estimate) {
+    return true;
+  }
+  const { quota, usage } = await readStorageUsage();
+  if (!quota) {
+    return true;
+  }
+  return quota - usage >= Math.max(0, expectedBytes) + MIN_FREE_STORAGE_BYTES;
+}
+
+interface ResolvedDownloadSource {
+  /** Tamaño exacto si el backend ya lo conocía (mylist de TorBox). */
+  expectedBytes: number;
+  url: string;
+}
+
 /**
- * Guarda una peli/serie para verla offline. Para fuentes incompatibles
- * (MKV/HEVC/AC-3…) transcodifica a un MP4 compatible y lo escribe DIRECTO en
- * OPFS, reutilizando el mismo pipeline de mediabunny que la reproducción. Para
- * fuentes ya nativas copia el archivo original a OPFS.
+ * Traduce la URL de la fuente a algo descargable por el browser.
+ *
+ * Dos casos necesitan al servidor:
+ *  - el redirect opaco de TorBox, que rompe CORS si lo sigue el browser;
+ *  - nuestro propio endpoint de magnet, que puede contestar 202 mientras el
+ *    debrid prepara el archivo. Ahí se sondea hasta que esté listo, en vez de
+ *    fallar y dejar al usuario con un "no se pudo guardar" sin explicación.
+ */
+async function resolveDownloadSource(
+  rawUrl: string,
+  options: {
+    abortedRef: { current: boolean };
+    onPreparing?: (progress: number | null) => void;
+  }
+): Promise<ResolvedDownloadSource | null> {
+  const { abortedRef, onPreparing } = options;
+
+  if (isMagnetResolveEndpoint(rawUrl)) {
+    const probe = new URL(rawUrl, window.location.href);
+    // `redirect=0` devuelve JSON (url + fileSize) en vez de un 302 al CDN, así
+    // el sondeo no baja el archivo entero.
+    probe.searchParams.set("redirect", "0");
+    const deadline = Date.now() + PREPARING_TIMEOUT_MS;
+    while (true) {
+      if (abortedRef.current) {
+        return null;
+      }
+      const res = await fetch(probe.toString(), {
+        headers: { accept: "application/json" },
+      });
+      if (res.status === 202) {
+        const data = (await res.json().catch(() => ({}))) as {
+          progress?: unknown;
+        };
+        onPreparing?.(
+          typeof data.progress === "number" ? data.progress : null
+        );
+        if (Date.now() > deadline) {
+          throw new Error(
+            "El debrid todavía está preparando el archivo. Probá de nuevo en unos minutos."
+          );
+        }
+        await sleep(PREPARING_POLL_MS);
+        continue;
+      }
+      const data = (await res.json().catch(() => ({}))) as {
+        fileSize?: unknown;
+        url?: unknown;
+      };
+      if (res.ok && typeof data.url === "string" && data.url) {
+        return {
+          // Si el server no pudo seguir el redirect hasta el CDN, devolvió el
+          // `requestdl` de TorBox (sin CORS para el browser). En ese caso se usa
+          // la URL original con `redirect=final`, que el fetch sí puede seguir.
+          url: isTorboxRedirectUrl(data.url) ? rawUrl : data.url,
+          expectedBytes:
+            typeof data.fileSize === "number" ? data.fileSize : 0,
+        };
+      }
+      throw new Error(`No se pudo preparar la descarga: HTTP ${res.status}`);
+    }
+  }
+
+  if (isTorboxRedirectUrl(rawUrl)) {
+    try {
+      const res = await fetch("/api/stream/resolve", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: rawUrl }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { url?: unknown };
+        if (typeof data.url === "string" && data.url) {
+          return { url: data.url, expectedBytes: 0 };
+        }
+      }
+    } catch {
+      /* resolución falló → usar la URL original */
+    }
+  }
+
+  return { url: rawUrl, expectedBytes: 0 };
+}
+
+/** Copia el cuerpo de una respuesta a un archivo de OPFS, reportando bytes. */
+async function streamResponseToFile(
+  response: Response,
+  handle: FileSystemFileHandle,
+  onBytes: (received: number, total: number) => void,
+  abortedRef: { current: boolean }
+): Promise<DownloadOutcome> {
+  if (!response.body) {
+    throw new Error(`Could not save media: HTTP ${response.status}`);
+  }
+  const total = Number(response.headers.get("content-length")) || 0;
+  const writable = await handle.createWritable();
+  try {
+    const reader = response.body.getReader();
+    let received = 0;
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      if (abortedRef.current) {
+        await writable.abort();
+        return "canceled";
+      }
+      await writable.write(chunk.value);
+      received += chunk.value.byteLength;
+      onBytes(received, total);
+    }
+    await writable.close();
+    return "done";
+  } catch (error) {
+    await writable.abort().catch(() => undefined);
+    throw error;
+  }
+}
+
+/**
+ * Guarda una peli/serie para verla offline. Para fuentes nativas copia el
+ * archivo original a OPFS. Para fuentes incompatibles (MKV/HEVC/AC-3…) baja
+ * PRIMERO el original a OPFS y transcodifica DESDE ESE ARCHIVO: antes la
+ * conversión leía del CDN durante todo el proceso, así que un link firmado que
+ * caducaba a mitad (o un corte de red) tiraba la descarga entera.
  *
  * El archivo queda en el almacenamiento privado del navegador: no se abre un
  * selector de archivos ni se crea una descarga visible para el usuario.
@@ -1639,12 +2164,19 @@ interface DownloadMediaFileOptions {
   storageKey: string;
   codecHint?: string;
   /**
+   * Título/póster/destino del medio, para que el gestor de descargas de
+   * Configuración pueda pintarlo y enlazar de vuelta al reproductor.
+   */
+  metadata?: OfflineMediaInfo;
+  /**
    * Índice 0-based de la pista de audio seleccionada en el player. Cuando la
    * fuente necesita transcodificar, el MP4 guardado conserva SOLO esa pista
    * para que se oiga el idioma elegido al verlo sin conexión.
    */
   audioTrackIndex?: number;
   onProgress?: (progress: number) => void;
+  /** El debrid todavía está preparando el archivo (solo fuentes de magnet). */
+  onPreparing?: (progress: number | null) => void;
   abortedRef: { current: boolean };
   conversionRef: { current: CancellableConversion | null };
 }
@@ -1657,114 +2189,213 @@ export async function downloadMediaFile(
     filename,
     storageKey,
     codecHint = "",
+    metadata,
     audioTrackIndex,
     onProgress,
+    onPreparing,
     abortedRef,
     conversionRef,
   } = opts;
 
-  // Resolver el redirect opaco de TorBox a la URL final del CDN (igual que la
-  // reproducción): solo el server puede seguir esa cadena sin romper CORS.
-  let resolved = url;
-  if (isTorboxRedirectUrl(url)) {
-    try {
-      const res = await fetch("/api/stream/resolve", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { url?: string };
-        if (typeof data.url === "string" && data.url) {
-          resolved = data.url;
-        }
-      }
-    } catch {
-      /* resolución falló → usar la URL original */
-    }
-  }
-  if (abortedRef.current) {
+  await ensurePersistentStorage();
+
+  const source = await resolveDownloadSource(url, { abortedRef, onPreparing });
+  if (!source) {
     return "canceled";
   }
 
-  await ensurePersistentStorage();
-
-  const extension = needsMediaBunny(filename, codecHint)
+  const transcode = needsMediaBunny(filename, codecHint);
+  const extension = transcode
     ? ".mp4"
     : (filename.match(/\.[a-z0-9]+$/i)?.[0] ?? ".mp4").toLowerCase();
   const storedName = offlineFileName(storageKey, extension);
   const root = await navigator.storage.getDirectory();
+  // Tamaño exacto que ya conoce el backend (mylist de TorBox). Si la fuente es
+  // un addon y no viene, el `content-length` de la respuesta lo completa.
+  const knownBytes = source.expectedBytes;
+
+  // Se marca ANTES de escribir: si el tab muere a mitad, la próxima lectura
+  // detecta la copia incompleta en vez de reproducir un archivo truncado.
+  markOfflinePending(storageKey);
+
+  const discard = async (extraEntry?: string) => {
+    await deleteOfflineMediaFile(storageKey).catch(() => undefined);
+    if (extraEntry) {
+      await root.removeEntry(extraEntry).catch(() => undefined);
+    }
+  };
 
   // Fuente ya reproducible de forma nativa: se copia al almacenamiento privado.
-  if (!needsMediaBunny(filename, codecHint)) {
-    const response = await fetch(resolved);
+  if (!transcode) {
+    const response = await fetch(source.url);
     if (!response.ok || !response.body) {
+      await discard();
       throw new Error(`Could not save media: HTTP ${response.status}`);
     }
-    const total = Number(response.headers.get("content-length")) || 0;
+    const headerTotal =
+      Number(response.headers.get("content-length")) || 0;
+    const total = headerTotal || knownBytes;
     try {
       await ensureStorageHeadroom(total);
     } catch (error) {
       // No dejamos el cuerpo a medio consumir si rechazamos la descarga.
       await response.body.cancel().catch(() => undefined);
+      await discard();
       throw error;
     }
     const handle = await root.getFileHandle(storedName, { create: true });
-    const writable = await handle.createWritable();
+    let outcome: DownloadOutcome;
     try {
-      const reader = response.body.getReader();
-      let received = 0;
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) {
-          break;
-        }
-        if (abortedRef.current) {
-          await writable.abort();
-          await root.removeEntry(storedName).catch(() => undefined);
-          return "canceled";
-        }
-        await writable.write(chunk.value);
-        received += chunk.value.byteLength;
-        if (total > 0) {
-          onProgress?.(Math.min(1, received / total));
-        }
-      }
-      await writable.close();
+      outcome = await streamResponseToFile(
+        response,
+        handle,
+        (received, size) => {
+          const denominator = size || total;
+          if (denominator > 0) {
+            onProgress?.(Math.min(1, received / denominator));
+          }
+        },
+        abortedRef
+      );
     } catch (error) {
-      await writable.abort().catch(() => undefined);
-      await root.removeEntry(storedName).catch(() => undefined);
+      await discard();
       throw error;
     }
+    if (outcome === "canceled") {
+      await discard();
+      return "canceled";
+    }
+    // Un stream cortado a mitad termina como "done" para el reader: si el
+    // tamaño no cuadra con el `content-length`, la copia no sirve y no se marca
+    // como guardada (antes quedaba en verde con el vídeo incompleto).
+    const savedFile = await handle.getFile();
+    if (headerTotal > 0 && savedFile.size !== headerTotal) {
+      await discard();
+      throw new Error("La descarga se cortó antes de terminar.");
+    }
     onProgress?.(1);
-    writeOfflineExpiry(storageKey, Date.now() + OFFLINE_RETENTION_MS);
+    markOfflineMediaSaved(storageKey, metadata, savedFile.size);
     return "done";
   }
 
-  // Incompatible → transcodificar a MP4 compatible dentro de OPFS.
-  await ensureStorageHeadroom(TRANSCODE_FALLBACK_BYTES);
-  const handle = await root.getFileHandle(storedName, { create: true });
-  const writable = await handle.createWritable();
+  // Incompatible → bajar el original y transcodificar desde el archivo local.
+  // Necesitamos sitio para el original Y para el MP4 resultante; si no hay,
+  // se mantiene el camino viejo (streaming) para no dejar al usuario sin nada.
+  const sourceName = `${storedName}${SOURCE_SUFFIX}`;
+
+  // Una sola apertura: el `content-length` de la respuesta es el tamaño real
+  // (TorBox siempre lo manda) y con eso se decide antes de escribir si caben el
+  // original y el MP4 a la vez.
+  const sourceResponse = await fetch(source.url);
+  if (!sourceResponse.ok || !sourceResponse.body) {
+    await discard();
+    throw new Error(`Could not save media: HTTP ${sourceResponse.status}`);
+  }
+  const sourceTotal =
+    Number(sourceResponse.headers.get("content-length")) || knownBytes;
+  const canBufferLocally =
+    sourceTotal > 0 ? await hasStorageHeadroom(sourceTotal * 2) : true;
+
+  if (!canBufferLocally) {
+    await sourceResponse.body.cancel().catch(() => undefined);
+    // Sin espacio para el original + el MP4: streaming desde la URL remota.
+    await ensureStorageHeadroom(TRANSCODE_FALLBACK_BYTES);
+    const handle = await root.getFileHandle(storedName, { create: true });
+    const writable = await handle.createWritable();
+    try {
+      const outcome = await transcodeToWritable(
+        source.url,
+        createOpfsWriteStream(writable),
+        onProgress,
+        conversionRef,
+        abortedRef,
+        audioTrackIndex
+      );
+      if (outcome === "canceled") {
+        await discard();
+        return "canceled";
+      }
+      markOfflineMediaSaved(
+        storageKey,
+        metadata,
+        (await handle.getFile()).size
+      );
+      return "done";
+    } catch (error) {
+      await writable.abort().catch(() => undefined);
+      await discard();
+      throw error;
+    }
+  }
+
   try {
-    const outcome = await transcodeToWritable(
-      resolved,
-      createOpfsWriteStream(writable),
-      onProgress,
-      conversionRef,
-      abortedRef,
-      audioTrackIndex
+    try {
+      // Doble espacio: el original se guarda entero antes de convertir.
+      await ensureStorageHeadroom(sourceTotal * 2);
+    } catch (error) {
+      await sourceResponse.body.cancel().catch(() => undefined);
+      throw error;
+    }
+
+    const sourceHandle = await root.getFileHandle(sourceName, {
+      create: true,
+    });
+    const downloadOutcome = await streamResponseToFile(
+      sourceResponse,
+      sourceHandle,
+      (received, size) => {
+        const denominator = size || sourceTotal;
+        if (denominator > 0) {
+          onProgress?.(
+            Math.min(1, received / denominator) * SOURCE_DOWNLOAD_SHARE
+          );
+        }
+      },
+      abortedRef
     );
-    if (outcome === "canceled") {
-      await root.removeEntry(storedName).catch(() => undefined);
+    if (downloadOutcome === "canceled") {
+      await discard(sourceName);
+      return "canceled";
     }
-    if (outcome === "done") {
-      writeOfflineExpiry(storageKey, Date.now() + OFFLINE_RETENTION_MS);
+
+    const sourceFile = await sourceHandle.getFile();
+    if (sourceFile.size === 0) {
+      await discard(sourceName);
+      throw new Error("No se pudo descargar el archivo de origen.");
     }
-    return outcome;
-  } catch (error) {
-    await writable.abort().catch(() => undefined);
-    await root.removeEntry(storedName).catch(() => undefined);
-    throw error;
+
+    const handle = await root.getFileHandle(storedName, { create: true });
+    const writable = await handle.createWritable();
+    try {
+      const outcome = await transcodeToWritable(
+        sourceFile,
+        createOpfsWriteStream(writable),
+        (progress) =>
+          onProgress?.(
+            SOURCE_DOWNLOAD_SHARE + progress * (1 - SOURCE_DOWNLOAD_SHARE)
+          ),
+        conversionRef,
+        abortedRef,
+        audioTrackIndex
+      );
+      if (outcome === "canceled") {
+        await discard(sourceName);
+        return "canceled";
+      }
+      onProgress?.(1);
+      markOfflineMediaSaved(
+        storageKey,
+        metadata,
+        (await handle.getFile()).size
+      );
+      return "done";
+    } catch (error) {
+      await writable.abort().catch(() => undefined);
+      await discard(sourceName);
+      throw error;
+    }
+  } finally {
+    await root.removeEntry(sourceName).catch(() => undefined);
   }
 }
 

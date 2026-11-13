@@ -177,5 +177,11 @@
   "Cargando fuente": "Загрузка источника",
   "Cargando video": "Загрузка видео",
   "No se pudo cargar la fuente de reproducción.": "Не удалось загрузить источник воспроизведения.",
-  "Volver al catálogo": "Назад в каталог"
+  "Volver al catálogo": "Назад в каталог",
+  "Descargas sin conexión": "Офлайн-загрузки",
+  "Películas y episodios guardados en este dispositivo.": "Фильмы и эпизоды, сохранённые на этом устройстве.",
+  "No hay descargas sin conexión.": "Нет офлайн-загрузок.",
+  "Guardado hasta {{date}}": "Сохранено до {{date}}",
+  "Temporada {{season}} · Episodio {{episode}}": "Сезон {{season}} · Эпизод {{episode}}",
+  "No se pudo eliminar la descarga.": "Не удалось удалить загрузку."
 }

@@ -9,6 +9,7 @@
  * Auth:     Authorization: Bearer <apiKey>  (token= en /requestdl)
  */
 
+import { magnetInfoHash } from "@/lib/magnet";
 import { isSafeFetchUrl, safeFetch } from "@/utils/ssrf-guard";
 import { isTorboxRedirectUrl } from "@/utils/stream-codec";
 
@@ -35,13 +36,42 @@ interface FileItem {
   size?: unknown;
 }
 
-interface MylistEnvelope {
-  data?: {
-    files?: FileItem[];
-    download_finished?: boolean;
-    download_state?: unknown;
-  };
+interface TorrentItem {
+  download_finished?: unknown;
+  download_present?: unknown;
+  download_state?: unknown;
+  files?: FileItem[];
+  hash?: unknown;
+  id?: unknown;
+  progress?: unknown;
 }
+
+interface MylistEnvelope {
+  data?: TorrentItem | TorrentItem[] | null;
+  success?: boolean;
+}
+
+/**
+ * Resultado de resolver un magnet. `preparing` significa que el torrent ya está
+ * en la cuenta pero TorBox todavía no terminó de bajarlo: no es un error, hay
+ * que esperar en vez de devolver un 502 que el usuario lee como "fuente rota".
+ */
+export type TorboxStreamResult =
+  | { progress: number | null; state: string | null; status: "preparing" }
+  | { status: "ready"; stream: ResolvedStream }
+  | { status: "unavailable" };
+
+// Estados en los que TorBox ya sirve el archivo por HTTP. `downloading` NO está
+// aquí a propósito: en ese estado el CDN puede devolver 403 en el rango pedido.
+const TORRENT_READY_STATES = new Set([
+  "cached",
+  "completed",
+  "finished",
+  "seeding",
+  "uploading",
+]);
+
+const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 interface RequestDlEnvelope {
   data?: unknown;
@@ -70,6 +100,117 @@ function pickBiggestVideoFile(files: FileItem[]): FileItem | null {
   return best;
 }
 
+/**
+ * Normaliza un info-hash a hex minúscula. El magnet acepta base32 además de
+ * hex, pero TorBox publica siempre hex: sin normalizar, un magnet en base32 no
+ * se reconoce como "ya existe en la cuenta" y se vuelve a crear (duplicado).
+ */
+export function normalizeInfoHash(raw: string): string | null {
+  const value = raw.trim();
+  if (/^[0-9a-f]{40}$/i.test(value)) {
+    return value.toLowerCase();
+  }
+  // El base32 de un magnet se escribe en mayúsculas por convención, pero hay
+  // enlaces en minúsculas: se normaliza antes de validar.
+  const base32 = value.toUpperCase();
+  if (!/^[A-Z2-7]{32}$/.test(base32)) {
+    return null;
+  }
+  let bits = "";
+  for (const char of base32) {
+    const index = BASE32_ALPHABET.indexOf(char);
+    if (index < 0) {
+      return null;
+    }
+    bits += index.toString(2).padStart(5, "0");
+  }
+  let hex = "";
+  for (let i = 0; i < 160; i += 8) {
+    hex += Number.parseInt(bits.slice(i, i + 8), 2)
+      .toString(16)
+      .padStart(2, "0");
+  }
+  return hex;
+}
+
+function mylistItems(data: MylistEnvelope["data"]): TorrentItem[] {
+  if (Array.isArray(data)) {
+    return data;
+  }
+  return data && typeof data === "object" ? [data] : [];
+}
+
+async function mylist(
+  apiKey: string,
+  torrentId?: number
+): Promise<TorrentItem[]> {
+  const url = new URL(`${MAIN_BASE}/torrents/mylist`);
+  url.searchParams.set("bypass_cache", "true");
+  if (torrentId !== undefined) {
+    url.searchParams.set("id", String(torrentId));
+  }
+
+  const res = await safeFetch(url.toString(), {
+    method: "GET",
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${apiKey}`,
+    },
+  });
+  if (!res.ok) {
+    return [];
+  }
+  const data = (await res.json().catch(() => ({}))) as MylistEnvelope;
+  return mylistItems(data.data);
+}
+
+async function findTorrentByHash(
+  apiKey: string,
+  infoHashHex: string
+): Promise<TorrentItem | null> {
+  const torrents = await mylist(apiKey);
+  for (const torrent of torrents) {
+    if (typeof torrent.hash !== "string") {
+      continue;
+    }
+    if (torrent.hash.trim().toLowerCase() === infoHashHex) {
+      return torrent;
+    }
+  }
+  return null;
+}
+
+async function getTorrent(
+  apiKey: string,
+  torrentId: number
+): Promise<TorrentItem | null> {
+  const [torrent] = await mylist(apiKey, torrentId);
+  return torrent ?? null;
+}
+
+function torrentReadiness(torrent: TorrentItem): {
+  progress: number | null;
+  ready: boolean;
+  state: string | null;
+} {
+  const state =
+    typeof torrent.download_state === "string"
+      ? torrent.download_state.trim().toLowerCase()
+      : null;
+  const ready =
+    torrent.download_present === true ||
+    torrent.download_finished === true ||
+    (state !== null && TORRENT_READY_STATES.has(state));
+
+  let progress: number | null = null;
+  if (typeof torrent.progress === "number" && Number.isFinite(torrent.progress)) {
+    const normalized = torrent.progress > 1 ? torrent.progress / 100 : torrent.progress;
+    progress = Math.min(1, Math.max(0, normalized));
+  }
+
+  return { progress, ready, state };
+}
+
 async function createTorrentFromMagnet(
   apiKey: string,
   magnet: string
@@ -95,28 +236,6 @@ async function createTorrentFromMagnet(
   return typeof id === "number" ? id : null;
 }
 
-async function listTorrentFiles(
-  apiKey: string,
-  torrentId: number
-): Promise<FileItem[]> {
-  const url = new URL(`${MAIN_BASE}/torrents/mylist`);
-  url.searchParams.set("id", String(torrentId));
-  url.searchParams.set("bypass_cache", "true");
-
-  const res = await safeFetch(url.toString(), {
-    method: "GET",
-    headers: {
-      accept: "application/json",
-      authorization: `Bearer ${apiKey}`,
-    },
-  });
-  if (!res.ok) {
-    return [];
-  }
-  const data = (await res.json().catch(() => ({}))) as MylistEnvelope;
-  return Array.isArray(data.data?.files) ? data.data.files : [];
-}
-
 async function requestDownloadUrl(
   apiKey: string,
   torrentId: number,
@@ -140,32 +259,85 @@ async function requestDownloadUrl(
   return typeof data.data === "string" ? data.data : null;
 }
 
+/**
+ * Resuelve un magnet a una URL HTTP del CDN de TorBox, sin crear torrents
+ * duplicados.
+ *
+ * Orden:
+ *  1. Si el torrent ya está en la cuenta (mismo info-hash) se reutiliza. Antes
+ *     se llamaba siempre a `createtorrent`, que falla con un duplicado → 502
+ *     aunque el archivo estuviera listo para descargar.
+ *  2. Si no está, se crea y se espera a que TorBox tenga el archivo. Mientras
+ *     tanto se devuelve `preparing` (con estado y progreso) en vez de un error:
+ *     el cliente puede mostrar "preparando en debrid…" y reintentar.
+ *  3. `requestdl` se intenta igual aunque el torrent figure en descarga: TorBox
+ *     sirve por streaming lo que ya tiene, y así no se pierde ese caso.
+ */
 export async function resolveTorboxStream(params: {
   apiKey: string;
   magnet: string;
-}): Promise<ResolvedStream | null> {
-  const torrentId = await createTorrentFromMagnet(params.apiKey, params.magnet);
+}): Promise<TorboxStreamResult> {
+  const { apiKey, magnet } = params;
+  const rawHash = magnetInfoHash(magnet);
+  const infoHash = rawHash ? normalizeInfoHash(rawHash) : null;
+
+  let torrent = infoHash ? await findTorrentByHash(apiKey, infoHash) : null;
+
+  if (!torrent) {
+    const createdId = await createTorrentFromMagnet(apiKey, magnet);
+    if (createdId === null) {
+      // Puede haber fallado justo por duplicado (carrera con otra pestaña).
+      torrent = infoHash ? await findTorrentByHash(apiKey, infoHash) : null;
+      if (!torrent) {
+        return { status: "unavailable" };
+      }
+    } else {
+      torrent = await getTorrent(apiKey, createdId);
+    }
+  }
+
+  if (!torrent) {
+    return { status: "preparing", progress: null, state: null };
+  }
+
+  const torrentId = typeof torrent.id === "number" ? torrent.id : null;
   if (torrentId === null) {
-    return null;
+    return { status: "unavailable" };
   }
-  const files = await listTorrentFiles(params.apiKey, torrentId);
+  // `mylist` sin `id` (la búsqueda por hash) no garantiza traer los archivos:
+  // se pide el detalle para no declarar "preparing" un torrent que ya está
+  // listo solo porque no vimos la lista de ficheros.
+  const detail = (await getTorrent(apiKey, torrentId)) ?? torrent;
+  const readiness = torrentReadiness(detail);
+  const files = Array.isArray(detail.files) ? detail.files : [];
   const best = pickBiggestVideoFile(files);
-  if (!best) {
-    return null;
+
+  if (best) {
+    const fileId = typeof best.id === "number" ? best.id : null;
+    if (fileId !== null) {
+      const url = await requestDownloadUrl(apiKey, torrentId, fileId);
+      if (url) {
+        return {
+          status: "ready",
+          stream: {
+            url,
+            fileName: typeof best.name === "string" ? best.name : undefined,
+            fileSize: typeof best.size === "number" ? best.size : undefined,
+          },
+        };
+      }
+    }
   }
-  const fileId = typeof best.id === "number" ? best.id : null;
-  if (fileId === null) {
-    return null;
-  }
-  const url = await requestDownloadUrl(params.apiKey, torrentId, fileId);
-  if (!url) {
-    return null;
-  }
-  return {
-    url,
-    fileName: typeof best.name === "string" ? best.name : undefined,
-    fileSize: typeof best.size === "number" ? best.size : undefined,
-  };
+
+  // Sin archivo servible: si TorBox todavía está bajándolo es `preparing`; si
+  // ya terminó y aun así no hay link, es un fallo real.
+  return readiness.ready
+    ? { status: "unavailable" }
+    : {
+        status: "preparing",
+        progress: readiness.progress,
+        state: readiness.state,
+      };
 }
 
 /**
