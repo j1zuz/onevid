@@ -2204,6 +2204,17 @@ export async function downloadMediaFile(
     return "canceled";
   }
 
+  // Una página HTTPS no puede leer un recurso HTTP: el fetch muere con un
+  // "Failed to fetch" genérico y el usuario solo veía el icono volver. Mejor
+  // fallar con un motivo claro que la UI puede explicar.
+  if (
+    typeof window !== "undefined" &&
+    window.location.protocol === "https:" &&
+    source.url.startsWith("http:")
+  ) {
+    throw new Error("mixed-content");
+  }
+
   const transcode = needsMediaBunny(filename, codecHint);
   const extension = transcode
     ? ".mp4"

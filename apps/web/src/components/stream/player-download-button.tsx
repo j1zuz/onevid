@@ -8,6 +8,7 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   type CancellableConversion,
   deleteOfflineMediaFile,
@@ -56,8 +57,73 @@ const ICON_VIEW_BOX = "0 0 24 24";
 const RING_STROKE = 2.5;
 const CROSS_PATH = "M8 8 L16 16 M16 8 L8 16";
 
-/** Tiempo restante legible: "45 s", "3 min 10 s", "23 h 40 min", "5 d 2 h". */
-function formatRemaining(ms: number): string | null {
+/**
+ * Traduce el fallo de una descarga a un motivo estable (para analítica) y a un
+ * mensaje entendible. Nunca se manda la URL del medio: lleva el token del debrid.
+ */
+function classifyDownloadError(error: unknown): {
+  reason: string;
+  message: string;
+  status?: number;
+} {
+  const name = error instanceof Error ? error.name : "unknown";
+  const raw = error instanceof Error ? error.message : "";
+  const match = raw.match(/HTTP (\d{3})/);
+  const status = match ? Number(match[1]) : undefined;
+
+  if (name === "QuotaExceededError" || raw.includes("QuotaExceeded")) {
+    return {
+      reason: "quota",
+      message: "No hay espacio suficiente en este dispositivo para guardar el video.",
+    };
+  }
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    return {
+      reason: "permission",
+      message: "El navegador no permite guardar descargas en este dispositivo.",
+    };
+  }
+  if (raw.includes("mixed-content")) {
+    return {
+      reason: "mixed-content",
+      message:
+        "La fuente usa HTTP y el navegador la bloquea en una página HTTPS.",
+    };
+  }
+  if (raw.includes("preparando")) {
+    return {
+      reason: "debrid-preparing",
+      message:
+        "El debrid todavía está preparando el archivo. Prueba en unos minutos.",
+    };
+  }
+  if (raw.includes("cortó")) {
+    return {
+      reason: "truncated",
+      message: "La descarga se cortó antes de terminar. Inténtalo otra vez.",
+    };
+  }
+  if (status && status >= 400) {
+    return {
+      reason: `http-${status}`,
+      message: `El servidor del video respondió ${status}. Prueba con otra fuente.`,
+      status,
+    };
+  }
+  if (name === "TypeError" || /failed to fetch|networkerror/i.test(raw)) {
+    return {
+      reason: "network-or-cors",
+      message:
+        "No se pudo conectar con el servidor del video (red, CORS o contenido mixto).",
+    };
+  }
+  return {
+    reason: "unknown",
+    message: "No se pudo guardar el video sin conexión. Inténtalo otra vez.",
+  };
+}
+
+/** Tiempo restante legible: "45 s", "3 min 10 s", "23 h 40 min", "5 d 2 h". */function formatRemaining(ms: number): string | null {
   const totalSeconds = Math.round(ms / 1000);
   if (totalSeconds < 1) {
     return null;
@@ -216,8 +282,22 @@ export function PlayerDownloadButton({
         });
         onSaved?.();
       }
-    } catch {
+    } catch (error) {
       if (mountedRef.current && !aborted.current) {
+        const failure = classifyDownloadError(error);
+        // Sin esto la descarga fallida volvía al icono sin explicar nada y sin
+        // rastro en analítica: imposible saber si fue cuota, CORS o el debrid.
+        try {
+          posthog.capture("offline_media_error", {
+            stage: "download",
+            reason: failure.reason,
+            error_name: error instanceof Error ? error.name : "unknown",
+            ...(failure.status ? { http_status: failure.status } : {}),
+          });
+        } catch {
+          // La analítica nunca debe romper la reproducción.
+        }
+        toast.error(failure.message);
         setState({ status: "error" });
         setTimeout(() => {
           if (mountedRef.current) {
