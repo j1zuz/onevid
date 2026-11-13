@@ -780,6 +780,48 @@ function urlSourceOptions(abortedRef: { current: boolean }) {
 }
 
 /**
+ * Carga mediabunny y sus codecs UNA sola vez por sesión: antes cada pipeline
+ * repetía los cinco `import()` y volvía a registrar los decodificadores en cada
+ * montaje.
+ *
+ * AC-3/E-AC-3, DTS y TrueHD se registran siempre: el navegador no los decodifica
+ * de forma nativa. El encoder AAC es distinto: la doc de `@mediabunny/aac-encoder`
+ * recomienda registrar el polyfill solo cuando `canEncodeAudio('aac')` es falso,
+ * porque desde 1.66 mediabunny pide AAC-LC (mp4a.40.2) en todos los sample rates
+ * y el encoder nativo coincide con el `esds` que escribe el muxer. En Chromium
+ * se usa el encoder nativo; en navegadores sin encoder AAC nativo (p. ej.
+ * Firefox) entra el polyfill, que sigue requiriendo un bitrate definido (ver
+ * `aacOutputConfig`).
+ */
+let mediaBunnyPromise: Promise<typeof import("mediabunny")> | null = null;
+function loadMediaBunny(): Promise<typeof import("mediabunny")> {
+  mediaBunnyPromise ??= (async () => {
+    const [mb, ac3, dts, truehd] = await Promise.all([
+      import("mediabunny"),
+      import("@mediabunny/ac3"),
+      import("@mediabunny/dts"),
+      import("@mediabunny/truehd"),
+    ]);
+    ac3.registerAc3Decoder();
+    dts.registerDtsDecoder();
+    truehd.registerTrueHdDecoder();
+    if (!(await mb.canEncodeAudio("aac"))) {
+      // Import perezoso: el WASM del polyfill no se descarga si el navegador
+      // ya sabe codificar AAC.
+      const { registerAacEncoder } = await import("@mediabunny/aac-encoder");
+      registerAacEncoder();
+    }
+    return mb;
+  })().catch((error: unknown) => {
+    // Un fallo de red al cargar un chunk no debe envenenar la caché: el
+    // siguiente intento (reintento del player) vuelve a probar.
+    mediaBunnyPromise = null;
+    throw error;
+  });
+  return mediaBunnyPromise;
+}
+
+/**
  * Bridges MediaBunny's `StreamTarget` chunks to an OPFS writable. The MP4 muxer
  * emits chunks at arbitrary positions, so each write seeks first.
  */
@@ -935,12 +977,13 @@ function readAacObjectTypeAtEsds(moov: Uint8Array, esdsIdx: number): number | nu
  * `mp4a.40.2` que mediabunny declara. Si todas las pistas son HE-AAC (5/29),
  * devolvemos ese object type para corregir el mime.
  *
- * Por qué hace falta: `Output.getMimeType()` de mediabunny declara `mp4a.40.2`
- * (AAC-LC) para el MP4 fragmentado, pero el `esds` que el muxer escribe puede
- * llevar object type 5/29 cuando el encoder nativo decide HE-AAC. Chromium
- * valida el primer frame contra el `esds` y contra el mime declarado en el
- * SourceBuffer; al no coincidir, rechaza el append con
+ * Por qué hace falta: `Output.getMimeType()` declara `mp4a.40.2` (AAC-LC)
+ * para el MP4 fragmentado. Desde 1.66 mediabunny pide siempre AAC-LC, pero un
+ * encoder nativo antiguo todavía puede escribir un `esds` con object type 5/29
+ * (HE-AAC). Chromium valida el primer frame contra el `esds` y contra el mime
+ * declarado en el SourceBuffer; al no coincidir, rechaza el append con
  * CHUNK_DEMUXER_ERROR_APPEND_FAILED ("Audio stream codec aac doesn't match").
+ * Es una red de seguridad barata: si el `esds` ya es AAC-LC, no cambia nada.
  */
 function parseAacObjectTypeFromMoov(moov: Uint8Array): number | null {
   const esdsPositions: number[] = [];
@@ -998,7 +1041,7 @@ function indexOfFourcc(buf: Uint8Array, fourcc: string, from: number): number {
  * reproducir. `runProgressivePlayback` intenta primero reproducir mientras se
  * transcodifica; si no es posible (o falla), se cae a esta función.
  *
- * Known gap: mediabunny's Matroska demuxer (as of 1.49.0) never surfaces
+ * Known gap: mediabunny's Matroska demuxer (as of 1.66.0) never surfaces
  * subtitle tracks as `InputTrack`s — they're silently dropped during
  * demuxing, before `Conversion` ever sees them — so a transcoded MKV loses
  * every embedded subtitle. Multiple audio tracks *do* survive the transcode,
@@ -1022,36 +1065,17 @@ async function transcodeToMp4(
   conversionRef: { current: CancellableConversion | null },
   abortedRef: { current: boolean }
 ): Promise<File> {
-  const [
-    {
-      Input,
-      Output,
-      Conversion,
-      BlobSource,
-      UrlSource,
-      ALL_FORMATS,
-      Mp4OutputFormat,
-      StreamTarget,
-    },
-    { registerAc3Decoder },
-    { registerDtsDecoder },
-    { registerAacEncoder },
-    { registerTrueHdDecoder },
-  ] = await Promise.all([
-    import("mediabunny"),
-    import("@mediabunny/ac3"),
-    import("@mediabunny/dts"),
-    import("@mediabunny/aac-encoder"),
-    import("@mediabunny/truehd"),
-  ]);
-
-  registerAc3Decoder();
-  registerDtsDecoder();
-  registerTrueHdDecoder();
-  // Forzar SIEMPRE el encoder AAC del polyfill (AAC-LC garantizado): el encoder
-  // nativo de Chromium a veces produce HE-AAC y su esds no coincide con el mime
-  // "mp4a.40.2" declarado, y Chromium rechaza el append (code 4).
-  registerAacEncoder();
+  const {
+    Input,
+    Output,
+    Conversion,
+    BlobSource,
+    UrlSource,
+    ALL_FORMATS,
+    Mp4OutputFormat,
+    StreamTarget,
+    Quality,
+  } = await loadMediaBunny();
 
   // Random-access source: `BlobSource` for a local `File` (already fully
   // available) and `UrlSource` for a remote URL (fetches byte ranges via HTTP
@@ -1082,10 +1106,11 @@ async function transcodeToMp4(
       codec: "aac",
       numberOfChannels: 2,
       sampleRate: 48_000,
-      // `bitrate` es obligatorio para que el polyfill de AAC-LC se active: su
-      // `supports()` exige bitrate definido; sin él, mediabunny cae al encoder
-      // nativo de Chromium, que a veces produce HE-AAC (object type 5/29).
-      bitrate: 128_000,
+      // Calidad explícita (128 kbps). El polyfill AAC-LC (fallback en
+      // navegadores sin encoder nativo) exige un bitrate definido en su
+      // `supports()`; `Quality` con bitrate explícito lo garantiza y evita la
+      // opción `bitrate` de Conversion, que está deprecada.
+      quality: new Quality({ bitrate: 128_000 }),
       forceTranscode: true,
     }),
   });
@@ -1146,32 +1171,17 @@ async function transcodeToWritable(
    */
   audioTrackIndex?: number
 ): Promise<DownloadOutcome> {
-  const [
-    {
-      Input,
-      Output,
-      Conversion,
-      BlobSource,
-      UrlSource,
-      ALL_FORMATS,
-      Mp4OutputFormat,
-      StreamTarget,
-    },
-    { registerAc3Decoder },
-    { registerDtsDecoder },
-    { registerAacEncoder },
-    { registerTrueHdDecoder },
-  ] = await Promise.all([
-    import("mediabunny"),
-    import("@mediabunny/ac3"),
-    import("@mediabunny/dts"),
-    import("@mediabunny/aac-encoder"),
-    import("@mediabunny/truehd"),
-  ]);
-  registerAc3Decoder();
-  registerDtsDecoder();
-  registerTrueHdDecoder();
-  registerAacEncoder();
+  const {
+    Input,
+    Output,
+    Conversion,
+    BlobSource,
+    UrlSource,
+    ALL_FORMATS,
+    Mp4OutputFormat,
+    StreamTarget,
+    Quality,
+  } = await loadMediaBunny();
 
   const input = new Input({
     // Random-access en ambos casos: `BlobSource` no vuelve a tocar la red y
@@ -1208,15 +1218,15 @@ async function transcodeToWritable(
       const codec = await track.getCodec();
       return codec && PASSTHROUGH_VIDEO_CODECS.has(codec) ? {} : { codec: "avc" };
     },
-    // `n` es 1-based por tipo. Si hay idioma elegido, solo esa pista se
-    // re-encodea a AAC; las demás se descartan.
-    audio: async (_track, n) =>
-      selectedAudioIndex === null || n === selectedAudioIndex + 1
+    // `track.number` es 1-based por tipo. Si hay idioma elegido, solo esa pista
+    // se re-encodea a AAC; las demás se descartan.
+    audio: async (track) =>
+      selectedAudioIndex === null || track.number === selectedAudioIndex + 1
         ? {
             codec: "aac",
             numberOfChannels: 2,
             sampleRate: 48_000,
-            bitrate: 128_000,
+            quality: new Quality({ bitrate: 128_000 }),
             forceTranscode: true,
           }
         : { discard: true },
@@ -1304,36 +1314,17 @@ async function runProgressivePlayback(opts: {
     throw new Error("MediaSource no soportado");
   }
 
-  const [
-    {
-      Input,
-      Output,
-      Conversion,
-      BlobSource,
-      UrlSource,
-      ALL_FORMATS,
-      Mp4OutputFormat,
-      StreamTarget,
-    },
-    { registerAc3Decoder },
-    { registerDtsDecoder },
-    { registerAacEncoder },
-    { registerTrueHdDecoder },
-  ] = await Promise.all([
-    import("mediabunny"),
-    import("@mediabunny/ac3"),
-    import("@mediabunny/dts"),
-    import("@mediabunny/aac-encoder"),
-    import("@mediabunny/truehd"),
-  ]);
-
-  registerAc3Decoder();
-  registerDtsDecoder();
-  registerTrueHdDecoder();
-  // Forzar SIEMPRE el encoder AAC del polyfill (AAC-LC garantizado). El encoder
-  // nativo de Chromium a veces produce HE-AAC (object type 5/29) y entonces el
-  // esds del `moov` no coincide con el `mp4a.40.2` declarado en el SourceBuffer.
-  registerAacEncoder();
+  const {
+    Input,
+    Output,
+    Conversion,
+    BlobSource,
+    UrlSource,
+    ALL_FORMATS,
+    Mp4OutputFormat,
+    StreamTarget,
+    Quality,
+  } = await loadMediaBunny();
 
   // Cada carril lee por su cuenta: dos `Input` en vez de uno compartido, porque
   // dos `Conversion` concurrentes sobre el mismo `Input` competirían por su
@@ -1396,11 +1387,9 @@ async function runProgressivePlayback(opts: {
     codec: "aac",
     numberOfChannels: 2,
     sampleRate: 48_000,
-    // `bitrate` es obligatorio para que el polyfill de AAC-LC se active: su
-    // `supports()` exige bitrate definido; sin él, mediabunny cae al encoder
-    // nativo de Chromium, que a veces produce HE-AAC (object type 5/29) y su
-    // esds no coincide con el `mp4a.40.2` declarado en el SourceBuffer.
-    bitrate: 128_000,
+    // Calidad explícita (128 kbps): el polyfill AAC-LC —fallback cuando el
+    // navegador no tiene encoder AAC— exige bitrate definido en su `supports()`.
+    quality: new Quality({ bitrate: 128_000 }),
     forceTranscode: true,
   } as const;
 
@@ -1709,14 +1698,16 @@ async function runProgressivePlayback(opts: {
       // falta un lector nuevo: `probe` ya está consumido.
       input: resuming ? makeInput() : probe,
       output,
-      video: (_track, n) => (n === 1 ? {} : { discard: true }),
+      video: (track) => (track.number === 1 ? {} : { discard: true }),
       audio: useSeparateAudioLane
         ? { discard: true }
-        : // `n` es 1-based por tipo. Solo sobrevive una pista: el mime del
-          // SourceBuffer únicamente puede declarar un `mp4a`, y con varias
-          // Chromium rechaza el init segment entero.
-          (_track, n) =>
-            n === activeAudioIndex + 1 ? aacOutputConfig : { discard: true },
+        : // `track.number` es 1-based por tipo. Solo sobrevive una pista: el
+          // mime del SourceBuffer únicamente puede declarar un `mp4a`, y con
+          // varias Chromium rechaza el init segment entero.
+          (track) =>
+            track.number === activeAudioIndex + 1
+              ? aacOutputConfig
+              : { discard: true },
       ...(trimStart > 0 ? { trim: { start: trimStart } } : {}),
     });
     if (!conversion.isValid) {
@@ -1772,10 +1763,10 @@ async function runProgressivePlayback(opts: {
       input: makeInput(),
       output,
       video: { discard: true },
-      // `n` es 1-based por tipo. Solo sobrevive la pista elegida: el mime del
-      // SourceBuffer únicamente puede declarar un `mp4a`.
-      audio: (_track, n) =>
-        n === trackIndex + 1 ? aacOutputConfig : { discard: true },
+      // `track.number` es 1-based por tipo. Solo sobrevive la pista elegida: el
+      // mime del SourceBuffer únicamente puede declarar un `mp4a`.
+      audio: (track) =>
+        track.number === trackIndex + 1 ? aacOutputConfig : { discard: true },
       ...(trimStart > 0 ? { trim: { start: trimStart } } : {}),
     });
     if (!conversion.isValid) {
