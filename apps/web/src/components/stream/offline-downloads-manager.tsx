@@ -27,9 +27,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
+  cleanupOfflineStorage,
   deleteOfflineMediaFile,
   getOfflineRetentionDays,
+  getOfflineStorageUsage,
   listOfflineMedia,
   OFFLINE_RETENTION_DAYS_OPTIONS,
   type OfflineMediaEntry,
@@ -81,6 +84,11 @@ export function OfflineDownloadsManager() {
   const [retentionDays, setRetentionDaysState] = useState(() =>
     getOfflineRetentionDays()
   );
+  const [storage, setStorage] = useState<{ quota: number; usage: number }>({
+    quota: 0,
+    usage: 0,
+  });
+  const [cleaning, setCleaning] = useState(false);
   const [error, setError] = useState("");
 
   // Cambiar la retención reajusta las copias ya guardadas: al volver a cargar
@@ -93,16 +101,39 @@ export function OfflineDownloadsManager() {
 
   const load = useCallback(async () => {
     try {
-      const next = await listOfflineMedia();
+      const [next, usage] = await Promise.all([
+        listOfflineMedia(),
+        getOfflineStorageUsage(),
+      ]);
       setEntries(next);
+      setStorage(usage);
     } catch {
       setEntries([]);
     }
   }, []);
 
   useEffect(() => {
-    void load();
+    // Al entrar se limpian restos de intentos fallidos (archivos .source,
+    // 0 bytes o huérfanos): ocupan cuota y no aparecen en la lista.
+    void cleanupOfflineStorage().finally(() => void load());
   }, [load]);
+
+  async function cleanUp() {
+    setCleaning(true);
+    try {
+      const freed = await cleanupOfflineStorage();
+      await load();
+      toast.success(
+        freed > 0
+          ? t("Se liberaron {{size}}", { size: formatBytes(freed) })
+          : t("No había archivos temporales que borrar.")
+      );
+    } catch {
+      setError(t("No se pudo liberar espacio."));
+    } finally {
+      setCleaning(false);
+    }
+  }
 
   async function handleDelete(storageKey: string) {
     setError("");
@@ -155,6 +186,26 @@ export function OfflineDownloadsManager() {
               </Button>
             );
           })}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-border/60 border-t pt-2">
+          <p className="text-muted-foreground text-xs">
+            {storage.quota > 0
+              ? t("{{used}} usados de {{total}} disponibles", {
+                  used: formatBytes(storage.usage),
+                  total: formatBytes(storage.quota),
+                })
+              : t("Almacenamiento del navegador")}
+          </p>
+          <Button
+            data-dpad-focusable
+            disabled={cleaning}
+            onClick={() => void cleanUp()}
+            size="xs"
+            variant="outline"
+          >
+            {cleaning ? <LoaderIcon className="animate-spin" /> : null}
+            {t("Liberar espacio")}
+          </Button>
         </div>
       </div>
 

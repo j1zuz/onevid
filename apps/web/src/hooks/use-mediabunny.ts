@@ -657,6 +657,82 @@ export async function deleteOfflineMediaFile(storageKey: string): Promise<void> 
   }
 }
 
+/** Consumo del almacenamiento del origen (cuota que da el navegador). */
+export async function getOfflineStorageUsage(): Promise<{
+  quota: number;
+  usage: number;
+}> {
+  if (typeof navigator === "undefined" || !navigator.storage?.estimate) {
+    return { quota: 0, usage: 0 };
+  }
+  try {
+    const estimate = await navigator.storage.estimate();
+    return { quota: estimate.quota ?? 0, usage: estimate.usage ?? 0 };
+  } catch {
+    return { quota: 0, usage: 0 };
+  }
+}
+
+/**
+ * Borra restos que no son descargas válidas: archivos de transcodificación
+ * interrumpidos (`*.source`), copias de 0 bytes y archivos sin metadatos que ya
+ * son viejos. Sin esto, un intento fallido puede dejar cientos de MB que el
+ * gestor no muestra y que consumen cuota (Chrome la recorta según el disco
+ * libre, así que el margen real puede ser pequeño).
+ */
+export async function cleanupOfflineStorage(): Promise<number> {
+  if (!("storage" in navigator) || !navigator.storage.getDirectory) {
+    return 0;
+  }
+  const root = await navigator.storage.getDirectory();
+  let freed = 0;
+  const staleBefore = Date.now() - 60 * 60 * 1000;
+  const names: string[] = [];
+  // `entries()` no está en las libs de TS pero existe en navegadores actuales.
+  const iterable = root as unknown as {
+    entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
+  };
+  for await (const [name] of iterable.entries()) {
+    if (name.startsWith(OFFLINE_FILE_PREFIX)) {
+      names.push(name);
+    }
+  }
+  for (const name of names) {
+    try {
+      const handle = await root.getFileHandle(name);
+      const file = await handle.getFile();
+      const isSource = name.endsWith(SOURCE_SUFFIX);
+      let rest = name.slice(OFFLINE_FILE_PREFIX.length);
+      if (isSource) {
+        rest = rest.slice(0, -SOURCE_SUFFIX.length);
+      }
+      const extension = OFFLINE_EXTENSIONS.find((ext) => rest.endsWith(ext));
+      if (extension) {
+        rest = rest.slice(0, -extension.length);
+      }
+      let storageKey = rest;
+      try {
+        storageKey = decodeURIComponent(rest);
+      } catch {
+        /* nombre corrupto: se usa tal cual */
+      }
+      const meta = readOfflineMeta(storageKey);
+      const expired = Boolean(meta && meta.expiresAt <= Date.now());
+      const stale = !meta && file.lastModified < staleBefore;
+      const shouldDelete =
+        file.size === 0 || expired || stale || (isSource && meta?.complete);
+      if (!shouldDelete) {
+        continue;
+      }
+      await root.removeEntry(name);
+      freed += file.size;
+    } catch {
+      /* si otro tab la está tocando, se deja para la próxima */
+    }
+  }
+  return freed;
+}
+
 export function offlineStorageKey(
   contentType: string,
   rawId: string
