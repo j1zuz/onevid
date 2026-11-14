@@ -183,5 +183,7 @@
   "No hay descargas sin conexión.": "Çevrimdışı indirme yok.",
   "Guardado hasta {{date}}": "{{date}} tarihine kadar kayıtlı",
   "Temporada {{season}} · Episodio {{episode}}": "Sezon {{season}} · Bölüm {{episode}}",
-  "No se pudo eliminar la descarga.": "İndirme silinemedi."
+  "No se pudo eliminar la descarga.": "İndirme silinemedi.",
+  "Nueva actualización disponible": "Yeni güncelleme mevcut",
+  "Actualizar": "Güncelle"
 }

@@ -17,7 +17,7 @@ export const authClient = createAuthClient({
   /**
    * Alinea tipos del cliente con `betterAuth({...})` vía `BetterAuthClientOptions["$InferAuth"]`
    * (ver `@better-auth/core`). El objeto vacío no sustituye la config en runtime; solo TypeScript.
-   * Evita `import { auth }` por valor en el cliente (Resend/DB no deben entrar en el bundle).
+   * Evita `import { auth }` por valor en el cliente (DB y correo no deben entrar en el bundle).
    */
   $InferAuth: {} as AuthInstance["options"],
 });

@@ -3,7 +3,8 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { watchRoom, watchRoomMember } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
-import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import {
   deleteWatchRoom,
   getWatchRoom,
@@ -28,7 +29,7 @@ export async function POST(
     return Response.json({ error: "Watch party no encontrada" }, { status: 404 });
   }
 
-  const limit = checkRateLimit(
+  const limit = await checkRateLimitDb(
     `watch-room-leave:${session.user.id}`,
     60,
     60 * 1000

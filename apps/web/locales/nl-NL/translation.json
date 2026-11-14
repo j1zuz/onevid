@@ -183,5 +183,7 @@
   "No hay descargas sin conexión.": "Geen offline downloads.",
   "Guardado hasta {{date}}": "Opgeslagen tot {{date}}",
   "Temporada {{season}} · Episodio {{episode}}": "Seizoen {{season}} · Aflevering {{episode}}",
-  "No se pudo eliminar la descarga.": "De download kon niet worden verwijderd."
+  "No se pudo eliminar la descarga.": "De download kon niet worden verwijderd.",
+  "Nueva actualización disponible": "Nieuwe update beschikbaar",
+  "Actualizar": "Bijwerken"
 }

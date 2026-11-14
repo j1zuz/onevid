@@ -51,8 +51,10 @@ export function WatchProvidersNotice({
     fetch(`/api/watch-providers?${params.toString()}`, {
       signal: controller.signal,
     })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((d: WatchProviders | null) => {
+      .then(async (res) =>
+        res.ok ? ((await res.json()) as WatchProviders) : null
+      )
+      .then((d) => {
         setData(d);
         setLoading(false);
       })

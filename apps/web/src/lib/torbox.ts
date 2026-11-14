@@ -9,9 +9,9 @@
  * Auth:     Authorization: Bearer <apiKey>  (token= en /requestdl)
  */
 
-import { magnetInfoHash } from "@/lib/magnet";
-import { isSafeFetchUrl, safeFetch } from "@/utils/ssrf-guard";
-import { isTorboxRedirectUrl } from "@/utils/stream-codec";
+import type { DebridStreamResult } from "@/lib/debrid";
+import { magnetInfoHash, normalizeInfoHash } from "@/lib/magnet";
+import { safeFetch } from "@/utils/ssrf-guard";
 
 const MAIN_BASE = "https://api.torbox.app/v1/api";
 
@@ -56,10 +56,7 @@ interface MylistEnvelope {
  * en la cuenta pero TorBox todavía no terminó de bajarlo: no es un error, hay
  * que esperar en vez de devolver un 502 que el usuario lee como "fuente rota".
  */
-export type TorboxStreamResult =
-  | { progress: number | null; state: string | null; status: "preparing" }
-  | { status: "ready"; stream: ResolvedStream }
-  | { status: "unavailable" };
+export type TorboxStreamResult = DebridStreamResult;
 
 // Estados en los que TorBox ya sirve el archivo por HTTP. `downloading` NO está
 // aquí a propósito: en ese estado el CDN puede devolver 403 en el rango pedido.
@@ -70,8 +67,6 @@ const TORRENT_READY_STATES = new Set([
   "seeding",
   "uploading",
 ]);
-
-const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 interface RequestDlEnvelope {
   data?: unknown;
@@ -101,37 +96,11 @@ function pickBiggestVideoFile(files: FileItem[]): FileItem | null {
 }
 
 /**
- * Normaliza un info-hash a hex minúscula. El magnet acepta base32 además de
- * hex, pero TorBox publica siempre hex: sin normalizar, un magnet en base32 no
- * se reconoce como "ya existe en la cuenta" y se vuelve a crear (duplicado).
+ * Normaliza un info-hash a hex minúscula. Vive en `lib/magnet.ts` porque lo
+ * comparten todos los proveedores debrid; se re-exporta acá por compatibilidad
+ * con los consumidores históricos de `lib/torbox`.
  */
-export function normalizeInfoHash(raw: string): string | null {
-  const value = raw.trim();
-  if (/^[0-9a-f]{40}$/i.test(value)) {
-    return value.toLowerCase();
-  }
-  // El base32 de un magnet se escribe en mayúsculas por convención, pero hay
-  // enlaces en minúsculas: se normaliza antes de validar.
-  const base32 = value.toUpperCase();
-  if (!/^[A-Z2-7]{32}$/.test(base32)) {
-    return null;
-  }
-  let bits = "";
-  for (const char of base32) {
-    const index = BASE32_ALPHABET.indexOf(char);
-    if (index < 0) {
-      return null;
-    }
-    bits += index.toString(2).padStart(5, "0");
-  }
-  let hex = "";
-  for (let i = 0; i < 160; i += 8) {
-    hex += Number.parseInt(bits.slice(i, i + 8), 2)
-      .toString(16)
-      .padStart(2, "0");
-  }
-  return hex;
-}
+export { normalizeInfoHash } from "@/lib/magnet";
 
 function mylistItems(data: MylistEnvelope["data"]): TorrentItem[] {
   if (Array.isArray(data)) {
@@ -338,101 +307,4 @@ export async function resolveTorboxStream(params: {
         progress: readiness.progress,
         state: readiness.state,
       };
-}
-
-/**
- * Sigue la cadena de redirects de TorBox desde el server (sin CORS) hasta la
- * URL final del CDN, que el browser sí puede leer con `fetch()` (refleja
- * ACAO + soporta Range). `api.torbox.app/requestdl` con `redirect=true` ya
- * devuelve la URL del CDN en su cabecera `Location`, así que basta con no
- * seguirlo automáticamente y leer el `Location` del 3xx.
- *
- * Devuelve `null` si la URL no es un redirect TorBox, o si la cadena no termina
- * en una URL jugable (timeout, demasiados hops, o destino no permitido). El
- * SSRF guard se aplica a cada hop: nunca fetchamos un host privado/loopback.
- */
-export { isTorboxRedirectUrl } from "@/utils/stream-codec";
-
-const MAX_REDIRECT_HOPS = 6;
-// Solo la API de TorBox puede ser el primer hop (o cualquier hop intermedio)
-// de un redirect que nosotros mismos fetchamos. El resto de hosts con
-// `/resolve/torbox/` solo se acepta si pertenece a un addon del usuario; sin
-// este limite, `POST /api/stream/resolve` seria un SSRF ciego generico.
-const TORBOX_API_HOSTS = new Set(["api.torbox.app"]);
-
-function isPermittedResolveHost(
-  url: string,
-  allowedHosts?: ReadonlySet<string>
-): boolean {
-  try {
-    const host = new URL(url).hostname.replace(/^\[|\]$/g, "").toLowerCase();
-    return TORBOX_API_HOSTS.has(host) || Boolean(allowedHosts?.has(host));
-  } catch {
-    return false;
-  }
-}
-
-export async function resolveTorboxRedirect(
-  rawUrl: string,
-  options: { allowedHosts?: ReadonlySet<string> } = {}
-): Promise<string | null> {
-  if (!isTorboxRedirectUrl(rawUrl)) {
-    return null;
-  }
-
-  const { allowedHosts } = options;
-  let current = rawUrl;
-  for (let i = 0; i < MAX_REDIRECT_HOPS; i++) {
-    // Validamos cada hop contra el SSRF guard; no limitamos el host de destino
-    // del CDN (rotan: *.tb-cdn.io, etc.), pero sí rechazamos IPs
-    // privadas/loopback y hosts que no sean de confianza para resolver.
-    const check = isSafeFetchUrl(current);
-    if (!check.ok) {
-      return null;
-    }
-
-    // Si la URL actual ya no es un endpoint que sabemos que redirige (la API
-    // de TorBox o un addon debrid con `/resolve/torbox/`), entonces es el CDN
-    // final: lo devolvemos SIN fetchearlo (pesa GB y no hace falta — solo
-    // queremos la URL). Cortar acá evita descargar el archivo entero por el
-    // server.
-    if (!isTorboxRedirectUrl(current)) {
-      return current;
-    }
-
-    if (!isPermittedResolveHost(current, allowedHosts)) {
-      return null;
-    }
-
-    // Forzamos `redirect: "manual"` para leer el `Location` nosotros: así no
-    // dejamos que fetch siga el 307 del endpoint de descarga (que rompe CORS en
-    // el browser) y nos quedamos con la URL del CDN a la que apunta. Usamos
-    // HEAD para no descargar body — solo queremos el status/Location del
-    // redirect.
-    const res = await safeFetch(current, {
-      method: "HEAD",
-      redirect: "manual",
-      headers: { accept: "application/json, */*" },
-    });
-
-    // 3xx: leer el Location y continuar la cadena al próximo hop.
-    if (res.status >= 300 && res.status < 400) {
-      const location = res.headers.get("location");
-      if (!location) {
-        return null;
-      }
-      try {
-        current = new URL(location, current).toString();
-      } catch {
-        return null;
-      }
-      continue;
-    }
-
-    // 2xx desde un endpoint que redirige no es un CDN jugable (no debería
-    // pasar — estos endpoints siempre redirigen); 4xx/5xx = cadena rota.
-    return null;
-  }
-
-  return null;
 }

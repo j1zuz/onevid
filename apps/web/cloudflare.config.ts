@@ -43,14 +43,19 @@ export default defineConfig({
       // Misma base de datos que hackw (el SSO comparte user/session), así que
       // se reutiliza su configuración de Hyperdrive. Query caching off:
       // sesiones y perfiles necesitan read-after-write.
+      //
+      // La conexión de desarrollo va en `CF_HYPERDRIVE_DEV_URL`, NO en
+      // DATABASE_URL: este archivo se evalúa al construir y el serializador
+      // escribe el DSN en `.cloudflare/.../worker.config.json`. Usar el
+      // secreto de runtime aquí lo filtraba al artefacto de build.
       HYPERDRIVE: bindings.hyperdrive({
         id: "dd900a9e522944ceacd20cbea4d764ee",
-        ...(process.env.DATABASE_URL
-          ? { dev: { connectionString: process.env.DATABASE_URL } }
+        ...(process.env.CF_HYPERDRIVE_DEV_URL
+          ? { dev: { connectionString: process.env.CF_HYPERDRIVE_DEV_URL } }
           : {}),
       }),
 
-      RESEND_FROM: text(process.env.RESEND_FROM),
+      EMAIL_FROM: text(process.env.EMAIL_FROM ?? process.env.RESEND_FROM),
 
       BASE_URL: bindings.secret(),
       BETTER_AUTH_API_KEY: bindings.secret(),
@@ -59,7 +64,6 @@ export default defineConfig({
       GOOGLE_CLIENT_ID: bindings.secret(),
       GOOGLE_CLIENT_SECRET: bindings.secret(),
       ONEVID_SECRET_KEY: bindings.secret(),
-      RESEND_API_KEY: bindings.secret(),
       STREAM_API_KEY: bindings.secret(),
       STREAM_API_SECRET: bindings.secret(),
       TMDB_APP_READ_TOKEN: bindings.secret(),

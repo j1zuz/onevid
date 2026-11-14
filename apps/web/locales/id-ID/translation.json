@@ -183,5 +183,7 @@
   "No hay descargas sin conexión.": "Tidak ada unduhan offline.",
   "Guardado hasta {{date}}": "Disimpan hingga {{date}}",
   "Temporada {{season}} · Episodio {{episode}}": "Musim {{season}} · Episode {{episode}}",
-  "No se pudo eliminar la descarga.": "Unduhan tidak dapat dihapus."
+  "No se pudo eliminar la descarga.": "Unduhan tidak dapat dihapus.",
+  "Nueva actualización disponible": "Pembaruan tersedia",
+  "Actualizar": "Perbarui"
 }

@@ -183,5 +183,7 @@
   "No hay descargas sin conexión.": "オフラインダウンロードはありません。",
   "Guardado hasta {{date}}": "{{date}} まで保存",
   "Temporada {{season}} · Episodio {{episode}}": "シーズン {{season}} · エピソード {{episode}}",
-  "No se pudo eliminar la descarga.": "ダウンロードを削除できませんでした。"
+  "No se pudo eliminar la descarga.": "ダウンロードを削除できませんでした。",
+  "Nueva actualización disponible": "新しいアップデートがあります",
+  "Actualizar": "更新"
 }

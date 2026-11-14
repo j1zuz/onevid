@@ -9,6 +9,8 @@ import {
   isValidAvatar,
   isValidPin,
 } from "@/lib/onevid-profile";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 
 async function ownProfile(userId: string, id: string) {
   const [row] = await db
@@ -34,6 +36,12 @@ export async function PATCH(
   if (!session?.user?.id) {
     return Response.json({ error: "No autorizado" }, { status: 401 });
   }
+  const limited = await checkRateLimitDb(
+    `profile-manage:${session.user.id}`,
+    20,
+    60_000
+  );
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
   const { id } = await context.params;
 
   let body: {
@@ -116,6 +124,12 @@ export async function DELETE(
   if (!session?.user?.id) {
     return Response.json({ error: "No autorizado" }, { status: 401 });
   }
+  const limited = await checkRateLimitDb(
+    `profile-manage:${session.user.id}`,
+    20,
+    60_000
+  );
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
   const { id } = await context.params;
 
   // The authorizing PIN (any locked profile's PIN) travels in the X-Profile-Pin

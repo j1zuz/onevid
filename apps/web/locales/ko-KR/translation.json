@@ -183,5 +183,7 @@
   "No hay descargas sin conexión.": "오프라인 다운로드가 없습니다.",
   "Guardado hasta {{date}}": "{{date}}까지 저장됨",
   "Temporada {{season}} · Episodio {{episode}}": "시즌 {{season}} · 에피소드 {{episode}}",
-  "No se pudo eliminar la descarga.": "다운로드를 삭제할 수 없습니다."
+  "No se pudo eliminar la descarga.": "다운로드를 삭제할 수 없습니다.",
+  "Nueva actualización disponible": "새 업데이트가 있습니다",
+  "Actualizar": "업데이트"
 }

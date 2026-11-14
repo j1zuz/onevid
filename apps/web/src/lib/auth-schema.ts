@@ -149,6 +149,12 @@ export const oneVid = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     torboxApiKey: text("torbox_api_key"),
+    // Token privado de Real-Debrid (https://real-debrid.com/apitoken). Se guarda
+    // cifrado con `encryptSecret`, igual que la key de TorBox.
+    realDebridApiKey: text("real_debrid_api_key"),
+    // Proveedor debrid que resuelve los magnets. NULL = nunca eligió uno:
+    // se usa el que tenga key (TorBox primero, por compatibilidad).
+    debridProvider: text("debrid_provider"),
     setupCompleted: boolean("setup_completed").default(false).notNull(),
     // Filas del feed de inicio, en el orden elegido por el usuario en el paso 2
     // del stepper. NULL = nunca configurado → /home usa DEFAULT_FEED_ROWS.
@@ -253,6 +259,10 @@ export const oneVidProfile = pgTable(
     isKids: boolean("is_kids").default(false).notNull(),
     // Optional per-profile 4-digit PIN (scrypt hash). null = no lock (Netflix-style).
     pinHash: text("pin_hash"),
+    // Failed PIN attempts and temporary lockout. Persisted so the 4-digit
+    // space cannot be guessed across isolates/restarts.
+    pinFailedAttempts: integer("pin_failed_attempts").default(0).notNull(),
+    pinLockedUntil: timestamp("pin_locked_until", { withTimezone: true }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [index("onevid_profile_user").on(table.userId)]

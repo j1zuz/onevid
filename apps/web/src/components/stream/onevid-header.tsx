@@ -12,6 +12,7 @@ import type { OneVidAddonSummary } from "@/components/stepper-onevid";
 import { OneVidProfileSwitcher } from "@/components/stream/onevid-profile-switcher";
 import { useLiveTvSearch } from "@/components/stream/live-tv-search";
 import { useDebouncedSearch } from "@/hooks/use-debounced-search";
+import type { DebridStatus } from "@/lib/debrid";
 import {
   buildMagnetPlayerHref,
   isMagnetLink,
@@ -66,16 +67,16 @@ function parseSearchResults(payload: unknown): SearchMeta[] {
   return Array.isArray(results) ? results.slice(0, SEARCH_RESULT_LIMIT) : [];
 }
 
-// feedConfigured/feedRows/hasTorboxKey/addons/setupCompleted quedan en
+// feedConfigured/feedRows/debrid/addons/setupCompleted quedan en
 // la interfaz para no romper a los server components que ya arman este
 // objeto de props (home/page.tsx), pero el header ya no los usa: esa
 // configuración vive en la página /home/account.
 interface OneVidHeaderProps {
   addons: OneVidAddonSummary[];
+  debrid: DebridStatus;
   discoverRows: OneVidFeedRow[];
   feedConfigured: boolean;
   feedRows: OneVidFeedRow[];
-  hasTorboxKey: boolean;
   onMovieSelect?: (movie: MediaMeta) => void;
   setupCompleted: boolean;
   /** Pestaña activa; la elige `?surface=` en /home. */

@@ -3,10 +3,12 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { oneVid } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
+import { resolveDebridRedirect } from "@/lib/debrid-redirect";
 import { LruTtlCache } from "@/lib/lru-ttl-cache";
-import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import { readTorboxKey } from "@/lib/secret-box";
-import { resolveTorboxRedirect, resolveTorboxStream } from "@/lib/torbox";
+import { resolveTorboxStream } from "@/lib/torbox";
 
 export const runtime = "nodejs";
 
@@ -83,14 +85,29 @@ export async function GET(request: Request) {
 
   // Esta ruta crea torrents en la cuenta de debrid del usuario, asi que no debe
   // dispararse desde un enlace de otro sitio. Los reproductores propios y las
-  // apps nativas no mandan `Sec-Fetch-Site` (se permiten); una navegacion
-  // cross-site si lo manda y se rechaza.
+  // apps nativas no mandan `Sec-Fetch-Site` (se permiten); una navegacion de
+  // otra web (`cross-site`) o de otro subdominio (`same-site`) si lo manda y se
+  // rechaza: con cookies SameSite=Lax, `same-site` tambien llevaria la sesion.
   const fetchSite = request.headers.get("sec-fetch-site");
-  if (fetchSite === "cross-site") {
+  if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") {
     return Response.json({ error: "Origen no permitido" }, { status: 403 });
   }
 
-  const limited = checkRateLimit(`torbox-resolve:${session.user.id}`, 30, 60_000);
+  // Un GET con efecto (crea un torrent) solo debe venir del reproductor o de
+  // nuestro propio fetch de descarga. Un <img>/CSS/iframe same-origin no es
+  // intención del usuario: es contenido que otra persona pudo plantar en una
+  // sala o en un addon. Los clientes nativos no mandan Sec-Fetch-Dest.
+  const fetchDest = request.headers.get("sec-fetch-dest");
+  if (
+    fetchDest &&
+    fetchDest !== "video" &&
+    fetchDest !== "audio" &&
+    fetchDest !== "empty"
+  ) {
+    return Response.json({ error: "Origen no permitido" }, { status: 403 });
+  }
+
+  const limited = await checkRateLimitDb(`torbox-resolve:${session.user.id}`, 30, 60_000);
   if (!limited.ok) return rateLimitResponse(limited.retryAfter);
 
   const url = new URL(request.url);
@@ -103,7 +120,7 @@ export async function GET(request: Request) {
   if (!(hash || magnetParam)) {
     return Response.json({ error: "hash o magnet requerido" }, { status: 400 });
   }
-  if (magnetParam.length > 8192) {
+  if (magnetParam.length > 8192 || hash.length > 128) {
     return Response.json({ error: "magnet inválido" }, { status: 400 });
   }
 
@@ -179,7 +196,7 @@ export async function GET(request: Request) {
     // de `requestdl`, que no refleja ACAO.
     if (wantFinalRedirect) {
       const target =
-        (await resolveTorboxRedirect(stream.url).catch(() => null)) ?? stream.url;
+        (await resolveDebridRedirect(stream.url).catch(() => null)) ?? stream.url;
       const ttlMs = finalUrlTtlMs(target);
       finalUrlCache.set(cacheKey, target, ttlMs);
       return finalRedirectResponse(target, ttlMs);
@@ -191,7 +208,7 @@ export async function GET(request: Request) {
   // se resuelve aqui para no devolver al cliente el `requestdl` con `token=`.
   // Si no se puede resolver, se conserva la original para no romper el play.
   const directUrl =
-    (await resolveTorboxRedirect(stream.url).catch(() => null)) ?? stream.url;
+    (await resolveDebridRedirect(stream.url).catch(() => null)) ?? stream.url;
   return Response.json({
     url: directUrl,
     fileName: stream.fileName,

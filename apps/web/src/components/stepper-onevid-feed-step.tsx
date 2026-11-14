@@ -246,7 +246,9 @@ function FeedSurfaceEditor({
     })
       .then((response) => {
         if (!response.ok) throw new Error("Live TV unavailable");
-        return response.json();
+        return response.json() as Promise<{
+          sources?: { id: string; name: string }[];
+        }>;
       })
       .then((data: { sources?: { id: string; name: string }[] }) => {
         if (!active) return;
@@ -285,7 +287,7 @@ function FeedSurfaceEditor({
     )
       .then((response) => {
         if (!response.ok) throw new Error("Live TV unavailable");
-        return response.json();
+        return response.json() as Promise<{ groups?: string[] }>;
       })
       .then((data: { groups?: string[] }) => {
         if (!active) return;

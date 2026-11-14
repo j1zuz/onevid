@@ -183,5 +183,7 @@
   "No hay descargas sin conexión.": "Nenhum download offline.",
   "Guardado hasta {{date}}": "Salvo até {{date}}",
   "Temporada {{season}} · Episodio {{episode}}": "Temporada {{season}} · Episódio {{episode}}",
-  "No se pudo eliminar la descarga.": "Não foi possível excluir o download."
+  "No se pudo eliminar la descarga.": "Não foi possível excluir o download.",
+  "Nueva actualización disponible": "Nova atualização disponível",
+  "Actualizar": "Atualizar"
 }

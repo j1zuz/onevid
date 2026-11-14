@@ -22,6 +22,7 @@ import {
   SetupStepper,
 } from "@/components/stepper-onevid";
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "@/lib/languages";
+import { DEBRID_PROVIDER_NAMES, type DebridStatus } from "@/lib/debrid";
 import type { OneVidFeedRow } from "@/lib/onevid-feed";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import { OfflineDownloadsManager } from "./offline-downloads-manager";
@@ -48,10 +49,10 @@ export type SettingsView =
   | "quality";
 
 interface OneVidSettingsPanelProps {
+  debrid: DebridStatus;
   discoverRows: OneVidFeedRow[];
   feedConfigured: boolean;
   feedRows: OneVidFeedRow[];
-  hasTorboxKey: boolean;
   initialAddons: OneVidAddonSummary[];
   /** Abre directo en una sub-vista (ej. el link "Administrar perfiles" del
    * dropdown del avatar entra derecho a "profiles" en vez de la lista). */
@@ -116,29 +117,61 @@ function StatusBadge({ ok }: { ok: boolean }) {
 }
 
 /**
- * Vista "Cuenta": solo muestra información (nombre, email, estado de TMDB /
- * TorBox / complementos). Para CONFIGURAR esas mismas cosas está la vista
- * "Catálogo" (el stepper) — separadas porque una es de lectura y la otra de
- * acción.
+ * Vista "Cuenta": solo muestra información (nombre, email, estado de
+ * proveedores debrid / complementos). Para CONFIGURAR esas mismas cosas está
+ * la vista "Catálogo" (el stepper) — separadas porque una es de lectura y la
+ * otra de acción.
  */
 function AccountInfoView({
   addonsCount,
-  hasTorboxKey,
+  debrid,
   userEmail,
   userName,
 }: {
   addonsCount: number;
-  hasTorboxKey: boolean;
+  debrid: DebridStatus;
   userEmail: string;
   userName: string;
 }) {
   const { t: rawT } = useTranslation();
   const t = (key: string) => rawT(key as never);
+  const active = DEBRID_PROVIDER_NAMES[debrid.provider];
   return (
     <div className="flex flex-col gap-1.5">
       <InfoRow label={t("Nombre")} value={userName} />
       <InfoRow label={t("Correo")} value={userEmail} />
-      <InfoRow label="TorBox" value={<StatusBadge ok={hasTorboxKey} />} />
+      <InfoRow
+        label="TorBox"
+        value={
+          <span className="inline-flex items-center gap-2">
+            <StatusBadge ok={debrid.hasTorbox} />
+            {debrid.hasTorbox && debrid.provider === "torbox" ? (
+              <span className="text-muted-foreground text-xs">
+                {t("Activo")}
+              </span>
+            ) : null}
+          </span>
+        }
+      />
+      <InfoRow
+        label="Real-Debrid"
+        value={
+          <span className="inline-flex items-center gap-2">
+            <StatusBadge ok={debrid.hasRealDebrid} />
+            {debrid.hasRealDebrid && debrid.provider === "realdebrid" ? (
+              <span className="text-muted-foreground text-xs">
+                {t("Activo")}
+              </span>
+            ) : null}
+          </span>
+        }
+      />
+      <InfoRow
+        label={t("Proveedor debrid")}
+        value={
+          debrid.hasTorbox || debrid.hasRealDebrid ? active : t("Sin conectar")
+        }
+      />
       <InfoRow label={t("Complementos")} value={addonsCount} />
     </div>
   );
@@ -219,10 +252,10 @@ function ProfilesView() {
  * configuraciones que no caben en ese dropdown.
  */
 export function OneVidSettingsPanel({
+  debrid,
   discoverRows,
   feedConfigured,
   feedRows,
-  hasTorboxKey,
   initialAddons,
   initialView = "home",
   setupCompleted,
@@ -286,7 +319,7 @@ export function OneVidSettingsPanel({
       {view === "account" && (
         <AccountInfoView
           addonsCount={initialAddons.length}
-          hasTorboxKey={hasTorboxKey}
+          debrid={debrid}
           userEmail={userEmail}
           userName={userName}
         />
@@ -294,10 +327,10 @@ export function OneVidSettingsPanel({
 
       {view === "catalog" && (
         <SetupStepper
+          debrid={debrid}
           discoverRows={discoverRows}
           feedConfigured={feedConfigured}
           feedRows={feedRows}
-          hasTorboxKey={hasTorboxKey}
           initialAddons={initialAddons}
           setupCompleted={setupCompleted}
         />

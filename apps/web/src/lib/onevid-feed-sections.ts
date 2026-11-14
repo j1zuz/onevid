@@ -18,7 +18,12 @@ import {
   type NetworkOption,
   type OneVidFeedRow,
 } from "@/lib/onevid-feed";
-import { trendingAll, type MediaMeta, TmdbAuthError } from "@/lib/tmdb";
+import {
+  isKidsSafeMedia,
+  trendingAll,
+  type MediaMeta,
+  TmdbAuthError,
+} from "@/lib/tmdb";
 import { fetchCatalogResults } from "@/lib/tmdb-catalog";
 
 /** Un addon tal cual lo necesita `resolveFeed` para las filas "addon". */
@@ -68,6 +73,8 @@ interface ResolveFeedOptions {
    * usa la página completa de TMDB porque sus filas hacen scroll horizontal.
    */
   itemsPerRow?: number;
+  /** Perfil infantil: solo TMDB con géneros kids y sin addons/Live TV. */
+  kids?: boolean;
   /** Nombres de las fuentes de Live TV, por id (solo filas `type: "live"`). */
   liveSourcesById?: Map<string, string>;
   networksById: Map<number, NetworkOption>;
@@ -85,9 +92,14 @@ function resolveRow(
   networksById: Map<number, NetworkOption>,
   tmdbLocale: string,
   tmdbRegion: string,
-  token: string
+  token: string,
+  itemsPerRow?: number,
+  kids?: boolean
 ): Promise<MediaMeta[]> {
   if (row.type === "live") {
+    return Promise.resolve([]);
+  }
+  if (kids && row.catalog === "addon") {
     return Promise.resolve([]);
   }
   if (row.catalog === "addon") {
@@ -101,6 +113,7 @@ function resolveRow(
       addonBaseUrl: addon.baseUrl,
       addonId: row.addonId ?? "",
       catalogId: row.addonCatalogId ?? "",
+      limit: itemsPerRow,
       tmdbLocale,
       token,
       type: row.type,
@@ -286,6 +299,7 @@ export async function resolveFeedSection(
   {
     addonsById,
     itemsPerRow,
+    kids,
     liveSourcesById,
     networksById,
     t,
@@ -295,6 +309,9 @@ export async function resolveFeedSection(
     trendingPromise,
   }: ResolveFeedSectionOptions
 ): Promise<FeedSection | null> {
+  if (kids && row.type === "live") {
+    return null;
+  }
   if (row.type === "live") {
     const liveSourceId = resolveLiveSourceId(row, liveSourcesById);
     const liveRow = liveSourceId ? { ...row, liveSourceId } : row;
@@ -323,12 +340,17 @@ export async function resolveFeedSection(
       networksById,
       tmdbLocale,
       tmdbRegion,
-      token
+      token,
+      itemsPerRow,
+      kids
     );
   } catch {
     return null;
   }
 
+  if (kids) {
+    items = items.filter(isKidsSafeMedia);
+  }
   const topTen = row.catalog === "trending" && row.networkId == null;
   let allTrending: MediaMeta[] | undefined;
   if (topTen && trendingPromise) {
@@ -372,6 +394,7 @@ export async function resolveFeedSection(
 export async function resolveFeedSections({
   addonsById,
   itemsPerRow,
+  kids,
   liveSourcesById,
   networksById,
   rows,
@@ -383,7 +406,16 @@ export async function resolveFeedSections({
   const [rowsResult, topTenResult] = await Promise.allSettled([
     Promise.allSettled(
       rows.map((row) =>
-        resolveRow(row, addonsById, networksById, tmdbLocale, tmdbRegion, token)
+        resolveRow(
+          row,
+          addonsById,
+          networksById,
+          tmdbLocale,
+          tmdbRegion,
+          token,
+          itemsPerRow,
+          kids
+        )
       )
     ),
     trendingAll(token, tmdbLocale),
@@ -419,6 +451,9 @@ export async function resolveFeedSections({
   const sections = settled.flatMap((result, index) => {
     const row = rows[index];
     if (!row) {
+      return [];
+    }
+    if (kids && row.type === "live") {
       return [];
     }
     if (row.type === "live") {
@@ -459,9 +494,10 @@ export async function resolveFeedSections({
       return [];
     }
     const topTen = row.catalog === "trending" && row.networkId == null;
-    const items = topTen
+    const rawItems = topTen
       ? allTrendingItems.filter((item) => item.type === row.type)
       : result.value;
+    const items = kids ? rawItems.filter(isKidsSafeMedia) : rawItems;
     const limitedItems = itemsPerRow ? items.slice(0, itemsPerRow) : items;
     if (limitedItems.length === 0) {
       return [];
@@ -519,7 +555,9 @@ export async function resolveFeed(
     resolveHero(options),
   ]);
 
-  const { hero } = heroResult;
+  const hero = options.kids
+    ? heroResult.hero.filter(isKidsSafeMedia)
+    : heroResult.hero;
 
   // La auth la deciden las filas: el hero puede venir vacío por red sin que eso
   // signifique que el token murió.

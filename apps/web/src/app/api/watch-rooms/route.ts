@@ -3,7 +3,8 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { watchRoom, watchRoomMember, watchRoomState } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
-import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import {
   createId,
   ensureWatchChannel,
@@ -46,14 +47,34 @@ function requiredText(value: unknown, max = MAX_TEXT): string | null {
   return trimmed ? trimmed.slice(0, max) : null;
 }
 
-/** Poster/fondo: solo https o rutas locales absolutas (/...). */
+/**
+ * Poster/fondo: solo https o assets estáticos locales conocidos.
+ *
+ * Aceptar cualquier ruta `/...` convertía el póster de una sala en una
+ * petición same-origin a cualquier endpoint de la app (p. ej. el resolve de
+ * debrid, que crea un torrent). El arte local se limita a los assets que la UI
+ * realmente usa; el resto debe ser una URL https (TMDB u otro CDN).
+ */
+const LOCAL_IMAGE_PREFIXES = [
+  "/avatar/",
+  "/google.svg",
+  "/onevid-pwa-",
+  "/opengraph.jpg",
+  "/pattern-tile.svg",
+] as const;
+
 function safeImageUrl(value: unknown): string | null {
   const text = optionalText(value);
   if (!text) {
     return null;
   }
   if (text.startsWith("/") && !text.startsWith("//")) {
-    return text;
+    const pathname = text.split(/[?#]/, 1)[0] ?? "";
+    return LOCAL_IMAGE_PREFIXES.some(
+      (prefix) => pathname === prefix || pathname.startsWith(prefix)
+    )
+      ? text
+      : null;
   }
   try {
     const url = new URL(text);
@@ -74,7 +95,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "No autorizado" }, { status: 401 });
   }
 
-  const limit = checkRateLimit(
+  const limit = await checkRateLimitDb(
     `watch-room-create:${session.user.id}`,
     10,
     60 * 60 * 1000

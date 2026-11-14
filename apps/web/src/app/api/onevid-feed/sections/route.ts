@@ -14,6 +14,9 @@ import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { activeProfileIsKids } from "@/lib/onevid-profile";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import { oneVid, oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
 import {
@@ -35,6 +38,7 @@ import {
   getNetworkOptions,
   getTmdbLocale,
   getTmdbRegion,
+  isKidsSafeMedia,
   TmdbAuthError,
   TmdbNetworkError,
 } from "@/lib/tmdb";
@@ -48,7 +52,10 @@ export async function GET(request: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
+  const limited = await checkRateLimitDb(`feed-sections:${session.user.id}`, 30, 60_000);
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
 
+  const kids = await activeProfileIsKids(session.user.id, request);
   const tmdbToken = getTmdbReadToken();
   if (!tmdbToken) {
     return NextResponse.json(
@@ -156,7 +163,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         configured: parsed !== null,
         error: null,
-        hero: heroResult.hero,
+        hero: kids
+          ? heroResult.hero.filter(isKidsSafeMedia)
+          : heroResult.hero,
         sections: [],
       });
     }
@@ -165,6 +174,7 @@ export async function GET(request: NextRequest) {
       const sectionsResult = await resolveFeedSections({
         addonsById,
         itemsPerRow,
+        kids,
         liveSourcesById,
         networksById: new Map(getNetworkOptions().map((n) => [n.id, n])),
         rows: effectiveRows,
@@ -202,6 +212,7 @@ export async function GET(request: NextRequest) {
     const feed = await resolveFeed({
       addonsById,
       itemsPerRow,
+      kids,
       liveSourcesById,
       networksById: new Map(getNetworkOptions().map((n) => [n.id, n])),
       rows: effectiveRows,

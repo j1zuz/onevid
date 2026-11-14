@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
+import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { MagnetConsentGate } from "@/components/stream/magnet-consent-gate";
 import { StreamOnevid } from "@/components/stream/stream-onevid";
 import { auth } from "@/lib/auth";
+import { oneVid } from "@/lib/auth-schema";
+import { db } from "@/lib/db";
+import { debridResolvePath, resolveActiveDebridProvider } from "@/lib/debrid";
 import {
   isMagnetLink,
   magnetDisplayName,
@@ -39,6 +43,24 @@ export default async function MagnetPlayerPage({
   const hash = magnetInfoHash(magnetValue) ?? "magnet";
   const displayName = magnetDisplayName(magnetValue);
 
+  // El magnet pegado usa el mismo proveedor debrid activo que los addons: si
+  // el usuario cambió a Real-Debrid en Configuración, este reproductor no debe
+  // seguir creando torrents en TorBox.
+  const [row] = await db
+    .select({
+      debridProvider: oneVid.debridProvider,
+      realDebridApiKey: oneVid.realDebridApiKey,
+      torboxApiKey: oneVid.torboxApiKey,
+    })
+    .from(oneVid)
+    .where(eq(oneVid.userId, session.user.id))
+    .limit(1);
+  const provider = resolveActiveDebridProvider({
+    preferred: row?.debridProvider,
+    hasTorbox: Boolean(row?.torboxApiKey),
+    hasRealDebrid: Boolean(row?.realDebridApiKey),
+  });
+
   return (
     <MagnetConsentGate title={displayName}>
       <StreamOnevid
@@ -50,7 +72,7 @@ export default async function MagnetPlayerPage({
           addonName: "Magnet link",
           sourceIndex: 0,
           title: displayName,
-          url: `/api/torbox/resolve?magnet=${encodeURIComponent(magnetValue)}&redirect=final`,
+          url: `${debridResolvePath(provider)}?magnet=${encodeURIComponent(magnetValue)}&redirect=final`,
         }}
         key={magnetValue}
         rawId={hash}

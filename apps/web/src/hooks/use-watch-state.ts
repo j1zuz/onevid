@@ -66,7 +66,11 @@ function load(profileId: string): Promise<void> {
   inFlight = fetch("/api/onevid-progress?state=1", {
     headers: { "X-Profile-Id": profileId },
   })
-    .then((res) => (res.ok ? res.json() : Promise.reject(new Error())))
+    .then((res) =>
+      res.ok
+        ? (res.json() as Promise<{ items?: WatchStateItem[] }>)
+        : Promise.reject(new Error())
+    )
     .then((data: { items?: WatchStateItem[] }) => {
       cacheSnapshot = buildSnapshot(data.items ?? []);
     })

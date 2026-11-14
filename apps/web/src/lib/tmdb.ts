@@ -103,6 +103,8 @@ export interface MediaMeta {
   description?: string;
   director?: string[];
   episodeRunTime?: number;
+  /** IDs de género de TMDB (para el filtro infantil en servidor). */
+  genreIds?: number[];
   genres?: string[];
   id: string;
   imdbId?: string;
@@ -141,6 +143,7 @@ export interface SeriesMetaResponse {
   description?: string;
   episodeRunTime?: number;
   episodes: EpisodeItem[];
+  genreIds?: number[];
   genres?: string[];
   imdbRating?: string;
   logo?: string;
@@ -379,7 +382,9 @@ interface TmdbTrendingAllResult extends TmdbMovieResult, TmdbTvResult {
 }
 
 interface TmdbTrendingAllResponse {
+  page?: number;
   results?: TmdbTrendingAllResult[];
+  total_pages?: number;
 }
 
 interface TmdbMovieDetail extends TmdbMovieResult {
@@ -481,6 +486,7 @@ function mapMovieToMeta(
     imdbRating: item.vote_average
       ? String(Number(item.vote_average).toFixed(1))
       : undefined,
+    genreIds: genreIds.length > 0 ? genreIds : undefined,
     genres: genres.length > 0 ? genres : undefined,
     type: "movie",
   };
@@ -512,6 +518,7 @@ function mapTvToMeta(
     imdbRating: item.vote_average
       ? String(Number(item.vote_average).toFixed(1))
       : undefined,
+    genreIds: genreIds.length > 0 ? genreIds : undefined,
     genres: genres.length > 0 ? genres : undefined,
     type: "series",
   };
@@ -554,6 +561,16 @@ function hasAnyGenre(
 
 function isKidsTv(item: TmdbTvResult): boolean {
   return hasAnyGenre(item, KIDS_TV_GENRE_IDS);
+}
+
+/** ¿El título es apto para un perfil infantil? Allowlist de géneros TMDB. */
+export function isKidsSafeMedia(meta: { genreIds?: number[] }): boolean {
+  const ids = meta.genreIds ?? [];
+  return (
+    ids.includes(16) || // Animation
+    ids.includes(10751) || // Family
+    ids.includes(10762) // Kids
+  );
 }
 
 function isKidsMovie(item: TmdbMovieResult): boolean {
@@ -726,12 +743,22 @@ export async function trendingTv(
     .map((item) => mapTvToMeta(item, genreMap));
 }
 
-/** Top mixto de TMDB: películas y series en un único ranking global. */
-export async function trendingAll(
+interface TrendingAllPage {
+  hasMore: boolean;
+  items: MediaMeta[];
+}
+
+/**
+ * Una página del ranking mixto. Devuelve además `hasMore`, que sale de la
+ * paginación real de TMDB (`total_pages`): no sirve comparar con 20 porque el
+ * filtro de estrenos/kids descarta items y una página completa puede quedar en
+ * menos, lo que haría cortar el bucle antes de tiempo.
+ */
+async function trendingAllPage(
   token: string,
-  locale?: string,
-  page = 1
-): Promise<MediaMeta[]> {
+  locale: string | undefined,
+  page: number
+): Promise<TrendingAllPage> {
   const [movieGenres, tvGenres] = await Promise.all([
     fetchMovieGenres(token, locale),
     fetchTvGenres(token, locale),
@@ -742,7 +769,8 @@ export async function trendingAll(
     { language: locale || "es-MX", page: String(page) },
     CATALOG_REVALIDATE_SECONDS
   );
-  return (data.results ?? [])
+  const results = data.results ?? [];
+  const items = results
     .filter((item) => {
       if (item.media_type === "movie") {
         return isTmdbReleasedDate(item.release_date);
@@ -757,6 +785,21 @@ export async function trendingAll(
         ? mapMovieToMeta(item, movieGenres)
         : mapTvToMeta(item, tvGenres)
     );
+  return {
+    hasMore:
+      results.length > 0 &&
+      (data.total_pages == null || page < data.total_pages),
+    items,
+  };
+}
+
+/** Top mixto de TMDB: películas y series en un único ranking global. */
+export async function trendingAll(
+  token: string,
+  locale?: string,
+  page = 1
+): Promise<MediaMeta[]> {
+  return (await trendingAllPage(token, locale, page)).items;
 }
 
 /** Páginas adicionales para la vista completa, deduplicadas y en orden TMDB. */
@@ -783,6 +826,84 @@ export async function trendingAllAtLeast(
       return true;
     })
     .slice(0, minCount);
+}
+
+// Tope de páginas del ranking mixto que estamos dispuestos a recorrer para
+// juntar `minCount` items de un solo tipo (25 × 20 = 500 resultados).
+const TRENDING_MAX_PAGES = 25;
+// Páginas que pedimos en paralelo por tanda: recorta la latencia de "Ver todo"
+// sin acercarse al rate limit de TMDB.
+const TRENDING_PAGE_BATCH = 4;
+
+/**
+ * Ranking semanal de tendencias filtrado por tipo, hasta `minCount` items.
+ *
+ * `/trending/all` mezcla películas, series y personas en un único ranking, así
+ * que una página de 20 deja apenas unos pocos items del tipo pedido (la vista
+ * "Ver todo" se quedaba con ~50 en vez de 100). Acá pedimos páginas en tandas
+ * manteniendo el orden global del ranking — de ahí salen también los badges
+ * Top 10 — y cortamos cuando TMDB ya no tiene más páginas.
+ *
+ * La primera página deja propagar sus errores (auth/red): sin ella no hay nada
+ * que mostrar. Las siguientes son best-effort, igual que en
+ * `fetchCatalogResultsAtLeast`.
+ */
+export async function trendingByTypeAtLeast(
+  token: string,
+  locale: string | undefined,
+  type: MediaMeta["type"],
+  minCount: number
+): Promise<MediaMeta[]> {
+  const items: MediaMeta[] = [];
+  const seen = new Set<string>();
+  let exhausted = false;
+
+  function absorb({ hasMore, items: pageItems }: TrendingAllPage) {
+    if (!hasMore) {
+      exhausted = true;
+    }
+    for (const item of pageItems) {
+      if (item.type !== type) {
+        continue;
+      }
+      const key = `${item.type}-${item.id}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      items.push(item);
+    }
+  }
+
+  absorb(await trendingAllPage(token, locale, 1));
+
+  let nextPage = 2;
+  while (
+    !exhausted &&
+    items.length < minCount &&
+    nextPage <= TRENDING_MAX_PAGES
+  ) {
+    const pageCount = Math.min(
+      TRENDING_PAGE_BATCH,
+      TRENDING_MAX_PAGES - nextPage + 1
+    );
+    const pages = Array.from({ length: pageCount }, (_, i) => nextPage + i);
+    const results = await Promise.allSettled(
+      pages.map((page) => trendingAllPage(token, locale, page))
+    );
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        absorb(result.value);
+      }
+    }
+    // Todas fallaron: no insistimos con más tandas.
+    if (results.every((result) => result.status === "rejected")) {
+      break;
+    }
+    nextPage += pageCount;
+  }
+
+  return items.slice(0, minCount);
 }
 
 // ─── Credits / Related ───────────────────────────────────────────────
@@ -1318,6 +1439,7 @@ export async function fetchTvSeriesMeta(
     description: meta.description,
     year: meta.year,
     imdbRating: meta.imdbRating,
+    genreIds: meta.genreIds,
     genres: meta.genres,
     cast: meta.cast,
     creators: meta.creators,

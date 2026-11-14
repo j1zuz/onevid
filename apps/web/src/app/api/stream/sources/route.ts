@@ -2,11 +2,18 @@ import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { parseAddonStreamId } from "@/lib/addon-media";
 import { auth } from "@/lib/auth";
+import { activeProfileIsKids } from "@/lib/onevid-profile";
 import { oneVid, oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
+import {
+  buildDebridResolveUrl,
+  type DebridProvider,
+  resolveActiveDebridProvider,
+} from "@/lib/debrid";
 import { getTmdbReadToken } from "@/lib/onevid-tmdb";
-import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
-import { readTorboxKey } from "@/lib/secret-box";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
+import { readRealDebridKey, readTorboxKey } from "@/lib/secret-box";
 import {
   normalizeQualityPref,
   parseQualityTier,
@@ -36,7 +43,6 @@ export const maxDuration = 60;
 // 400 y los medios no cargaban.
 const COMPOUND_ID_RE = /^(tt\d+|\d+):(\d+):(\d+)$/;
 const NUMERIC_ID_RE = /^\d+$/;
-const MAGNET_HASH_RE = /xt=urn:btih:([A-Za-z0-9]+)/i;
 
 interface RequestBody {
   id?: unknown;
@@ -68,9 +74,10 @@ interface ParsedStreamRef {
 }
 
 interface UserContext {
+  /** Proveedor activo, o null si el usuario no guardó ninguna key. */
+  debridProvider: DebridProvider | null;
   qualityPref: QualityPref[];
   tmdbToken: string | null;
-  torboxKey: string | null;
 }
 
 function parseStreamId(
@@ -136,13 +143,14 @@ function buildStremioStreamUrl(
   return `${baseUrl}/stream/${type}/${streamId}.json`;
 }
 
-function rewriteMagnetUrl(url: string, hasTorboxKey: boolean): string {
-  if (!(hasTorboxKey && url.startsWith("magnet:"))) {
+function rewriteMagnetUrl(
+  url: string,
+  provider: DebridProvider | null
+): string {
+  if (!(provider && url.startsWith("magnet:"))) {
     return url;
   }
-  const hashMatch = url.match(MAGNET_HASH_RE);
-  const hash = hashMatch ? hashMatch[1] : "";
-  return `/api/torbox/resolve?hash=${encodeURIComponent(hash)}&magnet=${encodeURIComponent(url)}`;
+  return buildDebridResolveUrl(provider, url) ?? url;
 }
 
 async function fetchAddonStreams(
@@ -150,7 +158,7 @@ async function fetchAddonStreams(
   type: StreamType,
   ref: ParsedStreamRef,
   imdbId: string | undefined,
-  hasTorboxKey: boolean
+  debridProvider: DebridProvider | null
 ): Promise<{ success: boolean; streams: StreamSource[]; error?: string }> {
   try {
     const res = await safeFetch(buildStreamsUrl(baseUrl, type, ref, imdbId), {
@@ -174,7 +182,7 @@ async function fetchAddonStreams(
       if (!rawUrl) {
         continue;
       }
-      const finalUrl = rewriteMagnetUrl(rawUrl, hasTorboxKey);
+      const finalUrl = rewriteMagnetUrl(rawUrl, debridProvider);
       const title = typeof item.title === "string" ? item.title : "";
       const metadata = Array.isArray(item.metadata)
         ? item.metadata.filter((m): m is string => typeof m === "string")
@@ -206,7 +214,7 @@ async function fetchAddonStremioStreams(
   type: StreamType,
   ref: ParsedStreamRef,
   imdbId: string | undefined,
-  hasTorboxKey: boolean
+  debridProvider: DebridProvider | null
 ): Promise<{ success: boolean; streams: StreamSource[]; error?: string }> {
   if (!imdbId) {
     return {
@@ -227,7 +235,7 @@ async function fetchAddonStremioStreams(
     }
 
     const data = (await res.json()) as StremioStreamResponse;
-    return { success: true, streams: parseStremioStreams(data, hasTorboxKey) };
+    return { success: true, streams: parseStremioStreams(data, debridProvider) };
   } catch (error) {
     const message =
       error instanceof Error ? error.message : String(error || "Unknown error");
@@ -237,7 +245,7 @@ async function fetchAddonStremioStreams(
 
 function parseStremioStreams(
   data: StremioStreamResponse,
-  hasTorboxKey: boolean
+  debridProvider: DebridProvider | null
 ): StreamSource[] {
   const rawStreams = Array.isArray(data.streams) ? data.streams : [];
   const streams: StreamSource[] = [];
@@ -254,7 +262,7 @@ function parseStremioStreams(
     if (!rawUrl) {
       continue;
     }
-    const finalUrl = rewriteMagnetUrl(rawUrl, hasTorboxKey);
+    const finalUrl = rewriteMagnetUrl(rawUrl, debridProvider);
     const name = typeof item.name === "string" ? item.name : "";
     const title = typeof item.title === "string" ? item.title : name;
     streams.push({ title, url: finalUrl, name: name || undefined });
@@ -269,7 +277,7 @@ async function fetchAddonStremioStreamsByRawId(
   rawId: string,
   season: number | undefined,
   episode: number | undefined,
-  hasTorboxKey: boolean
+  debridProvider: DebridProvider | null
 ): Promise<{ success: boolean; streams: StreamSource[]; error?: string }> {
   const streamId =
     type === "series" && season != null && episode != null
@@ -284,7 +292,7 @@ async function fetchAddonStremioStreamsByRawId(
       return { success: false, streams: [], error: `HTTP ${res.status}` };
     }
     const data = (await res.json()) as StremioStreamResponse;
-    return { success: true, streams: parseStremioStreams(data, hasTorboxKey) };
+    return { success: true, streams: parseStremioStreams(data, debridProvider) };
   } catch (error) {
     const message =
       error instanceof Error ? error.message : String(error || "Unknown error");
@@ -295,15 +303,29 @@ async function fetchAddonStremioStreamsByRawId(
 async function loadUserContext(userId: string): Promise<UserContext> {
   const [row] = await db
     .select({
+      debridProvider: oneVid.debridProvider,
+      realDebridApiKey: oneVid.realDebridApiKey,
       torboxApiKey: oneVid.torboxApiKey,
       streamQualityOrder: oneVid.streamQualityOrder,
     })
     .from(oneVid)
     .where(eq(oneVid.userId, userId))
     .limit(1);
+
+  const hasTorbox = Boolean(readTorboxKey(row?.torboxApiKey));
+  const hasRealDebrid = Boolean(readRealDebridKey(row?.realDebridApiKey));
+  const debridProvider =
+    hasTorbox || hasRealDebrid
+      ? resolveActiveDebridProvider({
+          preferred: row?.debridProvider,
+          hasTorbox,
+          hasRealDebrid,
+        })
+      : null;
+
   return {
+    debridProvider,
     tmdbToken: getTmdbReadToken(),
-    torboxKey: readTorboxKey(row?.torboxApiKey),
     qualityPref: normalizeQualityPref(row?.streamQualityOrder),
   };
 }
@@ -332,12 +354,13 @@ export async function POST(request: Request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const limited = checkRateLimit(
+    const limited = await checkRateLimitDb(
       `stream-sources:${session.user.id}`,
       30,
       60_000
     );
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
+  const kids = await activeProfileIsKids(session.user.id, request);
 
     let body: RequestBody = {};
     try {
@@ -359,6 +382,9 @@ export async function POST(request: Request) {
     // IDs de catálogos de addons con ids propios: no hay TMDB/IMDb, se consulta solo
     // el addon dueño con su id propio.
     const addonRef = parseAddonStreamId(id);
+    if (addonRef && kids) {
+      return Response.json({ error: "kids_restricted" }, { status: 403 });
+    }
     if (addonRef) {
       const [addon] = await db
         .select({
@@ -387,7 +413,7 @@ export async function POST(request: Request) {
         addonRef.rawId,
         addonRef.season,
         addonRef.episode,
-        Boolean(ctx.torboxKey)
+        ctx.debridProvider
       );
       const sources: StreamWithAddon[] = result.streams.map(
         (stream, index) => ({
@@ -436,9 +462,9 @@ export async function POST(request: Request) {
 
     const addonResults = await Promise.allSettled(
       addons.map(async (addon) => {
-        const hasTorboxKey = Boolean(ctx.torboxKey);
+        const debridProvider = ctx.debridProvider;
         const attempts = [
-          fetchAddonStreams(addon.baseUrl, type, ref, imdbId, hasTorboxKey),
+          fetchAddonStreams(addon.baseUrl, type, ref, imdbId, debridProvider),
         ];
         if (addon.supportsStremioStreams) {
           attempts.push(
@@ -447,7 +473,7 @@ export async function POST(request: Request) {
               type,
               ref,
               imdbId,
-              hasTorboxKey
+              debridProvider
             )
           );
         }

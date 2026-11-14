@@ -1,4 +1,7 @@
 import { CookieConsent } from "@/components/cookie-consent";
+import { OfflineIndicator } from "@/components/offline/offline-indicator";
+import { AuthCacheGuard } from "@/components/pwa/auth-cache-guard";
+import { ServiceWorkerRegistrar } from "@/components/pwa/service-worker-registrar";
 import { SearchRestoreScript } from "@/components/stream/search-restore-script";
 import { DpadNavigation } from "@/components/dpad-navigation";
 import { ReactScan } from "@/components/react-scan";
@@ -90,7 +93,10 @@ export default async function RootLayout({
             <NuqsAdapter>
               {children}
               <CookieConsent />
+              <OfflineIndicator />
             </NuqsAdapter>
+            <ServiceWorkerRegistrar />
+            <AuthCacheGuard />
           </OnevidI18nProvider>
           <SearchRestoreScript />
           <Toaster position="bottom-center" />

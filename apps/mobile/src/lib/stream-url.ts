@@ -225,3 +225,35 @@ export async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
   return resolved;
 }
 
+
+/**
+ * Valida la URL que llega al reproductor. El deep link `onevid://player` es
+ * exportado y cualquier app puede abrirlo; un `url=/api/...` ejecutaría una
+ * petición autenticada con el Bearer del usuario (p. ej. el resolve de debrid,
+ * que crea un torrent). Solo aceptamos:
+ *  - URLs http(s) (fuentes de addons),
+ *  - rutas internas `/api/...` y `file://`/`content://` cuando la navegación
+ *    viene de la propia app (`from=app`; biblioteca local y player interno).
+ * Esquemas como `javascript:`, `data:` o rutas relativas se rechazan.
+ */
+export function validatePlayerUrl(
+  raw: string,
+  from: string | undefined,
+): { ok: boolean; url: string } {
+  const value = raw.trim();
+  if (!value) return { ok: false, url: '' };
+  const internal = from === 'app';
+  if (value.startsWith('/api/')) {
+    return { ok: internal, url: internal ? value : '' };
+  }
+  if (value.startsWith('file://') || value.startsWith('content://')) {
+    return { ok: internal, url: internal ? value : '' };
+  }
+  try {
+    const parsed = new URL(value);
+    const ok = parsed.protocol === 'https:' || parsed.protocol === 'http:';
+    return { ok, url: ok ? value : '' };
+  } catch {
+    return { ok: false, url: '' };
+  }
+}

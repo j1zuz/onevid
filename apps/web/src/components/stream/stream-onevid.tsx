@@ -669,7 +669,13 @@ export function StreamOnevid({
       body: JSON.stringify({ id: rawId, type: contentType }),
       signal: controller.signal,
     })
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error())))
+      .then((res) =>
+        res.ok
+          ? (res.json() as Promise<{
+              subtitles?: { id: string; lang: string; url: string }[];
+            }>)
+          : Promise.reject(new Error())
+      )
       .then((data: { subtitles?: { id: string; lang: string; url: string }[] }) => {
         const seenLabels = new Map<string, number>();
         setSubtitles(

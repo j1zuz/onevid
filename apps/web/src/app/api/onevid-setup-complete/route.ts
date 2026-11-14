@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { oneVid, oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
+import { resolveActiveDebridProvider } from "@/lib/debrid";
 
 function buildOneVidId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -18,6 +19,8 @@ export async function GET() {
 
   const [row] = await db
     .select({
+      debridProvider: oneVid.debridProvider,
+      realDebridApiKey: oneVid.realDebridApiKey,
       torboxApiKey: oneVid.torboxApiKey,
       setupCompleted: oneVid.setupCompleted,
     })
@@ -30,9 +33,18 @@ export async function GET() {
     .from(oneVidAddon)
     .where(eq(oneVidAddon.userId, session.user.id));
 
+  const hasTorboxKey = Boolean(row?.torboxApiKey);
+  const hasRealDebridKey = Boolean(row?.realDebridApiKey);
+
   return Response.json({
     setupCompleted: row?.setupCompleted ?? false,
-    hasTorboxKey: Boolean(row?.torboxApiKey),
+    hasTorboxKey,
+    hasRealDebridKey,
+    debridProvider: resolveActiveDebridProvider({
+      preferred: row?.debridProvider,
+      hasTorbox: hasTorboxKey,
+      hasRealDebrid: hasRealDebridKey,
+    }),
     addonsCount: addons?.value ?? 0,
   });
 }

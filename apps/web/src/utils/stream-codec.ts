@@ -172,19 +172,20 @@ const UNSUPPORTED_AUDIO_CODECS = /ac-?3|eac-?3|ddp|dd\+|dts|truehd/;
 const WEBM_EXTENSION = /\.webm$/;
 
 /**
- * Endpoints cuyo `url` es un redirect opaco al CDN de TorBox que el browser
- * NO puede seguir con `fetch()`: responden un 3xx con
+ * Endpoints cuyo `url` es un redirect opaco al CDN de un proveedor debrid que
+ * el browser NO puede seguir con `fetch()`: responden un 3xx con
  * `Access-Control-Allow-Credentials: true` pero SIN `Access-Control-Allow-Origin`,
  * así que el fetch aborta en ese hop ("Failed to fetch") antes de llegar al CDN
  * (que sí refleja ACAO + soporta Range). El server lo resuelve y devuelve la URL
- * final del CDN. Ver `resolveTorboxRedirect` en src/lib/torbox.ts y el hook
- * use-mediabunny.
+ * final del CDN. Ver `resolveDebridRedirect` en src/lib/debrid-redirect.ts y el
+ * hook use-mediabunny.
  *
- * Cubre dos formas:
+ * Cubre tres formas:
  *  - el endpoint `requestdl` de la API de TorBox (host `api.torbox.app` con
  *    `redirect=true`), que responde el 307 que rompe CORS;
  *  - cualquier addon debrid que resuelva a TorBox (pathname con
- *    `/resolve/torbox/...`), que redirige a ese mismo endpoint.
+ *    `/resolve/torbox/...`), que redirige a ese mismo endpoint;
+ *  - el link `https://real-debrid.com/d/<id>` que devuelve `unrestrict/link`.
  */
 const TORBOX_API_HOST = "api.torbox.app";
 const TORBOX_RESOLVE_PATH = "/resolve/torbox/";
@@ -202,6 +203,34 @@ export function isTorboxRedirectUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Real-Debrid entrega el link desrestringido como `https://real-debrid.com/d/<id>`,
+ * que responde un 3xx al CDN del hoster sin reflejar ACAO: igual que TorBox, el
+ * browser no puede seguir esa cadena por su cuenta y la resuelve el servidor.
+ */
+const REAL_DEBRID_HOST = "real-debrid.com";
+const REAL_DEBRID_DOWNLOAD_PATH = "/d/";
+
+export function isRealDebridRedirectUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const isRealDebridHost =
+      host === REAL_DEBRID_HOST || host.endsWith(`.${REAL_DEBRID_HOST}`);
+    return (
+      isRealDebridHost &&
+      parsed.pathname.startsWith(REAL_DEBRID_DOWNLOAD_PATH)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** ¿La URL necesita que el servidor resuelva la cadena de redirects de debrid? */
+export function isDebridRedirectUrl(url: string): boolean {
+  return isTorboxRedirectUrl(url) || isRealDebridRedirectUrl(url);
 }
 
 /**

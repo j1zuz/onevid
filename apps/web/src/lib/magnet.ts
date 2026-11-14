@@ -67,3 +67,39 @@ export function magnetDisplayName(value: string): string {
 export function buildMagnetPlayerHref(value: string): string {
   return `/home/player/magnet?magnet=${encodeURIComponent(value.trim())}`;
 }
+
+const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+/**
+ * Normaliza un info-hash a hex minúscula. El magnet acepta base32 además de
+ * hex, pero los servicios debrid publican siempre hex: sin normalizar, un
+ * magnet en base32 no se reconoce como "ya existe en la cuenta" y se vuelve a
+ * crear (duplicado).
+ */
+export function normalizeInfoHash(raw: string): string | null {
+  const value = raw.trim();
+  if (/^[0-9a-f]{40}$/i.test(value)) {
+    return value.toLowerCase();
+  }
+  // El base32 de un magnet se escribe en mayúsculas por convención, pero hay
+  // enlaces en minúsculas: se normaliza antes de validar.
+  const base32 = value.toUpperCase();
+  if (!/^[A-Z2-7]{32}$/.test(base32)) {
+    return null;
+  }
+  let bits = "";
+  for (const char of base32) {
+    const index = BASE32_ALPHABET.indexOf(char);
+    if (index < 0) {
+      return null;
+    }
+    bits += index.toString(2).padStart(5, "0");
+  }
+  let hex = "";
+  for (let i = 0; i < 160; i += 8) {
+    hex += Number.parseInt(bits.slice(i, i + 8), 2)
+      .toString(16)
+      .padStart(2, "0");
+  }
+  return hex;
+}

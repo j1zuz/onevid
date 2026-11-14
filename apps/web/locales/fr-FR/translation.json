@@ -183,5 +183,7 @@
   "No hay descargas sin conexión.": "Aucun téléchargement hors ligne.",
   "Guardado hasta {{date}}": "Enregistré jusqu'au {{date}}",
   "Temporada {{season}} · Episodio {{episode}}": "Saison {{season}} · Épisode {{episode}}",
-  "No se pudo eliminar la descarga.": "Impossible de supprimer le téléchargement."
+  "No se pudo eliminar la descarga.": "Impossible de supprimer le téléchargement.",
+  "Nueva actualización disponible": "Nouvelle mise à jour disponible",
+  "Actualizar": "Mettre à jour"
 }

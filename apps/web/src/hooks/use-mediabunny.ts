@@ -2,7 +2,7 @@
 
 import posthog from "posthog-js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isTorboxRedirectUrl, needsMediaBunny } from "@/utils/stream-codec";
+import { isDebridRedirectUrl, needsMediaBunny } from "@/utils/stream-codec";
 
 /** Una pista de audio del archivo de origen, para el selector de idioma. */
 export interface MediaBunnyAudioTrack {
@@ -2063,10 +2063,15 @@ const PREPARING_POLL_MS = 5_000;
 const SOURCE_DOWNLOAD_SHARE = 0.45;
 const SOURCE_SUFFIX = ".source";
 
+const MAGNET_RESOLVE_PATHS = new Set([
+  "/api/torbox/resolve",
+  "/api/real-debrid/resolve",
+]);
+
 function isMagnetResolveEndpoint(raw: string): boolean {
   try {
-    return (
-      new URL(raw, window.location.href).pathname === "/api/torbox/resolve"
+    return MAGNET_RESOLVE_PATHS.has(
+      new URL(raw, window.location.href).pathname
     );
   } catch {
     return false;
@@ -2086,7 +2091,7 @@ async function hasStorageHeadroom(expectedBytes: number): Promise<boolean> {
 }
 
 interface ResolvedDownloadSource {
-  /** Tamaño exacto si el backend ya lo conocía (mylist de TorBox). */
+  /** Tamaño exacto si el backend ya lo conocía (mylist de TorBox / info de RD). */
   expectedBytes: number;
   url: string;
 }
@@ -2144,9 +2149,10 @@ async function resolveDownloadSource(
       if (res.ok && typeof data.url === "string" && data.url) {
         return {
           // Si el server no pudo seguir el redirect hasta el CDN, devolvió el
-          // `requestdl` de TorBox (sin CORS para el browser). En ese caso se usa
-          // la URL original con `redirect=final`, que el fetch sí puede seguir.
-          url: isTorboxRedirectUrl(data.url) ? rawUrl : data.url,
+          // `requestdl` de TorBox o el `/d/...` de Real-Debrid (sin CORS para el
+          // browser). En ese caso se usa la URL original con `redirect=final`,
+          // que el fetch sí puede seguir.
+          url: isDebridRedirectUrl(data.url) ? rawUrl : data.url,
           expectedBytes:
             typeof data.fileSize === "number" ? data.fileSize : 0,
         };
@@ -2155,7 +2161,7 @@ async function resolveDownloadSource(
     }
   }
 
-  if (isTorboxRedirectUrl(rawUrl)) {
+  if (isDebridRedirectUrl(rawUrl)) {
     try {
       const res = await fetch("/api/stream/resolve", {
         method: "POST",
@@ -2560,17 +2566,18 @@ export function useMediaBunny(
     };
 
     (async () => {
-      // Algunas fuentes de TorBox llegan como URLs de "resolve" (un addon debrid
-      // con `/resolve/torbox/...` o el endpoint `requestdl` de la API de TorBox)
-      // cuyo hop intermedio responde un 3xx SIN `Access-Control-Allow-Origin`,
-      // así que `fetch()` aborta acá ("Failed to fetch") antes de llegar al CDN.
-      // El server resuelve la cadena y nos devuelve la URL final del CDN, que
-      // el browser sí puede leer (refleja ACAO + soporta Range). Si la
-      // resolución falla, caemos a la URL original: mejor intentar (algún CDN de
-      // TorBox refleja ACAO y andaría igual) que rendir con error antes de
-      // probar. Solo aplica a strings; un `File` local no tiene redirect.
+      // Algunas fuentes de debrid llegan como URLs de "resolve" (un addon con
+      // `/resolve/torbox/...`, el `requestdl` de TorBox o el `/d/...` de
+      // Real-Debrid) cuyo hop intermedio responde un 3xx SIN
+      // `Access-Control-Allow-Origin`, así que `fetch()` aborta acá ("Failed to
+      // fetch") antes de llegar al CDN. El server resuelve la cadena y nos
+      // devuelve la URL final del CDN, que el browser sí puede leer (refleja
+      // ACAO + soporta Range). Si la resolución falla, caemos a la URL
+      // original: mejor intentar (algún CDN refleja ACAO y andaría igual) que
+      // rendir con error antes de probar. Solo aplica a strings; un `File` local
+      // no tiene redirect.
       let resolvedSource = source;
-      if (typeof source === "string" && isTorboxRedirectUrl(source)) {
+      if (typeof source === "string" && isDebridRedirectUrl(source)) {
         try {
           const res = await fetch("/api/stream/resolve", {
             method: "POST",
