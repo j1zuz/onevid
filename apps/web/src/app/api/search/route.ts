@@ -1,10 +1,13 @@
 import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { activeProfileIsKids } from "@/lib/onevid-profile";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { posthogServerCapture } from "@/lib/posthog-server";
 import { getServerT } from "@/lib/server-t";
-import type { MediaMeta } from "@/lib/tmdb";
+import { isKidsSafeMedia, type MediaMeta } from "@/lib/tmdb";
 import { getTmdbLocale, searchMovies, searchTv } from "@/lib/tmdb";
 
 export async function GET(request: NextRequest) {
@@ -25,7 +28,10 @@ export async function GET(request: NextRequest) {
     if (!session?.user?.id) {
       return NextResponse.json({ results: [] });
     }
+  const limited = await checkRateLimitDb(`tmdb-search:${session.user.id}`, 30, 60_000);
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
 
+    const kids = await activeProfileIsKids(session.user.id, request);
     const tmdbToken = getTmdbReadToken();
 
     const tmdbResults: MediaMeta[] = [];
@@ -96,7 +102,8 @@ export async function GET(request: NextRequest) {
       return aName.localeCompare(bName);
     });
 
-    const results = ranked.slice(0, 20);
+    const filtered = kids ? ranked.filter(isKidsSafeMedia) : ranked;
+    const results = filtered.slice(0, 20);
 
     posthogServerCapture({
       event: "content_search_performed",

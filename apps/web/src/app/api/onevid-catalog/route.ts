@@ -6,6 +6,9 @@ import {
   fetchAddonCatalogResults,
 } from "@/lib/addon-catalog";
 import { auth } from "@/lib/auth";
+import { activeProfileIsKids } from "@/lib/onevid-profile";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import { oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
 import { getTmdbReadToken } from "@/lib/onevid-tmdb";
@@ -15,8 +18,10 @@ import {
   getNetworkOptions,
   getTmdbLocale,
   getTmdbRegion,
+  isKidsSafeMedia,
   trendingAll,
   trendingAllAtLeast,
+  trendingByTypeAtLeast,
   TmdbAuthError,
   TmdbNetworkError,
 } from "@/lib/tmdb";
@@ -35,6 +40,9 @@ export async function GET(request: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const limited = await checkRateLimitDb(`tmdb-catalog:${session.user.id}`, 60, 60_000);
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
+  const kids = await activeProfileIsKids(session.user.id, request);
 
   const { searchParams } = new URL(request.url);
   const type = searchParams.get("type")?.trim().toLowerCase();
@@ -103,7 +111,7 @@ export async function GET(request: NextRequest) {
       .limit(1);
 
     // Addon eliminado desde entonces: grilla vacía en vez de error.
-    if (!addon) {
+    if (!addon || kids) {
       return NextResponse.json({ results: [] });
     }
 
@@ -144,13 +152,13 @@ export async function GET(request: NextRequest) {
   try {
     const results =
       catalog === "trending" && !selectedNetwork
-        ? (await trendingAllAtLeast(
-            token,
-            tmdbLocale,
-            limit || CATALOG_VIEW_ALL_ITEM_LIMIT
-          )).filter(
-            (item) => item.type === type
-          )
+        ? limit
+          ? await trendingByTypeAtLeast(token, tmdbLocale, type, limit)
+          : (await trendingAllAtLeast(
+              token,
+              tmdbLocale,
+              CATALOG_VIEW_ALL_ITEM_LIMIT
+            )).filter((item) => item.type === type)
         : limit
           ? await fetchCatalogResultsAtLeast(
               {
@@ -173,6 +181,10 @@ export async function GET(request: NextRequest) {
               network: selectedNetwork,
             });
 
+    const visibleResults = kids
+      ? results.filter(isKidsSafeMedia)
+      : results;
+
     posthogServerCapture({
       event: "onevid_catalog_requested",
       distinctId: session.user.id,
@@ -182,7 +194,7 @@ export async function GET(request: NextRequest) {
         page,
         limit: limit || undefined,
         network: selectedNetwork?.id,
-        result_count: results.length,
+        result_count: visibleResults.length,
       },
     }).catch(() => {
       /* ignore */
@@ -197,7 +209,7 @@ export async function GET(request: NextRequest) {
             ])
           )
         : {};
-    return NextResponse.json({ results, topTenRanks });
+    return NextResponse.json({ results: visibleResults, topTenRanks });
   } catch (error) {
     if (error instanceof TmdbAuthError) {
       return NextResponse.json(

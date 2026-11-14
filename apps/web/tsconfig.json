@@ -22,6 +22,8 @@
     ".cloudflare/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".next/types/validator.ts",
+    ".next/dev/types/validator.ts"
   ]
 }

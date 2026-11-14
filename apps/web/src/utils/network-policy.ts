@@ -106,7 +106,9 @@ const RESERVED_HOSTNAMES = new Set([
  * ranges for the remaining cases.
  */
 export function assertPublicHostname(hostname: string): void {
-  const bare = stripHostBrackets(hostname).toLowerCase();
+  // El punto final de un FQDN (`metadata.google.internal.`) es equivalente al
+  // nombre sin punto; sin normalizarlo, los `endsWith` de abajo no matchean.
+  const bare = stripHostBrackets(hostname).toLowerCase().replace(/\.+$/, "");
   if (!bare) throw new UnsafeTargetError();
 
   if (

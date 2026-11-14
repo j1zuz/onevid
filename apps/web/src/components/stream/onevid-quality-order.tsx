@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@workspace/ui/components/button";
+import { Skeleton } from "@workspace/ui/components/skeleton";
 import { Switch } from "@workspace/ui/components/switch";
 import { cn } from "@workspace/ui/lib/utils";
 import { ChevronDownIcon, ChevronUpIcon, Loader } from "lucide-react";
@@ -37,7 +38,11 @@ export function OneVidQualityOrder() {
   useEffect(() => {
     const controller = new AbortController();
     fetch("/api/onevid-quality", { signal: controller.signal })
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error())))
+      .then((res) =>
+        res.ok
+          ? (res.json() as Promise<{ order?: QualityPref[] }>)
+          : Promise.reject(new Error())
+      )
       .then((data: { order?: QualityPref[] }) => {
         if (Array.isArray(data.order)) {
           setOrder(data.order);
@@ -78,7 +83,26 @@ export function OneVidQualityOrder() {
   }
 
   if (loading) {
-    return null;
+    return (
+      <div aria-busy="true" className="flex flex-col gap-3" role="status">
+        <span className="sr-only">Cargando preferencias de calidad…</span>
+        <Skeleton className="h-3 w-full" />
+        <div className="flex flex-col gap-1">
+          {Array.from({ length: 6 }, (_, index) => (
+            <div
+              className="flex items-center gap-2 rounded-md border px-3 py-2.5"
+              key={`quality-skeleton-${index}`}
+            >
+              <Skeleton className="h-3 w-4" />
+              <Skeleton className="h-4 flex-1" />
+              <Skeleton className="size-9 rounded-full" />
+              <Skeleton className="size-9 rounded-full" />
+              <Skeleton className="h-5 w-9 rounded-full" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   const noneEnabled = order.every((entry) => !entry.enabled);

@@ -16,6 +16,10 @@ import { auth } from "@/lib/auth";
 import { oneVid, oneVidAddon, oneVidProfile } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
 import {
+  type DebridStatus,
+  resolveActiveDebridProvider,
+} from "@/lib/debrid";
+import {
   DEFAULT_LANGUAGE,
   SUPPORTED_CODES,
   type SupportedLanguage,
@@ -77,6 +81,8 @@ export default async function AccountPage({
   const [oneVidRow, addonRows, profileRows] = await Promise.all([
     db
       .select({
+        debridProvider: oneVid.debridProvider,
+        realDebridApiKey: oneVid.realDebridApiKey,
         torboxApiKey: oneVid.torboxApiKey,
         setupCompleted: oneVid.setupCompleted,
         feedRows: oneVid.feedRows,
@@ -112,6 +118,16 @@ export default async function AccountPage({
   ]);
 
   const torboxKey = oneVidRow[0]?.torboxApiKey ?? null;
+  const realDebridKey = oneVidRow[0]?.realDebridApiKey ?? null;
+  const debrid: DebridStatus = {
+    hasTorbox: Boolean(torboxKey),
+    hasRealDebrid: Boolean(realDebridKey),
+    provider: resolveActiveDebridProvider({
+      preferred: oneVidRow[0]?.debridProvider,
+      hasTorbox: Boolean(torboxKey),
+      hasRealDebrid: Boolean(realDebridKey),
+    }),
+  };
   const setupCompleted = oneVidRow[0]?.setupCompleted ?? false;
   const parsedFeedRows = parseFeedRows(oneVidRow[0]?.feedRows);
   const feedConfigured = parsedFeedRows !== null;
@@ -169,10 +185,10 @@ export default async function AccountPage({
           <h1 className="mb-6 font-bold text-2xl">{settingsTitle}</h1>
 
           <OneVidSettingsPanel
+            debrid={debrid}
             discoverRows={discoverRows}
             feedConfigured={feedConfigured}
             feedRows={feedRows}
-            hasTorboxKey={Boolean(torboxKey)}
             initialAddons={addons}
             initialView={initialView}
             setupCompleted={setupCompleted}

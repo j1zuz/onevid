@@ -20,7 +20,10 @@ next-env.d.ts
 *.tsbuildinfo
 
 # local env files
-.env*.local
+.env
+.env.*
+!.env.example
+.dev.vars
 
 # artefactos de Playwright MCP (logs de consola, snapshots, capturas)
 .playwright-mcp/

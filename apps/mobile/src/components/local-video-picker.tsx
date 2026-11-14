@@ -54,7 +54,7 @@ export function LocalVideoPicker() {
     }
     // Queda guardado en la Biblioteca local para volver a verlo luego.
     void addLocalVideo(queryClient, { uri: url, title });
-    router.push({ pathname: '/player', params: { url, title } });
+    router.push({ pathname: '/player', params: { from: 'app', url, title } });
   }, [urlInput, toast, t, queryClient]);
 
   const handlePick = useCallback(async () => {
@@ -91,7 +91,7 @@ export function LocalVideoPicker() {
       void addLocalVideo(queryClient, { uri: asset.uri, title });
       router.push({
         pathname: '/player',
-        params: { url: asset.uri, title },
+        params: { from: 'app', url: asset.uri, title },
       });
     } catch (e) {
       toast.show({

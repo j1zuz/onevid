@@ -17,6 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
+import { Skeleton } from "@workspace/ui/components/skeleton";
 import {
   DownloadIcon,
   EllipsisVerticalIcon,
@@ -150,14 +151,6 @@ export function OfflineDownloadsManager() {
     }
   }
 
-  if (entries === null) {
-    return (
-      <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground text-sm">
-        <LoaderIcon className="size-4 animate-spin" />
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2 rounded-md border p-3">
@@ -209,7 +202,24 @@ export function OfflineDownloadsManager() {
         </div>
       </div>
 
-      {entries.length === 0 ? (
+      {entries === null ? (
+        <div aria-busy="true" className="flex flex-col gap-2" role="status">
+          <span className="sr-only">{t("Cargando descargas…")}</span>
+          {Array.from({ length: 3 }, (_, index) => (
+            <div
+              className="flex items-center gap-3 rounded-md border p-2"
+              key={`offline-download-skeleton-${index}`}
+            >
+              <Skeleton className="aspect-video w-24 shrink-0 rounded" />
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <Skeleton className="h-3.5 w-2/3" />
+                <Skeleton className="h-3 w-1/2" />
+              </div>
+              <Skeleton className="size-6 shrink-0 rounded-full" />
+            </div>
+          ))}
+        </div>
+      ) : entries.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-md border border-dashed px-4 py-8 text-center">
           <DownloadIcon className="size-6 text-muted-foreground" />
           <p className="text-sm">{t("No hay descargas sin conexión.")}</p>

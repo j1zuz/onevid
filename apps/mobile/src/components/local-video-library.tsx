@@ -27,7 +27,7 @@ export function LocalVideoLibrary() {
   const play = (video: LocalVideo) => {
     router.push({
       pathname: '/player',
-      params: { url: video.uri, title: video.title },
+      params: { from: 'app', url: video.uri, title: video.title },
     });
   };
 

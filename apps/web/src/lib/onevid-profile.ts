@@ -7,6 +7,7 @@ import {
   verification,
 } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
+import { verifyProfileToken } from "@/lib/profile-token";
 import type { MediaMeta } from "@/lib/tmdb";
 
 export * from "@/lib/onevid-avatars";
@@ -43,6 +44,33 @@ export async function verifyPin(hash: string, pin: string): Promise<boolean> {
 
 export type PinCheck = "ok" | "pin_required" | "pin_invalid";
 
+const PIN_MAX_ATTEMPTS = 5;
+const PIN_LOCK_MS = 15 * 60 * 1000;
+
+async function getPrimaryProfilePin(userId: string): Promise<{
+  id: string;
+  hash: string | null;
+  lockedUntil: Date | null;
+} | null> {
+  const [row] = await db
+    .select({
+      id: oneVidProfile.id,
+      pinHash: oneVidProfile.pinHash,
+      pinLockedUntil: oneVidProfile.pinLockedUntil,
+    })
+    .from(oneVidProfile)
+    .where(eq(oneVidProfile.userId, userId))
+    .orderBy(oneVidProfile.createdAt)
+    .limit(1);
+  return row
+    ? {
+        id: row.id,
+        hash: row.pinHash ?? null,
+        lockedUntil: row.pinLockedUntil ?? null,
+      }
+    : null;
+}
+
 /**
  * PIN hash of the primary (first-created) profile, which acts as the parent /
  * owner profile. null when there is no profile or it has no lock.
@@ -50,13 +78,41 @@ export type PinCheck = "ok" | "pin_required" | "pin_invalid";
 export async function getPrimaryProfilePinHash(
   userId: string
 ): Promise<string | null> {
+  return (await getPrimaryProfilePin(userId))?.hash ?? null;
+}
+
+/** Registra un PIN incorrecto; al llegar a 5 bloquea el perfil 15 minutos. */
+export async function registerProfilePinFailure(
+  profileId: string
+): Promise<{ locked: boolean; lockedUntil: Date | null }> {
   const [row] = await db
-    .select({ pinHash: oneVidProfile.pinHash })
+    .select({
+      attempts: oneVidProfile.pinFailedAttempts,
+      lockedUntil: oneVidProfile.pinLockedUntil,
+    })
     .from(oneVidProfile)
-    .where(eq(oneVidProfile.userId, userId))
-    .orderBy(oneVidProfile.createdAt)
+    .where(eq(oneVidProfile.id, profileId))
     .limit(1);
-  return row?.pinHash ?? null;
+  const attempts = (row?.attempts ?? 0) + 1;
+  const locked = attempts >= PIN_MAX_ATTEMPTS;
+  const lockedUntil = locked
+    ? new Date(Date.now() + PIN_LOCK_MS)
+    : (row?.lockedUntil ?? null);
+  await db
+    .update(oneVidProfile)
+    .set({
+      pinFailedAttempts: locked ? 0 : attempts,
+      pinLockedUntil: lockedUntil,
+    })
+    .where(eq(oneVidProfile.id, profileId));
+  return { locked, lockedUntil };
+}
+
+export async function resetProfilePinFailures(profileId: string): Promise<void> {
+  await db
+    .update(oneVidProfile)
+    .set({ pinFailedAttempts: 0, pinLockedUntil: null })
+    .where(eq(oneVidProfile.id, profileId));
 }
 
 /**
@@ -64,19 +120,28 @@ export async function getPrimaryProfilePinHash(
  * (first-created) profile has a PIN, the caller must supply THAT profile's PIN;
  * otherwise management is unrestricted. The primary profile's PIN is the master
  * key, so a child cannot create an unlocked profile to bypass parental controls.
+ * Los intentos fallidos se cuentan y bloquean igual que en /verify.
  */
 export async function checkManageAuth(
   userId: string,
   authPin: string | null | undefined
 ): Promise<PinCheck> {
-  const hash = await getPrimaryProfilePinHash(userId);
-  if (!hash) {
+  const primary = await getPrimaryProfilePin(userId);
+  if (!primary?.hash) {
     return "ok";
+  }
+  if (primary.lockedUntil && primary.lockedUntil.getTime() > Date.now()) {
+    return "pin_invalid";
   }
   if (!authPin) {
     return "pin_required";
   }
-  return (await verifyPin(hash, authPin)) ? "ok" : "pin_invalid";
+  if (await verifyPin(primary.hash, authPin)) {
+    await resetProfilePinFailures(primary.id);
+    return "ok";
+  }
+  await registerProfilePinFailure(primary.id);
+  return "pin_invalid";
 }
 
 /**
@@ -86,18 +151,29 @@ export async function checkManageAuth(
 export async function getProfilePinHashById(
   userId: string,
   profileId: string
-): Promise<{ found: boolean; hash: string | null }> {
+): Promise<{
+  found: boolean;
+  hash: string | null;
+  lockedUntil: Date | null;
+}> {
   const [row] = await db
-    .select({ pinHash: oneVidProfile.pinHash })
+    .select({
+      pinHash: oneVidProfile.pinHash,
+      pinLockedUntil: oneVidProfile.pinLockedUntil,
+    })
     .from(oneVidProfile)
     .where(
       and(eq(oneVidProfile.id, profileId), eq(oneVidProfile.userId, userId))
     )
     .limit(1);
   if (!row) {
-    return { found: false, hash: null };
+    return { found: false, hash: null, lockedUntil: null };
   }
-  return { found: true, hash: row.pinHash ?? null };
+  return {
+    found: true,
+    hash: row.pinHash ?? null,
+    lockedUntil: row.pinLockedUntil ?? null,
+  };
 }
 
 /** Removes the lock (pinHash) from the primary (first-created) profile. */
@@ -183,19 +259,70 @@ export async function consumePinResetCode(
   return ok;
 }
 
+/**
+ * ¿El perfil activo de esta request es infantil? Se usa para filtrar catálogo,
+ * búsqueda y feed en servidor. El header es el de la app; la web manda la
+ * cookie `onevid-active-profile`. Solo consulta el flag `isKids` de un perfil
+ * que pertenece al usuario.
+ */
+export async function activeProfileIsKids(
+  userId: string,
+  request: Request
+): Promise<boolean> {
+  const headerId = request.headers.get("x-profile-id")?.trim();
+  const cookie = request.headers.get("cookie");
+  const cookieMatch = cookie?.match(
+    /(?:^|;\s*)onevid-active-profile=([^;]+)/
+  );
+  let cookieId: string | null = null;
+  if (cookieMatch?.[1]) {
+    try {
+      cookieId = decodeURIComponent(cookieMatch[1]);
+    } catch {
+      cookieId = null;
+    }
+  }
+  const profileId = headerId || cookieId;
+  if (!profileId) {
+    // Sin selección explícita, el provider usa el perfil primario (el más
+    // antiguo); el filtro debe usar el mismo criterio.
+    const [first] = await db
+      .select({ isKids: oneVidProfile.isKids })
+      .from(oneVidProfile)
+      .where(eq(oneVidProfile.userId, userId))
+      .orderBy(oneVidProfile.createdAt)
+      .limit(1);
+    return first?.isKids === true;
+  }
+  const [row] = await db
+    .select({ isKids: oneVidProfile.isKids })
+    .from(oneVidProfile)
+    .where(
+      and(
+        eq(oneVidProfile.id, profileId),
+        eq(oneVidProfile.userId, userId)
+      )
+    )
+    .limit(1);
+  return row?.isKids === true;
+}
+
 export type ResolvedProfile =
   | { status: "ok"; profile: Profile }
   | { status: "no_profile" }
+  | { status: "pin_required" }
   | { status: "invalid_profile" };
 
 /**
  * Resolves the active profile from the X-Profile-Id header. Missing header →
  * "no_profile" (409); a profile that doesn't belong to the account →
- * "invalid_profile" (400).
+ * "invalid_profile" (400); a profile with a PIN whose signed verification token
+ * is missing/expired/for another user → "pin_required" (403).
  */
 export async function resolveActiveProfile(
   userId: string,
-  profileId: string | null | undefined
+  profileId: string | null | undefined,
+  token?: string | null
 ): Promise<ResolvedProfile> {
   if (!profileId) {
     return { status: "no_profile" };
@@ -206,6 +333,7 @@ export async function resolveActiveProfile(
       name: oneVidProfile.name,
       avatar: oneVidProfile.avatar,
       isKids: oneVidProfile.isKids,
+      pinHash: oneVidProfile.pinHash,
       createdAt: oneVidProfile.createdAt,
     })
     .from(oneVidProfile)
@@ -216,7 +344,11 @@ export async function resolveActiveProfile(
   if (!row) {
     return { status: "invalid_profile" };
   }
-  return { status: "ok", profile: row };
+  if (row.pinHash && !verifyProfileToken(token, userId, row.id, row.pinHash)) {
+    return { status: "pin_required" };
+  }
+  const { pinHash: _pinHash, ...profile } = row;
+  return { status: "ok", profile };
 }
 
 // ─── Per-profile favorites / watchlist ───────────────────────────────
@@ -518,7 +650,13 @@ export async function setProfileProgress(
 /**
  * List a profile's in-progress titles, most-recent first. Collapses multiple
  * episodes of the same series to its latest-watched entry.
+ *
+ * El límite es deliberado: el GET enriquece cada fila con 1-2 llamadas TMDB y
+ * sin tope un perfil podía acumular miles de filas y amplificar el token del
+ * operador en cada carga.
  */
+const MAX_PROGRESS_ROWS = 50;
+
 export async function listProfileProgress(
   profileId: string
 ): Promise<ContinueWatchingItem[]> {
@@ -543,7 +681,8 @@ export async function listProfileProgress(
         eq(oneVidProfileProgress.finished, false)
       )
     )
-    .orderBy(desc(oneVidProfileProgress.updatedAt));
+    .orderBy(desc(oneVidProfileProgress.updatedAt))
+    .limit(MAX_PROGRESS_ROWS);
 
   const seen = new Set<string>();
   const items: ContinueWatchingItem[] = [];

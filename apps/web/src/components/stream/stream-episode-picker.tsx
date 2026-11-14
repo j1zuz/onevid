@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select";
+import { Skeleton } from "@workspace/ui/components/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -196,8 +197,18 @@ export function StreamEpisodePicker({
           </DrawerHeader>
           <div className="no-scrollbar min-h-0 flex-1 space-y-1.5 overflow-y-auto px-4 pt-3 pb-4">
             {loading && (
-              <div className="flex justify-center py-6">
-                <Loader className="size-4 animate-spin" />
+              <div aria-busy="true" className="flex flex-col gap-1.5" role="status">
+                <span className="sr-only">Cargando episodios…</span>
+                {Array.from({ length: 4 }, (_, index) => (
+                  <div
+                    className="flex items-center gap-3 rounded-lg border border-border/50 p-2"
+                    key={`episode-skeleton-${index}`}
+                  >
+                    <Skeleton className="h-12 w-20 shrink-0 rounded" />
+                    <Skeleton className="h-3.5 w-4" />
+                    <Skeleton className="h-3.5 flex-1" />
+                  </div>
+                ))}
               </div>
             )}
             {!loading &&

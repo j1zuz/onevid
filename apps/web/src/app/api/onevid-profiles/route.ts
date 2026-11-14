@@ -11,6 +11,8 @@ import {
   isValidPin,
   MAX_PROFILES,
 } from "@/lib/onevid-profile";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 
 export async function GET() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -44,6 +46,13 @@ export async function POST(request: Request) {
   if (!session?.user?.id) {
     return Response.json({ error: "No autorizado" }, { status: 401 });
   }
+
+  const limited = await checkRateLimitDb(
+    `profile-manage:${session.user.id}`,
+    20,
+    60_000
+  );
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
 
   let name: string;
   let avatar: string;

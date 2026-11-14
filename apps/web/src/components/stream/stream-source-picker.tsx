@@ -135,7 +135,9 @@ export function StreamSourcePicker({
       signal: controller.signal,
     })
       .then((res) =>
-        res.ok ? res.json() : Promise.reject(new Error(String(res.status)))
+        res.ok
+          ? (res.json() as Promise<{ sources?: StreamWithAddon[] }>)
+          : Promise.reject(new Error(String(res.status)))
       )
       .then((data: { sources?: StreamWithAddon[] }) => {
         setSources(data.sources ?? []);

@@ -1,5 +1,9 @@
 import * as SecureStore from 'expo-secure-store';
-import { getActiveProfileId, setActiveProfileId } from './active-profile';
+import {
+  getActiveProfileId,
+  setActiveProfileId,
+  setActiveProfileToken,
+} from './active-profile';
 import { apiFetch } from './api';
 import { queryClient } from './query';
 
@@ -19,6 +23,11 @@ export interface ProfilesResponse {
 }
 
 const ACTIVE_KEY = 'onevid_active_profile';
+const PROFILE_TOKEN_PREFIX = 'onevid_profile_token_';
+
+function profileTokenKey(id: string): string {
+  return `${PROFILE_TOKEN_PREFIX}${id}`;
+}
 
 // El perfil activo se guarda en SecureStore, pero varias pantallas (p. ej. el
 // icono del tab "Perfil") copian su valor a estado local. Sin aviso, tras
@@ -46,9 +55,13 @@ export async function loadActiveProfile(): Promise<Profile | null> {
   try {
     const p = JSON.parse(raw) as Profile;
     setActiveProfileId(p.id);
+    setActiveProfileToken(
+      await SecureStore.getItemAsync(profileTokenKey(p.id)),
+    );
     return p;
   } catch {
     setActiveProfileId(null);
+    setActiveProfileToken(null);
     return null;
   }
 }
@@ -56,6 +69,11 @@ export async function loadActiveProfile(): Promise<Profile | null> {
 export async function setActiveProfile(p: Profile): Promise<void> {
   const previousId = getActiveProfileId();
   setActiveProfileId(p.id);
+  // El token firmado solo existe si el perfil tiene PIN y se verificó. Al
+  // cambiar a un perfil sin PIN se limpia para no reutilizar una capacidad.
+  setActiveProfileToken(
+    await SecureStore.getItemAsync(profileTokenKey(p.id)),
+  );
   // `apiFetch` manda `X-Profile-Id` en cada llamada, así que la MISMA query key
   // (p. ej. ['continue-watching', lang]) puede tener una respuesta distinta por
   // perfil. Al cambiar de perfil hay que vaciar SOLO lo que es por perfil, para
@@ -73,6 +91,7 @@ export async function setActiveProfile(p: Profile): Promise<void> {
 
 export async function clearActiveProfile(): Promise<void> {
   setActiveProfileId(null);
+  setActiveProfileToken(null);
   await SecureStore.deleteItemAsync(ACTIVE_KEY);
   emitActiveProfile(null);
 }
@@ -124,10 +143,14 @@ export async function verifyProfilePin(
   id: string,
   pin: string,
 ): Promise<boolean> {
-  const r = await apiFetch<{ ok: boolean }>(
+  const r = await apiFetch<{ ok: boolean; token?: string }>(
     `/api/onevid-profiles/${id}/verify`,
     { method: 'POST', body: JSON.stringify({ pin }) },
   );
+  if (r?.ok && typeof r.token === 'string' && r.token) {
+    setActiveProfileToken(r.token);
+    await SecureStore.setItemAsync(profileTokenKey(id), r.token);
+  }
   return Boolean(r?.ok);
 }
 

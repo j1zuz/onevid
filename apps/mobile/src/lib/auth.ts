@@ -9,23 +9,19 @@ export const SCOPE = 'openid profile email';
 
 const TOKEN_KEY = 'hackw_access_token';
 
-// User-Agent que identifica a la app como "onevid". Va en TODAS las peticiones
-// al backend para que en Cloudflare se pueda crear una regla (WAF Skip) que
-// matchee `http.user_agent contains "onevid"` y deje pasar solo el tráfico de la
-// app, sin bajar la protección del resto. Mantiene tokens de navegador para no
-// disparar detecciones genéricas por UA "vacío" de apps nativas.
+// User-Agent de navegador normal. Antes incluía "onevid-app/1.0" para que una
+// regla WAF Skip de Cloudflare dejara pasar la app; ese badge es público y
+// cualquiera puede copiarlo, así que NO es una identidad verificable. La app ya
+// se autentica con el Bearer de Better Auth. Si se necesita un skip de borde,
+// debe ser Cloudflare Access (service token), mTLS o Turnstile/attestation,
+// no un User-Agent. Este UA solo evita detecciones genéricas de app nativa.
 const APP_UA =
-  'onevid-app/1.0 (Android) Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36';
+  'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36';
 
-// Header propio adicional (por si prefieres matchear por header en vez de UA).
-export const APP_CLIENT_HEADER = 'X-Onevid-Client';
-export const APP_CLIENT_TOKEN = 'onevid';
-
-// Cabeceras comunes que identifican a la app ante Cloudflare. Se reúsan en todas
-// las peticiones (api.ts y las de auth aquí).
+// Cabeceras comunes de la app. Solo el UA de navegador; ningún header que
+// pretenda identificar la app ante el borde.
 export const appClientHeaders = (): Record<string, string> => ({
   'User-Agent': APP_UA,
-  [APP_CLIENT_HEADER]: APP_CLIENT_TOKEN,
 });
 
 export interface DeviceCodeData {

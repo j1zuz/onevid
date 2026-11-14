@@ -183,5 +183,7 @@
   "No hay descargas sin conexión.": "Keine Offline-Downloads.",
   "Guardado hasta {{date}}": "Gespeichert bis {{date}}",
   "Temporada {{season}} · Episodio {{episode}}": "Staffel {{season}} · Folge {{episode}}",
-  "No se pudo eliminar la descarga.": "Der Download konnte nicht gelöscht werden."
+  "No se pudo eliminar la descarga.": "Der Download konnte nicht gelöscht werden.",
+  "Nueva actualización disponible": "Neue Aktualisierung verfügbar",
+  "Actualizar": "Aktualisieren"
 }

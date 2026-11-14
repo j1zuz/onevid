@@ -63,9 +63,11 @@ export function isSafeFetchUrl(
     return { ok: false, reason: "No se admiten credenciales en la URL" };
   }
 
-  const hostname = stripHostBrackets(parsed.hostname);
+  const hostname = stripHostBrackets(parsed.hostname)
+    .toLowerCase()
+    .replace(/\.+$/, "");
 
-  if (hostname === "localhost" || hostname.toLowerCase() === "localhost.") {
+  if (hostname === "localhost") {
     return { ok: false, reason: "No se permite localhost" };
   }
 
@@ -193,6 +195,13 @@ export async function safeFetch(
       const next = new URL(location, current);
       if (!ALLOWED_PROTOCOLS.has(next.protocol)) {
         throw invalidUrl();
+      }
+      // No reenviamos credenciales a otro origen. Los proveedores debrid ven
+      // Bearer en el primer hop; un redirect a otro host no debe recibirlo.
+      if (next.origin !== new URL(current).origin) {
+        headers.delete("authorization");
+        headers.delete("cookie");
+        headers.delete("proxy-authorization");
       }
       current = next.toString();
 

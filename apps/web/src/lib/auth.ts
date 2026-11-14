@@ -3,7 +3,6 @@ import { dash } from "@better-auth/infra";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { bearer, deviceAuthorization, magicLink } from "better-auth/plugins";
-import { Resend } from "resend";
 import {
   DEFAULT_LANGUAGE,
   SUPPORTED_CODES,
@@ -21,7 +20,7 @@ import {
   userRelations,
   verification,
 } from "./auth-schema";
-import { getEmailBinding } from "./cloudflare-email";
+import { getEmailBinding, getEmailFrom } from "./cloudflare-email";
 import { db } from "./db";
 import { deviceSessionCookie } from "./device-session-cookie";
 
@@ -67,6 +66,16 @@ export const auth = betterAuth({
     "https://www.hackw.tech",
     "https://onevid.hackw.tech",
   ],
+  // Better Auth desactiva su limitador si NODE_ENV no es "production" al
+  // cargar el módulo. El Worker no declara NODE_ENV, así que lo forzamos:
+  // las reglas de /sign-in/magic-link (5/60 s) y del resto de /api/auth
+  // deben existir siempre. Sigue siendo per-isolate; la regla de borde de
+  // Cloudflare es la capa distribuida.
+  rateLimit: {
+    enabled: true,
+    window: 60,
+    max: 100,
+  },
   advanced: {
     ipAddress: {
       ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for"],
@@ -115,7 +124,7 @@ export const auth = betterAuth({
           email,
           locale
         );
-        const from = process.env.RESEND_FROM ?? "";
+        const from = getEmailFrom();
         const emailBinding = getEmailBinding();
         if (emailBinding) {
           await emailBinding.send({
@@ -126,16 +135,14 @@ export const auth = betterAuth({
           });
           return;
         }
-        const resend = new Resend(process.env.RESEND_API_KEY ?? "");
-        const { error } = await resend.emails.send({
-          from,
-          to: email,
-          subject,
-          html,
-        });
-        if (error) {
-          throw new Error(error.message);
+        // Sin binding solo puede ser desarrollo local. Escribir el enlace en
+        // consola permite probar el login sin proveedor de correo; en
+        // producción es un error de configuración y se falla en voz alta.
+        if (process.env.NODE_ENV === "development") {
+          console.info(`[onevid] magic link (dev, sin EMAIL binding): ${url}`);
+          return;
         }
+        throw new Error("EMAIL binding no configurado");
       },
     }),
   ],

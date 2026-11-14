@@ -4,7 +4,8 @@ import { auth } from "@/lib/auth";
 import { oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
 import type { AddonCatalogRef } from "@/lib/onevid-feed";
-import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import { isSafeFetchUrl, safeFetch } from "@/utils/ssrf-guard";
 
 export const runtime = "nodejs";
@@ -226,7 +227,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "No autorizado" }, { status: 401 });
   }
 
-  const limited = checkRateLimit(
+  const limited = await checkRateLimitDb(
     `onevid-addons:${session.user.id}`,
     10,
     60_000

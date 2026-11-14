@@ -91,13 +91,13 @@ function isVisible(element: HTMLElement): boolean {
   );
 }
 
-function getVisibleFocusableElements(root: ParentNode): HTMLElement[] {
+function getVisibleFocusableElements(root: Document | HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
     .filter((element) => !element.matches("[disabled],[aria-disabled='true']"))
     .filter(isVisible);
 }
 
-function getActiveScope(activeElement: HTMLElement | null): ParentNode {
+function getActiveScope(activeElement: HTMLElement | null): Document | HTMLElement {
   const activeScope = activeElement?.closest<HTMLElement>(OVERLAY_SCOPE_SELECTOR);
   if (activeScope && isVisible(activeScope)) {
     return activeScope;

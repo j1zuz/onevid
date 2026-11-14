@@ -3,25 +3,26 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
-import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
-import { resolveTorboxRedirect } from "@/lib/torbox";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
+import { resolveDebridRedirect } from "@/lib/debrid-redirect";
 
 export const runtime = "nodejs";
 
-// Resuelve server-side la cadena de redirects de TorBox y devuelve la URL
+// Resuelve server-side la cadena de redirects del debrid y devuelve la URL
 // final del CDN, que el browser puede leer con `fetch()` (refleja ACAO + soporta
-// Range). El hop intermedio `api.torbox.app/requestdl?...&redirect=true` responde
-// el 307 con `Access-Control-Allow-Credentials: true` pero SIN `Access-Control-
-// Allow-Origin`, así que un `fetch()` cross-origin aborta ahí ("Failed to fetch")
-// antes de llegar al CDN. Lo saltamos del lado del server. Ver
-// `resolveTorboxRedirect` en src/lib/torbox.ts.
+// Range). TorBox (`requestdl?...&redirect=true`) y Real-Debrid (`/d/<id>`)
+// responden un 3xx SIN `Access-Control-Allow-Origin`, así que un `fetch()`
+// cross-origin aborta ahí ("Failed to fetch") antes de llegar al CDN. Lo
+// saltamos del lado del server. Ver `resolveDebridRedirect` en
+// src/lib/debrid-redirect.ts.
 export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
     return Response.json({ error: "No autorizado" }, { status: 401 });
   }
 
-  const limited = checkRateLimit(
+  const limited = await checkRateLimitDb(
     `stream-resolve:${session.user.id}`,
     60,
     60_000
@@ -40,9 +41,10 @@ export async function POST(request: Request) {
     return Response.json({ error: "url requerido" }, { status: 400 });
   }
 
-  // Solo se aceptan redirects de la API de TorBox o de los addons que el
-  // usuario tiene registrados. Sin esto, cualquier host con `/resolve/torbox/`
-  // en el path convertiría esta ruta en un SSRF ciego genérico.
+  // Solo se aceptan redirects de las APIs de los proveedores debrid o de los
+  // addons que el usuario tiene registrados. Sin esto, cualquier host con
+  // `/resolve/torbox/` en el path convertiría esta ruta en un SSRF ciego
+  // genérico.
   const addons = await db
     .select({ baseUrl: oneVidAddon.baseUrl })
     .from(oneVidAddon)
@@ -57,7 +59,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const resolved = await resolveTorboxRedirect(url, { allowedHosts }).catch(
+  const resolved = await resolveDebridRedirect(url, { allowedHosts }).catch(
     () => null
   );
   if (!resolved) {

@@ -16,6 +16,7 @@ import { ContinueWatchingRow } from "@/components/stream/continue-watching-row";
 import { HeroCarousel } from "@/components/stream/hero-carousel";
 import { OneVidHeader } from "@/components/stream/onevid-header";
 import { ScrollTopFade } from "@/components/stream/scroll-top-fade";
+import type { DebridStatus } from "@/lib/debrid";
 import {
   type FeedSurface,
   type OneVidFeedRow,
@@ -60,12 +61,12 @@ function NoFeedResults() {
 
 interface OneVidPageClientProps {
   addons: OneVidAddonSummary[];
+  debrid: DebridStatus;
   discoverRows: OneVidFeedRow[];
   feedConfigured: boolean;
   feedRows: OneVidFeedRow[];
   /** Modo feed: filas ya renderizadas por el server, cada una con su Suspense. */
   feedRowsContent?: ReactNode;
-  hasTorboxKey: boolean;
   /** Hero destacado (trending película/serie), solo modo feed. */
   heroItems: MediaMeta[];
   /** Modo "Ver todo": grilla completa de una sola fila. */
@@ -81,11 +82,11 @@ interface OneVidPageClientProps {
 
 export function OneVidPageClient({
   addons,
+  debrid,
   discoverRows,
   feedConfigured,
   feedRows,
   feedRowsContent,
-  hasTorboxKey,
   heroItems,
   posters,
   postersAreTopTen = false,
@@ -127,11 +128,11 @@ export function OneVidPageClient({
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <OneVidHeader
-        discoverRows={discoverRows}
         addons={addons}
+        debrid={debrid}
+        discoverRows={discoverRows}
         feedConfigured={feedConfigured}
         feedRows={feedRows}
-        hasTorboxKey={hasTorboxKey}
         onMovieSelect={handleMovieSelect}
         surface={surface}
         setupCompleted={setupCompleted}

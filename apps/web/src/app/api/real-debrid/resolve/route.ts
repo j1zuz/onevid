@@ -1,0 +1,221 @@
+import { eq } from "drizzle-orm";
+import { headers } from "next/headers";
+import { auth } from "@/lib/auth";
+import { oneVid } from "@/lib/auth-schema";
+import { db } from "@/lib/db";
+import { resolveDebridRedirect } from "@/lib/debrid-redirect";
+import { LruTtlCache } from "@/lib/lru-ttl-cache";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
+import { resolveRealDebridStream } from "@/lib/real-debrid";
+import { readRealDebridKey } from "@/lib/secret-box";
+
+export const runtime = "nodejs";
+
+const DEFAULT_FINAL_URL_TTL_MS = 5 * 60 * 1000;
+// No servimos ni cacheamos un enlace que caduca en menos de este margen: el
+// player se quedaría con un 403 justo al empezar.
+const FINAL_URL_SAFETY_MARGIN_MS = 30_000;
+const FINAL_URL_CACHE_LIMIT = 100;
+// El player pide muchos rangos sobre la misma URL. Sin esta caché, cada rango
+// volvería a crear/listar el torrent en Real-Debrid. Es por instancia y por
+// usuario; la respuesta además se cachea en el browser.
+const finalUrlCache = new LruTtlCache<string, string>(FINAL_URL_CACHE_LIMIT);
+
+const PREPARING_WAIT_MS = 8_000;
+const PREPARING_POLL_MS = 2_500;
+const PREPARING_RETRY_AFTER_S = 6;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Los enlaces del CDN pueden llevar su caducidad en la query (`expires`, `exp`,
+ * ...). Si la conocemos, la caché no debe sobrevivirla: un 302 cacheado con un
+ * token muerto deja al player recibiendo 403 hasta que expire la entrada.
+ */
+function finalUrlTtlMs(rawUrl: string): number {
+  try {
+    const url = new URL(rawUrl);
+    for (const key of ["expires", "expire", "exp", "expires_at", "expiry"]) {
+      const raw = url.searchParams.get(key);
+      if (!raw) {
+        continue;
+      }
+      const numeric = Number(raw);
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        continue;
+      }
+      // Segundos (10 dígitos) o milisegundos (13 dígitos).
+      const expiresAt = numeric > 1e12 ? numeric : numeric * 1000;
+      const remaining = expiresAt - Date.now() - FINAL_URL_SAFETY_MARGIN_MS;
+      return remaining > 0
+        ? Math.min(DEFAULT_FINAL_URL_TTL_MS, remaining)
+        : 0;
+    }
+  } catch {
+    /* URL no parseable: se usa el TTL por defecto. */
+  }
+  return DEFAULT_FINAL_URL_TTL_MS;
+}
+
+function finalRedirectResponse(target: string, ttlMs: number): Response {
+  const maxAge = Math.max(0, Math.floor(ttlMs / 1000));
+  return new Response(null, {
+    status: 302,
+    headers: {
+      // `private` evita caches compartidas; `Vary` evita que otro perfil del
+      // mismo navegador reutilice un 302 con el token de este usuario.
+      "Cache-Control":
+        maxAge > 0 ? `private, max-age=${maxAge}` : "private, no-store",
+      Vary: "Cookie, Authorization",
+      Location: target,
+    },
+  });
+}
+
+export async function GET(request: Request) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session?.user?.id) {
+    return Response.json({ error: "No autorizado" }, { status: 401 });
+  }
+
+  // Esta ruta crea torrents en la cuenta de debrid del usuario, asi que no debe
+  // dispararse desde un enlace de otro sitio. Los reproductores propios y las
+  // apps nativas no mandan `Sec-Fetch-Site` (se permiten); una navegacion de
+  // otra web (`cross-site`) o de otro subdominio (`same-site`) si lo manda y se
+  // rechaza: con cookies SameSite=Lax, `same-site` tambien llevaria la sesion.
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") {
+    return Response.json({ error: "Origen no permitido" }, { status: 403 });
+  }
+
+  // Un GET con efecto (crea un torrent) solo debe venir del reproductor o de
+  // nuestro propio fetch de descarga. Un <img>/CSS/iframe same-origin no es
+  // intención del usuario: es contenido que otra persona pudo plantar en una
+  // sala o en un addon. Los clientes nativos no mandan Sec-Fetch-Dest.
+  const fetchDest = request.headers.get("sec-fetch-dest");
+  if (
+    fetchDest &&
+    fetchDest !== "video" &&
+    fetchDest !== "audio" &&
+    fetchDest !== "empty"
+  ) {
+    return Response.json({ error: "Origen no permitido" }, { status: 403 });
+  }
+
+  const limited = await checkRateLimitDb(
+    `real-debrid-resolve:${session.user.id}`,
+    30,
+    60_000
+  );
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
+
+  const url = new URL(request.url);
+  const hash = url.searchParams.get("hash")?.trim() ?? "";
+  const magnetParam = url.searchParams.get("magnet")?.trim() ?? "";
+  const redirectMode = url.searchParams.get("redirect") ?? "1";
+  const wantRedirect = redirectMode !== "0";
+  const wantFinalRedirect = redirectMode === "final";
+
+  if (!(hash || magnetParam)) {
+    return Response.json({ error: "hash o magnet requerido" }, { status: 400 });
+  }
+  if (magnetParam.length > 8192 || hash.length > 128) {
+    return Response.json({ error: "magnet inválido" }, { status: 400 });
+  }
+
+  const magnet =
+    magnetParam ||
+    `magnet:?xt=urn:btih:${encodeURIComponent(hash)}&dn=${encodeURIComponent(hash)}`;
+
+  const cacheKey = `${session.user.id}:${magnet}`;
+  if (wantFinalRedirect) {
+    const cached = finalUrlCache.get(cacheKey);
+    if (cached) {
+      const ttlMs = finalUrlTtlMs(cached);
+      if (ttlMs > 0) {
+        return finalRedirectResponse(cached, ttlMs);
+      }
+      finalUrlCache.delete(cacheKey);
+    }
+  }
+
+  const [row] = await db
+    .select({ realDebridApiKey: oneVid.realDebridApiKey })
+    .from(oneVid)
+    .where(eq(oneVid.userId, session.user.id))
+    .limit(1);
+
+  const apiKey = readRealDebridKey(row?.realDebridApiKey);
+  if (!apiKey) {
+    return Response.json(
+      { error: "Falta API key de Real-Debrid" },
+      { status: 400 }
+    );
+  }
+
+  let resolved = await resolveRealDebridStream({ apiKey, magnet }).catch(
+    () => null
+  );
+
+  // Poll corto: si RD todavía está preparando el archivo, esperamos un poco
+  // antes de contestar 202. Cada vuelta reutiliza el torrent ya creado (no se
+  // crean duplicados).
+  const waitUntil = Date.now() + PREPARING_WAIT_MS;
+  while (resolved?.status === "preparing" && Date.now() < waitUntil) {
+    await sleep(PREPARING_POLL_MS);
+    resolved = await resolveRealDebridStream({ apiKey, magnet }).catch(
+      () => null
+    );
+  }
+
+  if (!resolved || resolved.status === "unavailable") {
+    return Response.json(
+      { error: "No se pudo resolver el stream" },
+      { status: 502 }
+    );
+  }
+
+  if (resolved.status === "preparing") {
+    return Response.json(
+      {
+        error: "El debrid todavía está preparando el archivo",
+        progress: resolved.progress,
+        retryAfter: PREPARING_RETRY_AFTER_S,
+        state: resolved.state,
+        status: "preparing",
+      },
+      {
+        status: 202,
+        headers: { "Retry-After": String(PREPARING_RETRY_AFTER_S) },
+      }
+    );
+  }
+
+  const stream = resolved.stream;
+
+  if (wantRedirect) {
+    // `final` sigue la cadena de redirects en el servidor y manda al CDN
+    // directo. Así el browser (o mediabunny con Range) no choca con el hop de
+    // `real-debrid.com/d/...`, que no refleja ACAO.
+    if (wantFinalRedirect) {
+      const target =
+        (await resolveDebridRedirect(stream.url).catch(() => null)) ??
+        stream.url;
+      const ttlMs = finalUrlTtlMs(target);
+      finalUrlCache.set(cacheKey, target, ttlMs);
+      return finalRedirectResponse(target, ttlMs);
+    }
+    return Response.redirect(stream.url, 302);
+  }
+
+  // Modo JSON (apps nativas): se resuelve el redirect en el servidor para no
+  // devolver al cliente una URL que el browser no puede seguir por CORS.
+  const directUrl =
+    (await resolveDebridRedirect(stream.url).catch(() => null)) ?? stream.url;
+  return Response.json({
+    url: directUrl,
+    fileName: stream.fileName,
+    fileSize: stream.fileSize,
+  });
+}

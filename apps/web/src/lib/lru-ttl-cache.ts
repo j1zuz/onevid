@@ -34,7 +34,8 @@ export class LruTtlCache<K, V> {
 
   /**
    * Devuelve el valor si sigue fresco. Un acierto refresca la recencia; una
-   * entrada expirada se deja en el mapa (sin refrescar) para `allowStale`.
+   * entrada expirada se elimina del mapa salvo que el llamador pida
+   * explícitamente `allowStale` (fallback a copia vieja).
    */
   get(key: K, options: LruTtlCacheGetOptions = {}): V | null {
     const entry = this.entries.get(key);
@@ -42,14 +43,16 @@ export class LruTtlCache<K, V> {
       return null;
     }
     const fresh = entry.expiresAt > Date.now();
-    if (!fresh && !options.allowStale) {
-      return null;
+    if (!fresh) {
+      if (!options.allowStale) {
+        this.entries.delete(key);
+        return null;
+      }
+      return entry.value;
     }
-    if (fresh) {
-      // Map preserva el orden de inserción: borrar + insertar mueve al final.
-      this.entries.delete(key);
-      this.entries.set(key, entry);
-    }
+    // Map preserva el orden de inserción: borrar + insertar mueve al final.
+    this.entries.delete(key);
+    this.entries.set(key, entry);
     return entry.value;
   }
 

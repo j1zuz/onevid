@@ -33,6 +33,10 @@ import { auth } from "@/lib/auth";
 import { oneVid, oneVidAddon, oneVidProfile } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
 import {
+  type DebridStatus,
+  resolveActiveDebridProvider,
+} from "@/lib/debrid";
+import {
   DEFAULT_DISCOVER_ROWS,
   DEFAULT_FEED_ROWS,
   FEED_ROW_ITEM_LIMIT,
@@ -55,8 +59,9 @@ import {
   getNetworkOptions,
   getTmdbLocale,
   getTmdbRegion,
+  isKidsSafeMedia,
   trendingAll,
-  trendingAllAtLeast,
+  trendingByTypeAtLeast,
   type MediaMeta,
   type NetworkOption,
   TmdbAuthError,
@@ -127,6 +132,9 @@ export default async function OneVidPage({
 
   const cookieStore = await cookies();
   const activeProfileId = cookieStore.get(ACTIVE_PROFILE_COOKIE)?.value ?? null;
+  const kids =
+    (profiles.find((profile) => profile.id === activeProfileId) ??
+      profiles[0])?.isKids === true;
   const verifiedProfileId =
     cookieStore.get(VERIFIED_PROFILE_COOKIE)?.value ?? null;
 
@@ -150,6 +158,7 @@ export default async function OneVidPage({
         }
       >
         <OneVidContent
+          kids={kids}
           searchParams={searchParams}
           userId={session.user.id}
         />
@@ -170,9 +179,11 @@ async function FeedRowServer({
 }
 
 async function OneVidContent({
+  kids,
   searchParams,
   userId,
 }: {
+  kids: boolean;
   searchParams: SearchParams;
   userId: string;
 }) {
@@ -182,6 +193,8 @@ async function OneVidContent({
     searchParams,
     db
       .select({
+        debridProvider: oneVid.debridProvider,
+        realDebridApiKey: oneVid.realDebridApiKey,
         torboxApiKey: oneVid.torboxApiKey,
         setupCompleted: oneVid.setupCompleted,
         feedRows: oneVid.feedRows,
@@ -208,6 +221,16 @@ async function OneVidContent({
   // Token de lectura global del dueño; ningún usuario conecta su TMDB.
   const tmdbToken = getTmdbReadToken();
   const torboxKey = oneVidRow[0]?.torboxApiKey ?? null;
+  const realDebridKey = oneVidRow[0]?.realDebridApiKey ?? null;
+  const debrid: DebridStatus = {
+    hasTorbox: Boolean(torboxKey),
+    hasRealDebrid: Boolean(realDebridKey),
+    provider: resolveActiveDebridProvider({
+      preferred: oneVidRow[0]?.debridProvider,
+      hasTorbox: Boolean(torboxKey),
+      hasRealDebrid: Boolean(realDebridKey),
+    }),
+  };
   const setupCompleted = oneVidRow[0]?.setupCompleted ?? false;
   // `null` = nunca configuró el feed (columna NULL): el paso 2 sale sin
   // completar y /home usa el preset por defecto.
@@ -290,7 +313,7 @@ async function OneVidContent({
     discoverRows,
     feedConfigured,
     feedRows,
-    hasTorboxKey: Boolean(torboxKey),
+    debrid,
     setupCompleted,
     surface,
   };
@@ -345,7 +368,7 @@ async function OneVidContent({
                 discoverRows={discoverRows}
                 feedConfigured={feedConfigured}
                 feedRows={feedRows}
-                hasTorboxKey={Boolean(torboxKey)}
+                debrid={debrid}
                 initialAddons={addons}
                 setupCompleted={setupCompleted}
               />
@@ -368,7 +391,14 @@ async function OneVidContent({
   let postersTopTenRanks: Record<string, number> = {};
   let loadError: "auth" | "network" | null = null;
 
-  if (isAddonView) {
+  if (isAddonView && kids) {
+    posters = [];
+    viewAllTitle = getFeedRowTitle(
+      { catalog: "addon", type: selectedType },
+      t,
+      "Contenido no disponible en modo infantil"
+    );
+  } else if (isAddonView) {
     // A diferencia de las filas de TMDB, un addon entrega su catálogo en una
     // sola respuesta: "Ver todo" reutiliza esa misma respuesta pidiendo más
     // items (CATALOG_VIEW_ALL_ITEM_LIMIT) en vez de paginar.
@@ -409,22 +439,27 @@ async function OneVidContent({
   } else if (viewAll) {
     try {
       if (selectedCatalog === "trending" && !selectedNetwork) {
-        // Un solo fetch del Top mixto: la grilla filtra por tipo y el Top 10 se
-        // deriva de la misma lista, en vez de pedir las páginas dos veces.
-        const trendingItems = await trendingAllAtLeast(
-          token,
-          tmdbLocale,
-          VIEW_ALL_MIN_ITEMS
-        );
-        posters = trendingItems.filter((item) => item.type === selectedType);
+        // La grilla necesita 100 items del tipo pedido. El ranking global
+        // (películas + series, de donde salen los badges Top 10) mezcla tipos,
+        // así que filtrar 100 resultados mixtos dejaba solo ~50: pedimos las
+        // páginas necesarias y derivamos los ranks de la primera.
+        const [trendingItems, ranking] = await Promise.all([
+          trendingByTypeAtLeast(
+            token,
+            tmdbLocale,
+            selectedType,
+            VIEW_ALL_MIN_ITEMS
+          ),
+          trendingAll(token, tmdbLocale),
+        ]);
+        posters = trendingItems;
         postersTopTenRanks = Object.fromEntries(
-          trendingItems.slice(0, 10).map((item, index) => [
-            `${item.type}-${item.id}`,
-            index + 1,
-          ])
+          ranking
+            .slice(0, 10)
+            .map((item, index) => [`${item.type}-${item.id}`, index + 1])
         );
       } else {
-        posters = await fetchCatalogResultsAtLeast(
+        const catalogItems = await fetchCatalogResultsAtLeast(
           {
             catalog: selectedCatalog,
             network: selectedNetwork,
@@ -435,6 +470,7 @@ async function OneVidContent({
           },
           VIEW_ALL_MIN_ITEMS
         );
+        posters = kids ? catalogItems.filter(isKidsSafeMedia) : catalogItems;
       }
       viewAllTitle = getFeedRowTitle(
         {
@@ -506,6 +542,7 @@ async function OneVidContent({
     const rowDeps: ResolveFeedSectionOptions = {
       addonsById,
       itemsPerRow: FEED_ROW_ITEM_LIMIT,
+      kids,
       liveSourcesById,
       networksById,
       t,
@@ -528,7 +565,9 @@ async function OneVidContent({
     // sirve de sonda de auth (mismo token que las filas). Un token muerto lleva
     // al stepper; si no, se transmiten las filas.
     const heroResult = await resolveHero({ tmdbLocale, tmdbRegion, token });
-    heroItems = heroResult.hero;
+    heroItems = kids
+      ? heroResult.hero.filter(isKidsSafeMedia)
+      : heroResult.hero;
     if (heroResult.authFailed) {
       loadError = "auth";
     } else {
@@ -553,7 +592,7 @@ async function OneVidContent({
                 discoverRows={discoverRows}
                 feedConfigured={feedConfigured}
                 feedRows={feedRows}
-                hasTorboxKey={Boolean(torboxKey)}
+                debrid={debrid}
                 initialAddons={addons}
                 setupCompleted={false}
               />
@@ -591,7 +630,7 @@ async function OneVidContent({
         feedConfigured={feedConfigured}
         feedRows={feedRows}
         feedRowsContent={feedRowsContent}
-        hasTorboxKey={Boolean(torboxKey)}
+        debrid={debrid}
         heroItems={heroItems}
         posters={posters}
         postersTopTenRanks={postersTopTenRanks}

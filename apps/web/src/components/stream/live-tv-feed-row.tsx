@@ -107,7 +107,7 @@ export function LiveTvFeedRow({ section }: { section: FeedSection }) {
     })
       .then((response) => {
         if (!response.ok) throw new Error("Live TV unavailable");
-        return response.json();
+        return response.json() as Promise<{ channels?: LiveTvChannel[] }>;
       })
       .then((data: { channels?: LiveTvChannel[] }) => {
         if (!active) return;

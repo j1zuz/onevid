@@ -310,6 +310,7 @@ export default function DetailPage() {
     router.push({
       pathname: '/player',
       params: {
+        from: 'app',
         title: meta?.name ?? '',
         background: artParams.background,
         poster: artParams.poster,
@@ -333,6 +334,7 @@ export default function DetailPage() {
       router.push({
         pathname: '/player',
         params: {
+          from: 'app',
           title: meta?.name ?? '',
           background: artParams.background,
           poster: artParams.poster,

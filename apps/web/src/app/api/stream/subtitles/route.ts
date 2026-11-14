@@ -2,10 +2,12 @@ import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { parseAddonStreamId } from "@/lib/addon-media";
 import { auth } from "@/lib/auth";
+import { activeProfileIsKids } from "@/lib/onevid-profile";
 import { oneVidAddon } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
 import { getTmdbReadToken } from "@/lib/onevid-tmdb";
-import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import { findImdbId } from "@/lib/tmdb";
 import type { StreamType } from "@/types/stream";
 import { safeFetch } from "@/utils/ssrf-guard";
@@ -124,6 +126,16 @@ async function fetchAddonSubtitles(
       if (!(url && lang)) {
         continue;
       }
+      // La URL va directa al `<track src>`; un addon no debe poder colar
+      // `javascript:`, `data:` ni esquemas raros en el reproductor.
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+          continue;
+        }
+      } catch {
+        continue;
+      }
       // La URL va directa al `<track>`, sin pasar por un proxy propio. A
       // cambio, la pista solo carga si el servidor del addon refleja CORS y
       // sirve WebVTT: un SRT o una respuesta sin `Access-Control-Allow-Origin`
@@ -147,12 +159,13 @@ export async function POST(request: Request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const limited = checkRateLimit(
+    const limited = await checkRateLimitDb(
       `stream-subtitles:${session.user.id}`,
       60,
       60_000
     );
     if (!limited.ok) return rateLimitResponse(limited.retryAfter);
+  const kids = await activeProfileIsKids(session.user.id, request);
 
     let body: RequestBody = {};
     try {
@@ -169,6 +182,9 @@ export async function POST(request: Request) {
 
     // Subtítulos de un addon con id propio: sin pasar por IMDb.
     const addonRef = parseAddonStreamId(id);
+    if (addonRef && kids) {
+      return Response.json({ error: "kids_restricted" }, { status: 403 });
+    }
     if (addonRef) {
       const [addon] = await db
         .select({ baseUrl: oneVidAddon.baseUrl })

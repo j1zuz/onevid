@@ -33,10 +33,12 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--normal-bg": "var(--popover)",
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
-          "--border-radius": "var(--radius)",
+          "--border-radius": "9999px",
+          "--width": "min(27rem, calc(100vw - 2rem))",
         } as React.CSSProperties
       }
       toastOptions={{
+        actionButtonStyle: { borderRadius: "var(--radius-4xl)" },
         classNames: {
           toast: "cn-toast",
         },

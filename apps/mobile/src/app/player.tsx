@@ -81,6 +81,7 @@ import {
   resolveStreamUrl,
   STREAM_REDIRECT_TIMEOUT_MS,
   STREAM_UA,
+  validatePlayerUrl,
 } from '@/lib/stream-url';
 import { bumpImageGeneration } from '@/lib/image-refresh';
 import { VLC_OPTIONS, VLC_OPTIONS_VOD } from '@/lib/vlc-options';
@@ -354,6 +355,7 @@ export default function PlayerScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     url: string;
+    from?: string;
     title?: string;
     background?: string;
     poster?: string;
@@ -438,8 +440,19 @@ export default function PlayerScreen() {
 
   // `rawUrl` es la URL cruda de la fuente que se está intentando reproducir. El
   // auto-fallback la reapunta a la siguiente fuente cuando una falla.
-  const [rawUrl, setRawUrl] = useState(params.url ?? '');
-  const [state, setState] = useState<ResolveState>({ kind: 'resolving' });
+  // Un deep link externo no trae `from=app`: no puede abrir /api/* con el
+  // Bearer del usuario ni archivos locales arbitrarios.
+  const initialSource = validatePlayerUrl(
+    params.url ?? '',
+    Array.isArray(params.from) ? params.from[0] : params.from,
+  );
+  const invalidInitialSource = Boolean(params.url) && !initialSource.ok;
+  const [rawUrl, setRawUrl] = useState(initialSource.url);
+  const [state, setState] = useState<ResolveState>(
+    invalidInitialSource
+      ? { kind: 'error', message: 'Enlace de reproducción no permitido.' }
+      : { kind: 'resolving' },
+  );
   // ¿La fuente actual la eligió el usuario a mano? Le damos más paciencia antes
   // de auto-saltar (respeta su elección). El auto-fallback lo pone en false.
   const [manualSource, setManualSource] = useState(false);

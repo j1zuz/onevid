@@ -8,7 +8,9 @@ import {
 } from "@/lib/auth-schema";
 import { PROFILE_AVATARS } from "@/lib/onevid-avatars";
 import { db } from "@/lib/db";
-import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { readProfileToken, verifyProfileToken } from "@/lib/profile-token";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import {
   createId,
   ensureWatchChannel,
@@ -28,7 +30,6 @@ class RoomFullError extends Error {
 }
 
 const ACTIVE_PROFILE_COOKIE = "onevid-active-profile";
-const VERIFIED_PROFILE_COOKIE = "onevid-verified-profile";
 
 /**
  * `image` de Stream a partir del avatar del perfil de onevid. Los stickers no
@@ -100,7 +101,7 @@ async function addMemberIfRoomHasSpace(params: {
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -113,7 +114,7 @@ export async function POST(
     return Response.json({ error: "Watch party inválida" }, { status: 400 });
   }
 
-  const limit = checkRateLimit(
+  const limit = await checkRateLimitDb(
     `watch-room-join:${session.user.id}`,
     60,
     60 * 1000
@@ -136,12 +137,11 @@ export async function POST(
   // eligió en su perfil.
   const cookieStore = await cookies();
   const profileId = cookieStore.get(ACTIVE_PROFILE_COOKIE)?.value ?? null;
-  const verifiedProfileId =
-    cookieStore.get(VERIFIED_PROFILE_COOKIE)?.value ?? null;
+  const profileToken = readProfileToken(request);
   // Igual que el provider de perfiles: si no hay cookie válida se usa el
   // perfil primario (el más antiguo), no la cuenta de hackw. Además, un perfil
-  // con PIN solo se usa si esta sesión lo verificó: una cookie de perfil activo
-  // no puede saltarse el bloqueo parental.
+  // con PIN solo se usa si esta sesión presentó un token firmado para él: la
+  // cookie de UI no puede saltarse el bloqueo parental.
   const profiles = await db
     .select({
       id: oneVidProfile.id,
@@ -153,12 +153,21 @@ export async function POST(
     .where(eq(oneVidProfile.userId, session.user.id))
     .orderBy(oneVidProfile.createdAt);
   const activeProfile = profiles.find((item) => item.id === profileId);
-  const verifiedProfile = profiles.find(
-    (item) => item.id === verifiedProfileId
-  );
+  const isProfileVerified = (item: {
+    id: string;
+    pinHash?: string | null;
+  }) =>
+    Boolean(item.pinHash) &&
+    verifyProfileToken(
+      profileToken,
+      session.user.id,
+      item.id,
+      item.pinHash as string
+    );
+  const verifiedProfile = profiles.find((item) => isProfileVerified(item));
   const profile =
     activeProfile &&
-    (!activeProfile.pinHash || activeProfile.id === verifiedProfileId)
+    (!activeProfile.pinHash || isProfileVerified(activeProfile))
       ? activeProfile
       : (verifiedProfile ??
         profiles.find((item) => !item.pinHash) ??

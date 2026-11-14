@@ -6,6 +6,7 @@ import {
   resolveActiveProfile,
   type SavedMediaKind,
 } from "@/lib/onevid-profile";
+import { readProfileToken } from "@/lib/profile-token";
 
 const NUMERIC_ID_RE = /^\d+$/;
 const MAX_IDS = 12;
@@ -59,12 +60,15 @@ export async function POST(request: Request) {
   }
 
   const profileId = request.headers.get("x-profile-id");
-  const resolved = await resolveActiveProfile(session.user.id, profileId);
+  const resolved = await resolveActiveProfile(session.user.id, profileId, readProfileToken(request));
   if (resolved.status === "no_profile") {
     return Response.json({ error: "no_profile" }, { status: 409 });
   }
   if (resolved.status === "invalid_profile") {
     return Response.json({ error: "invalid_profile" }, { status: 400 });
+  }
+  if (resolved.status === "pin_required") {
+    return Response.json({ error: "pin_required" }, { status: 403 });
   }
 
   const statuses = await listProfileSavedStatuses(

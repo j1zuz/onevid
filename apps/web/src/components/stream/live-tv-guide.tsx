@@ -244,7 +244,16 @@ export function LiveTvGuide({
       body: JSON.stringify({ mediaType: "live", ids: visibleSavedIds }),
       signal: controller.signal,
     })
-      .then((response) => (response.ok ? response.json() : null))
+      .then((response) =>
+        response.ok
+          ? (response.json() as Promise<{
+              statuses?: Record<
+                string,
+                { favorite: boolean; watchlist: boolean }
+              >;
+            }>)
+          : null
+      )
       .then(
         (
           data: {

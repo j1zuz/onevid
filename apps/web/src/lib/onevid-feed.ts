@@ -72,6 +72,7 @@ export interface FeedRowWithId extends OneVidFeedRow {
 
 /** Cada fila es (al menos) un request a TMDB, así que el feed tiene tope. */
 export const FEED_MAX_ROWS = 10;
+const FEED_MAX_ID_LENGTH = 200;
 
 /**
  * Pósters por fila en /home antes de "Ver todo". La fila es un carrusel
@@ -220,14 +221,20 @@ export function parseFeedRows(value: unknown): OneVidFeedRow[] | null {
 
     let row: OneVidFeedRow;
     if (type === "live") {
-      if (typeof liveSourceId !== "string" || !liveSourceId.trim()) {
+      if (
+        typeof liveSourceId !== "string" ||
+        !liveSourceId.trim() ||
+        liveSourceId.trim().length > FEED_MAX_ID_LENGTH
+      ) {
         continue;
       }
       row = {
         type: "live",
         catalog: "trending",
         liveSourceId: liveSourceId.trim(),
-        ...(typeof liveGroup === "string" && liveGroup.trim()
+        ...(typeof liveGroup === "string" &&
+        liveGroup.trim() &&
+        liveGroup.trim().length <= FEED_MAX_ID_LENGTH
           ? { liveGroup: liveGroup.trim() }
           : {}),
       };
@@ -235,8 +242,10 @@ export function parseFeedRows(value: unknown): OneVidFeedRow[] | null {
       catalog === "addon" &&
       typeof addonId === "string" &&
       addonId.trim() &&
+      addonId.trim().length <= FEED_MAX_ID_LENGTH &&
       typeof addonCatalogId === "string" &&
-      addonCatalogId.trim()
+      addonCatalogId.trim() &&
+      addonCatalogId.trim().length <= FEED_MAX_ID_LENGTH
     ) {
       row = {
         type,

@@ -32,6 +32,10 @@ import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { useTranslation } from "@/lib/onevid-i18n-context";
+import {
+  clearPlaybackHandoff,
+  clearPwaPageCache,
+} from "@/lib/pwa-cache";
 import { OneVidProfileAvatar } from "./onevid-profile-avatar";
 import {
   type OneVidProfile,
@@ -73,6 +77,10 @@ export function OneVidProfileSwitcher() {
     await authClient.signOut({
       fetchOptions: {
         onSuccess: () => {
+          // Sin esto, una navegación offline después del logout podría servir
+          // el HTML cacheado de la cuenta anterior.
+          void clearPwaPageCache();
+    clearPlaybackHandoff();
           router.push("/");
           router.refresh();
         },

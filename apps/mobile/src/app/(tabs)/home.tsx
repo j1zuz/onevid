@@ -141,6 +141,7 @@ export default function HomeTab() {
     router.push({
       pathname: '/player',
       params: {
+        from: 'app',
         title: item.name,
         background: item.background,
         poster: item.poster,

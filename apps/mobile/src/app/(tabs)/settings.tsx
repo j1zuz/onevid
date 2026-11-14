@@ -27,6 +27,7 @@ import {
   loadActiveProfile,
   type Profile,
 } from '@/lib/profiles';
+import { queryClient } from '@/lib/query';
 import { COLORS } from '@/lib/theme';
 
 interface SessionUser {
@@ -131,6 +132,11 @@ export default function SettingsTab() {
     setUser(null);
     setProfile(null);
     router.replace('/welcome');
+
+    // La caché de React Query es module-scope y sobrevive al logout: feed,
+    // Live TV y watch-providers de la cuenta anterior no deben quedar
+    // disponibles para la siguiente. SecureStore se limpia en paralelo.
+    queryClient.clear();
 
     // La limpieza persiste en segundo plano mientras la bienvenida ya está
     // visible. Se refresca la superficie al terminar para que el estado global

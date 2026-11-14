@@ -9,6 +9,10 @@ import {
   useMemo,
   useState,
 } from "react";
+import {
+  clearPlaybackHandoff,
+  clearPwaPageCache,
+} from "@/lib/pwa-cache";
 import { OneVidProfileGate } from "./onevid-profile-gate";
 
 export interface OneVidProfile {
@@ -92,7 +96,7 @@ const OneVidProfileContext = createContext<OneVidProfileContextValue | null>(
 // user had already picked. 30 days mirrors how consumer streaming apps remember
 // who's watching on a personal device.
 export const ACTIVE_PROFILE_COOKIE = "onevid-active-profile";
-export const VERIFIED_PROFILE_COOKIE = "onevid-verified-profile";
+export const VERIFIED_PROFILE_COOKIE = "onevid-verified-profile-v2";
 const PROFILE_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 días, en segundos
 
 function writeProfileCookie(name: string, id: string) {
@@ -225,6 +229,9 @@ export function OneVidProfileProvider({
     setForcedOpen(false);
     writeProfileCookie(ACTIVE_PROFILE_COOKIE, id);
     writeProfileCookie(VERIFIED_PROFILE_COOKIE, id);
+    // Las páginas cacheadas por el SW pertenecen al perfil anterior.
+    void clearPwaPageCache();
+    clearPlaybackHandoff();
   }, []);
 
   // "Salir del perfil": clears this session's verification (and, for future
@@ -235,6 +242,8 @@ export function OneVidProfileProvider({
     setForcedOpen(true);
     clearProfileCookie(ACTIVE_PROFILE_COOKIE);
     clearProfileCookie(VERIFIED_PROFILE_COOKIE);
+    void clearPwaPageCache();
+    clearPlaybackHandoff();
   }, []);
 
   const refresh = useCallback(async () => {

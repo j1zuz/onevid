@@ -1,6 +1,8 @@
 import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import {
   getProfileProgress,
   listProfileProgress,
@@ -10,6 +12,7 @@ import {
   type SavedMediaType,
   setProfileProgress,
 } from "@/lib/onevid-profile";
+import { readProfileToken } from "@/lib/profile-token";
 import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { getServerT } from "@/lib/server-t";
 import {
@@ -27,14 +30,19 @@ export async function GET(request: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
+  const limited = await checkRateLimitDb(`progress:${session.user.id}`, 60, 60_000);
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
 
   const profileId = request.headers.get("x-profile-id");
-  const resolved = await resolveActiveProfile(session.user.id, profileId);
+  const resolved = await resolveActiveProfile(session.user.id, profileId, readProfileToken(request));
   if (resolved.status === "no_profile") {
     return NextResponse.json({ error: "no_profile" }, { status: 409 });
   }
   if (resolved.status === "invalid_profile") {
     return NextResponse.json({ error: "invalid_profile" }, { status: 400 });
+  }
+  if (resolved.status === "pin_required") {
+    return NextResponse.json({ error: "pin_required" }, { status: 403 });
   }
 
   const params = request.nextUrl.searchParams;
@@ -137,6 +145,8 @@ export async function POST(request: Request) {
   if (!session?.user?.id) {
     return Response.json({ error: "No autorizado" }, { status: 401 });
   }
+  const limited = await checkRateLimitDb(`progress:${session.user.id}`, 60, 60_000);
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
 
   let input: ProgressInput;
   try {
@@ -193,12 +203,15 @@ export async function POST(request: Request) {
   }
 
   const profileId = request.headers.get("x-profile-id");
-  const resolved = await resolveActiveProfile(session.user.id, profileId);
+  const resolved = await resolveActiveProfile(session.user.id, profileId, readProfileToken(request));
   if (resolved.status === "no_profile") {
     return Response.json({ error: "no_profile" }, { status: 409 });
   }
   if (resolved.status === "invalid_profile") {
     return Response.json({ error: "invalid_profile" }, { status: 400 });
+  }
+  if (resolved.status === "pin_required") {
+    return Response.json({ error: "pin_required" }, { status: 403 });
   }
 
   await setProfileProgress(resolved.profile.id, input);

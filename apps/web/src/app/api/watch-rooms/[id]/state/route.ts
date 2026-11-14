@@ -3,7 +3,8 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { watchRoom, watchRoomState } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
-import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import { getWatchRoom } from "@/lib/watch-party";
 
 const MAX_POSITION_SEC = 24 * 60 * 60;
@@ -32,7 +33,7 @@ export async function PATCH(
     );
   }
 
-  const limit = checkRateLimit(
+  const limit = await checkRateLimitDb(
     `watch-room-state:${session.user.id}`,
     120,
     60 * 1000

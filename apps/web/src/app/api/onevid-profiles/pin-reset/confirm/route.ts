@@ -4,6 +4,8 @@ import {
   clearPrimaryProfilePin,
   consumePinResetCode,
 } from "@/lib/onevid-profile";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 
 // Verifies the emailed code and, on success, removes the primary profile's lock.
 export async function POST(request: Request) {
@@ -11,6 +13,13 @@ export async function POST(request: Request) {
   if (!session?.user?.id) {
     return Response.json({ error: "No autorizado" }, { status: 401 });
   }
+
+  const limited = await checkRateLimitDb(
+    `pin-reset-confirm:${session.user.id}`,
+    10,
+    60_000
+  );
+  if (!limited.ok) return rateLimitResponse(limited.retryAfter);
 
   let code: string;
   try {

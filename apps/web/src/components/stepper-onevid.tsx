@@ -32,6 +32,11 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { SetupFeedStep } from "@/components/stepper-onevid-feed-step";
 import { SetupLiveTvSources } from "@/components/stepper-onevid-live-tv";
+import {
+  DEBRID_PROVIDER_NAMES,
+  type DebridProvider,
+  type DebridStatus,
+} from "@/lib/debrid";
 import type { AddonCatalogRef, OneVidFeedRow } from "@/lib/onevid-feed";
 
 // El indicador numerado repite el mismo set de variantes en los 3 pasos.
@@ -51,11 +56,12 @@ export interface OneVidAddonSummary {
 interface SetupStepperProps {
   /** Filas de Descubrir, o su preset por defecto. */
   discoverRows: OneVidFeedRow[];
+  /** Estado de los proveedores debrid y cuál resuelve los magnets. */
+  debrid: DebridStatus;
   /** True cuando el usuario ya guardó su feed alguna vez (columna no NULL). */
   feedConfigured: boolean;
   /** Filas guardadas, o el preset por defecto si aún no configuró nada. */
   feedRows: OneVidFeedRow[];
-  hasTorboxKey: boolean;
   initialAddons: OneVidAddonSummary[];
   setupCompleted: boolean;
 }
@@ -64,7 +70,7 @@ export function SetupStepper({
   discoverRows,
   feedConfigured,
   feedRows,
-  hasTorboxKey,
+  debrid,
   setupCompleted,
   initialAddons,
 }: SetupStepperProps) {
@@ -81,8 +87,17 @@ export function SetupStepper({
   const [torboxKeyValue, setTorboxKeyValue] = useState("");
   const [torboxSaving, setTorboxSaving] = useState(false);
   const [torboxError, setTorboxError] = useState("");
-  const [torboxSaved, setTorboxSaved] = useState(hasTorboxKey);
-  const [removingTorbox, setRemovingTorbox] = useState(false);
+  const [torboxSaved, setTorboxSaved] = useState(debrid.hasTorbox);
+  const [realDebridKeyValue, setRealDebridKeyValue] = useState("");
+  const [realDebridSaving, setRealDebridSaving] = useState(false);
+  const [realDebridError, setRealDebridError] = useState("");
+  const [realDebridSaved, setRealDebridSaved] = useState(
+    debrid.hasRealDebrid
+  );
+  // Proveedor que resuelve los magnets. Arranca con el activo guardado.
+  const [provider, setProvider] = useState<DebridProvider>(debrid.provider);
+  const [removingDebrid, setRemovingDebrid] = useState(false);
+  const [editingDebrid, setEditingDebrid] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState("");
 
@@ -108,51 +123,105 @@ export function SetupStepper({
     prevFeedSaved.current = feedSaved;
   }, [feedSaved, activeStep]);
 
-  async function handleSaveTorboxKey() {
-    const trimmed = torboxKeyValue.trim();
+  function providerSaved(target: DebridProvider): boolean {
+    return target === "torbox" ? torboxSaved : realDebridSaved;
+  }
+
+  async function handleSelectProvider(next: DebridProvider) {
+    setProvider(next);
+    setEditingDebrid(false);
+    // Cambiar de proveedor solo persiste si ese proveedor ya tiene key; si no,
+    // el POST de la key lo marcará como activo al guardarla.
+    if (!providerSaved(next)) {
+      return;
+    }
+    try {
+      await fetch("/api/debrid-provider", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: next }),
+      });
+      router.refresh();
+    } catch {
+      /* la preferencia es cosmética hasta que falle un play; no bloquea */
+    }
+  }
+
+  async function handleSaveDebridKey(target: DebridProvider) {
+    const endpoint =
+      target === "torbox" ? "/api/torbox-key" : "/api/real-debrid-key";
+    const value =
+      target === "torbox" ? torboxKeyValue : realDebridKeyValue;
+    const setSaving =
+      target === "torbox" ? setTorboxSaving : setRealDebridSaving;
+    const setError =
+      target === "torbox" ? setTorboxError : setRealDebridError;
+    const setSaved =
+      target === "torbox" ? setTorboxSaved : setRealDebridSaved;
+    const clearValue =
+      target === "torbox" ? setTorboxKeyValue : setRealDebridKeyValue;
+    const trimmed = value.trim();
     if (!trimmed) {
       return;
     }
-    setTorboxSaving(true);
-    setTorboxError("");
+    setSaving(true);
+    setError("");
     try {
-      const res = await fetch("/api/torbox-key", {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: trimmed }),
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setTorboxError(data.error || "Error al guardar la API key");
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(data.error || "Error al guardar la API key");
         return;
       }
-      setTorboxSaved(true);
-      setTorboxKeyValue("");
+      setSaved(true);
+      setProvider(target);
+      setEditingDebrid(false);
+      clearValue("");
       router.refresh();
     } catch {
-      setTorboxError("Error de conexión");
+      setError("Error de conexión");
     } finally {
-      setTorboxSaving(false);
+      setSaving(false);
     }
   }
 
-  async function handleRemoveTorboxKey() {
-    setRemovingTorbox(true);
-    setTorboxError("");
+  async function handleRemoveDebridKey(target: DebridProvider) {
+    const endpoint =
+      target === "torbox" ? "/api/torbox-key" : "/api/real-debrid-key";
+    const setError =
+      target === "torbox" ? setTorboxError : setRealDebridError;
+    const setSaved =
+      target === "torbox" ? setTorboxSaved : setRealDebridSaved;
+    const clearValue =
+      target === "torbox" ? setTorboxKeyValue : setRealDebridKeyValue;
+    setRemovingDebrid(true);
+    setError("");
     try {
-      const res = await fetch("/api/torbox-key", { method: "DELETE" });
+      const res = await fetch(endpoint, { method: "DELETE" });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setTorboxError(data.error || "Error al eliminar la API key");
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(data.error || "Error al eliminar la API key");
         return;
       }
-      setTorboxSaved(false);
-      setTorboxKeyValue("");
+      setSaved(false);
+      clearValue("");
+      setEditingDebrid(false);
+      // El servidor mueve el proveedor activo al otro si existe; reflejarlo
+      // sin esperar al refresh evita un selector mintiendo.
+      const other: DebridProvider =
+        target === "torbox" ? "realdebrid" : "torbox";
+      if (provider === target && providerSaved(other)) {
+        setProvider(other);
+      }
       router.refresh();
     } catch {
-      setTorboxError("Error de conexión");
+      setError("Error de conexión");
     } finally {
-      setRemovingTorbox(false);
+      setRemovingDebrid(false);
     }
   }
 
@@ -195,7 +264,7 @@ export function SetupStepper({
         method: "DELETE",
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
         setAddonError(data.error || "Error al eliminar");
         return;
       }
@@ -222,7 +291,7 @@ export function SetupStepper({
         method: "POST",
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
         setFinishError(data.error || "Error al finalizar la configuración");
         return;
       }
@@ -269,7 +338,11 @@ export function SetupStepper({
           <StepperSeparator className="group-data-[state=completed]/step:bg-primary" />
         </StepperItem>
 
-        <StepperItem completed={torboxSaved} loading={torboxSaving} step={3}>
+        <StepperItem
+          completed={torboxSaved || realDebridSaved}
+          loading={torboxSaving || realDebridSaving}
+          step={3}
+        >
           <StepperTrigger>
             <StepperIndicator className={STEP_INDICATOR_CLASS}>
               3
@@ -291,7 +364,7 @@ export function SetupStepper({
 
         <StepperContent value={2}>
           {!addonsEditMode ? (
-            <div className="flex items-center justify-between gap-2 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-green-500/30 bg-green-500/5 px-3 py-2">
               <div className="flex items-center gap-2">
                 <CircleCheck className="size-3.5 fill-primary text-primary-foreground" />
                 <span className="font-medium text-xs">
@@ -425,12 +498,45 @@ export function SetupStepper({
 
         <StepperContent value={3}>
           <div className="space-y-3">
-            {torboxSaved ? (
-              <div className="flex items-center justify-between gap-2 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
+            {/* Dos proveedores, una sola elección activa: los magnets se
+                resuelven con el seleccionado. Guardar una key activa su
+                proveedor automáticamente. */}
+            <div
+              aria-label="Proveedor debrid"
+              className="grid grid-cols-2 gap-1 rounded-2xl border bg-muted/30 p-1"
+              role="group"
+            >
+              {(["torbox", "realdebrid"] as const).map((kind) => {
+                const active = provider === kind;
+                return (
+                  <button
+                    aria-pressed={active}
+                    className={`flex items-center justify-center gap-1.5 rounded-xl px-2 py-1.5 font-medium text-xs transition-colors ${
+                      active
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    key={kind}
+                    onClick={() => void handleSelectProvider(kind)}
+                    type="button"
+                  >
+                    {DEBRID_PROVIDER_NAMES[kind]}
+                    {providerSaved(kind) && (
+                      <CircleCheck
+                        className={`size-3 ${active ? "fill-primary-foreground text-primary" : "text-primary"}`}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {providerSaved(provider) && !editingDebrid ? (
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-green-500/30 bg-green-500/5 px-3 py-2">
                 <div className="flex items-center gap-2">
                   <CircleCheck className="size-3.5 fill-primary text-primary-foreground" />
                   <span className="font-medium text-xs">
-                    TorBox API configurada
+                    {DEBRID_PROVIDER_NAMES[provider]} API configurada
                   </span>
                 </div>
                 <DropdownMenu>
@@ -440,13 +546,13 @@ export function SetupStepper({
                     <EllipsisVerticalIcon className="size-3 text-muted-foreground" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-32">
-                    <DropdownMenuItem onClick={() => setTorboxSaved(false)}>
+                    <DropdownMenuItem onClick={() => setEditingDebrid(true)}>
                       <PencilIcon className="size-3" />
                       Editar
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      disabled={removingTorbox}
-                      onClick={handleRemoveTorboxKey}
+                      disabled={removingDebrid}
+                      onClick={() => void handleRemoveDebridKey(provider)}
                       variant="destructive"
                     >
                       <TrashIcon className="size-3" />
@@ -458,13 +564,17 @@ export function SetupStepper({
             ) : (
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-1.5">
-                  <Label className="text-xs" htmlFor="torbox-key">
-                    TorBox API Key
+                  <Label className="text-xs" htmlFor={`${provider}-key`}>
+                    {DEBRID_PROVIDER_NAMES[provider]} API Key
                   </Label>
                   <Badge variant="outline">Opcional</Badge>
                   <a
                     className="text-[0.65rem] text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                    href="https://torbox.app/settings"
+                    href={
+                      provider === "torbox"
+                        ? "https://torbox.app/settings"
+                        : "https://real-debrid.com/apitoken"
+                    }
                     rel="noopener noreferrer"
                     target="_blank"
                   >
@@ -474,25 +584,51 @@ export function SetupStepper({
                 <div className="flex gap-2">
                   <Input
                     className="h-8 text-xs"
-                    id="torbox-key"
-                    onChange={(e) => setTorboxKeyValue(e.target.value)}
-                    placeholder="tb_xxx..."
-                    value={torboxKeyValue}
+                    id={`${provider}-key`}
+                    onChange={(e) =>
+                      provider === "torbox"
+                        ? setTorboxKeyValue(e.target.value)
+                        : setRealDebridKeyValue(e.target.value)
+                    }
+                    placeholder={
+                      provider === "torbox"
+                        ? "tb_xxx..."
+                        : "token privado..."
+                    }
+                    value={
+                      provider === "torbox"
+                        ? torboxKeyValue
+                        : realDebridKeyValue
+                    }
                   />
                   <Button
                     className="btn-primary shrink-0"
-                    disabled={!torboxKeyValue.trim() || torboxSaving}
-                    onClick={handleSaveTorboxKey}
+                    disabled={
+                      !(provider === "torbox"
+                        ? torboxKeyValue
+                        : realDebridKeyValue
+                      ).trim() ||
+                      (provider === "torbox"
+                        ? torboxSaving
+                        : realDebridSaving)
+                    }
+                    onClick={() => void handleSaveDebridKey(provider)}
                     size="sm"
                   >
-                    {torboxSaving && (
+                    {(provider === "torbox"
+                      ? torboxSaving
+                      : realDebridSaving) && (
                       <LoaderIcon className="size-3 animate-spin" />
                     )}
-                    {torboxSaving ? "Guardando..." : "Guardar"}
+                    {(provider === "torbox" ? torboxSaving : realDebridSaving)
+                      ? "Guardando..."
+                      : "Guardar"}
                   </Button>
                 </div>
-                {torboxError && (
-                  <p className="text-destructive text-xs">{torboxError}</p>
+                {(provider === "torbox" ? torboxError : realDebridError) && (
+                  <p className="text-destructive text-xs">
+                    {provider === "torbox" ? torboxError : realDebridError}
+                  </p>
                 )}
               </div>
             )}
@@ -500,7 +636,7 @@ export function SetupStepper({
         </StepperContent>
       </StepperPanel>
 
-      {/* Todos los pasos (feed, complementos, TorBox) son opcionales: se puede
+      {/* Todos los pasos (feed, complementos, debrid) son opcionales: se puede
           finalizar sin configurar nada. Sin guardar el feed, /home usa
           DEFAULT_FEED_ROWS. */}
       {!setupCompleted && (

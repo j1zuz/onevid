@@ -168,7 +168,9 @@ export function parseXmltvAll(
 
 // Bound the total programme entries even before per-channel filtering: an
 // 8 MiB XMLTV can otherwise allocate an arbitrarily large map.
-const MAX_XMLTV_PROGRAMMES = 250_000;
+// Un guide de 8 MiB puede contener ~1.1e5 <programme>; el tope real debe ser
+// mucho menor porque el mapa parseado se cachea por isolate (4 entradas).
+const MAX_XMLTV_PROGRAMMES = 50_000;
 
 function parseXmltvDocument(
   text: string,

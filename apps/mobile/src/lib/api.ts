@@ -1,5 +1,5 @@
 import i18next from 'i18next';
-import { getActiveProfileId } from './active-profile';
+import { getActiveProfileId, getActiveProfileToken } from './active-profile';
 import { networkErrorKind, track } from './analytics';
 import {
   API_URL,
@@ -159,6 +159,12 @@ export async function apiFetch<T = unknown>(
   const profileId = getActiveProfileId();
   if (profileId && !headers.has('X-Profile-Id')) {
     headers.set('X-Profile-Id', profileId);
+  }
+  // Prueba firmada de que el perfil bloqueado se verificó. El servidor la
+  // exige para perfiles con PIN; sin ella, las rutas de datos devuelven 403.
+  const profileToken = getActiveProfileToken();
+  if (profileToken && !headers.has('X-Profile-Token')) {
+    headers.set('X-Profile-Token', profileToken);
   }
   // Idioma actual de la app: el backend lo usa para pedir a TMDB los títulos,
   // descripciones y carátulas en ese idioma (la web usa la cookie NEXT_LOCALE;

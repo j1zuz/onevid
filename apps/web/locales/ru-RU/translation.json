@@ -183,5 +183,7 @@
   "No hay descargas sin conexión.": "Нет офлайн-загрузок.",
   "Guardado hasta {{date}}": "Сохранено до {{date}}",
   "Temporada {{season}} · Episodio {{episode}}": "Сезон {{season}} · Эпизод {{episode}}",
-  "No se pudo eliminar la descarga.": "Не удалось удалить загрузку."
+  "No se pudo eliminar la descarga.": "Не удалось удалить загрузку.",
+  "Nueva actualización disponible": "Доступно новое обновление",
+  "Actualizar": "Обновить"
 }

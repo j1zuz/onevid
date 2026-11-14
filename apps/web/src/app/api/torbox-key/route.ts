@@ -3,8 +3,9 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { oneVid } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
-import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
-import { encryptSecret } from "@/lib/secret-box";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
+import { encryptSecret, encryptionAvailable } from "@/lib/secret-box";
 
 const MAX_TORBOX_KEY_LENGTH = 512;
 
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "No autorizado" }, { status: 401 });
   }
 
-  const limited = checkRateLimit(`torbox-key:${session.user.id}`, 10, 60_000);
+  const limited = await checkRateLimitDb(`torbox-key:${session.user.id}`, 10, 60_000);
   if (!limited.ok) return rateLimitResponse(limited.retryAfter);
 
   let key: string;
@@ -58,6 +59,15 @@ export async function POST(request: Request) {
     return Response.json({ error: "API key inválida" }, { status: 400 });
   }
 
+  // No se guarda una credencial si el cifrado no está configurado: el fallback
+  // de `encryptSecret` escribiría la key en claro en la base de datos.
+  if (!encryptionAvailable()) {
+    return Response.json(
+      { error: "El cifrado de credenciales no está configurado" },
+      { status: 500 }
+    );
+  }
+
   // Nunca se guarda en claro: el valor en BD lleva version + AES-256-GCM.
   const storedKey = encryptSecret(key);
 
@@ -72,13 +82,18 @@ export async function POST(request: Request) {
   if (existing) {
     await db
       .update(oneVid)
-      .set({ torboxApiKey: storedKey, updatedAt: now })
+      .set({
+        torboxApiKey: storedKey,
+        debridProvider: "torbox",
+        updatedAt: now,
+      })
       .where(eq(oneVid.id, existing.id));
   } else {
     await db.insert(oneVid).values({
       id: buildOneVidId(),
       userId: session.user.id,
       torboxApiKey: storedKey,
+      debridProvider: "torbox",
       createdAt: now,
       updatedAt: now,
     });
@@ -94,9 +109,21 @@ export async function DELETE() {
     return Response.json({ error: "No autorizado" }, { status: 401 });
   }
 
+  const [row] = await db
+    .select({ realDebridApiKey: oneVid.realDebridApiKey })
+    .from(oneVid)
+    .where(eq(oneVid.userId, session.user.id))
+    .limit(1);
+
   await db
     .update(oneVid)
-    .set({ torboxApiKey: null, updatedAt: new Date() })
+    .set({
+      torboxApiKey: null,
+      // Igual que al borrar la key de Real-Debrid: si había otra configurada,
+      // el proveedor activo cae en ella en vez de quedar vacío.
+      debridProvider: row?.realDebridApiKey ? "realdebrid" : null,
+      updatedAt: new Date(),
+    })
     .where(eq(oneVid.userId, session.user.id));
 
   return Response.json({ ok: true });

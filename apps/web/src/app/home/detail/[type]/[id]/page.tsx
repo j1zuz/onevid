@@ -22,6 +22,7 @@ import {
   fetchMovieDetail,
   fetchTvDetail,
   getTmdbLocale,
+  isKidsSafeMedia,
   isTmdbReleasedDate,
   type MediaMeta,
 } from "@/lib/tmdb";
@@ -98,6 +99,13 @@ async function StreamDetailContent({
     .where(eq(oneVidProfile.userId, session.user.id))
     .orderBy(oneVidProfile.createdAt);
 
+  const detailCookies = await cookies();
+  const activeProfileId =
+    detailCookies.get(ACTIVE_PROFILE_COOKIE)?.value ?? null;
+  const kids =
+    (profileRows.find((profile) => profile.id === activeProfileId) ??
+      profileRows[0])?.isKids === true;
+
   const tmdbToken = getTmdbReadToken();
 
   if (!tmdbToken) {
@@ -124,11 +132,16 @@ async function StreamDetailContent({
   if (meta.releaseDate && !isTmdbReleasedDate(meta.releaseDate)) {
     notFound();
   }
+  // Un perfil infantil no puede abrir por URL directa un título fuera de la
+  // allowlist de géneros (Animation/Family/Kids).
+  if (kids && !isKidsSafeMedia(meta)) {
+    notFound();
+  }
 
-  const cookieStore = await cookies();
-  const activeProfileId = cookieStore.get(ACTIVE_PROFILE_COOKIE)?.value ?? null;
   const verifiedProfileId =
-    cookieStore.get(VERIFIED_PROFILE_COOKIE)?.value ?? null;
+    detailCookies.get(VERIFIED_PROFILE_COOKIE)?.value ?? null;
+  // El provider de abajo sigue usando activeProfileId; el cookieStore local ya
+  // no hace falta.
 
   return (
     <main className="mx-auto flex h-dvh w-full max-w-7xl flex-1 flex-col overflow-hidden border-border border-x border-dashed bg-background px-4 pt-0 pb-6 md:px-6">
@@ -143,10 +156,10 @@ async function StreamDetailContent({
         <div className="flex h-full min-h-0 flex-1 flex-col">
           <OneVidHeader
             addons={[]}
+            debrid={{ hasTorbox: false, hasRealDebrid: false, provider: "torbox" }}
             discoverRows={[]}
             feedConfigured={false}
             feedRows={[]}
-            hasTorboxKey={false}
             setupCompleted={true}
           />
           <DetailScrollContainer>

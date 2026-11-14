@@ -19,6 +19,7 @@
         "foregroundImage": "./assets/images/onevid-icon.png",
         "monochromeImage": "./assets/images/onevid-transparent.png"
       },
+      "allowBackup": false,
       "predictiveBackGestureEnabled": false,
       "package": "tech.hackw.onevid"
     },

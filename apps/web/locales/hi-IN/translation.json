@@ -183,5 +183,7 @@
   "No hay descargas sin conexión.": "कोई ऑफ़लाइन डाउनलोड नहीं।",
   "Guardado hasta {{date}}": "{{date}} तक सहेजा गया",
   "Temporada {{season}} · Episodio {{episode}}": "सीज़न {{season}} · एपिसोड {{episode}}",
-  "No se pudo eliminar la descarga.": "डाउनलोड हटाया नहीं जा सका।"
+  "No se pudo eliminar la descarga.": "डाउनलोड हटाया नहीं जा सका।",
+  "Nueva actualización disponible": "नया अपडेट उपलब्ध है",
+  "Actualizar": "अपडेट करें"
 }

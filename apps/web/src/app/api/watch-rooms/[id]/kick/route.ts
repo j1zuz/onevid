@@ -3,7 +3,8 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { watchRoomMember } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
-import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { checkRateLimitDb } from "@/lib/rate-limit-db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import {
   getWatchRoom,
   getWatchRoomMember,
@@ -42,7 +43,7 @@ export async function POST(
     );
   }
 
-  const limit = checkRateLimit(
+  const limit = await checkRateLimitDb(
     `watch-room-kick:${session.user.id}`,
     30,
     60 * 1000

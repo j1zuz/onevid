@@ -347,7 +347,11 @@ function MovieDialogContent({
       `/api/tmdb-trailer?id=${encodeURIComponent(movie.id)}&type=${movie.type}`,
       { signal: controller.signal }
     )
-      .then((res) => (res.ok ? res.json() : { trailer: null }))
+      .then((res) =>
+        res.ok
+          ? (res.json() as Promise<{ trailer: string | null }>)
+          : { trailer: null }
+      )
       .then((data: { trailer: string | null }) => {
         setTrailerKey(data.trailer);
         setTrailerLoaded(true);
@@ -399,7 +403,11 @@ function MovieDialogContent({
         headers: { "X-Profile-Id": activeProfileId },
       }
     )
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) =>
+        res.ok
+          ? (res.json() as Promise<{ favorite?: boolean; watchlist?: boolean }>)
+          : null
+      )
       .then((data: { favorite?: boolean; watchlist?: boolean } | null) => {
         if (data) {
           setFavorite(Boolean(data.favorite));

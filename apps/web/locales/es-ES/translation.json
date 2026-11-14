@@ -280,5 +280,7 @@
   "No hay descargas sin conexión.": "No hay descargas sin conexión.",
   "Guardado hasta {{date}}": "Guardado hasta {{date}}",
   "Temporada {{season}} · Episodio {{episode}}": "Temporada {{season}} · Episodio {{episode}}",
-  "No se pudo eliminar la descarga.": "No se pudo eliminar la descarga."
+  "No se pudo eliminar la descarga.": "No se pudo eliminar la descarga.",
+  "Nueva actualización disponible": "Nueva actualización disponible",
+  "Actualizar": "Actualizar"
 }
