@@ -7,27 +7,34 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "channel": "development"
+      "channel": "development",
+      "env": { "APP_VARIANT": "development" }
     },
     "development-tv": {
       "extends": "development",
-      "env": { "EXPO_TV": "1" }
+      "env": { "EXPO_TV": "1", "APP_VARIANT": "development" }
     },
     "preview": {
       "distribution": "internal",
-      "channel": "preview"
+      "channel": "preview",
+      "env": { "APP_VARIANT": "development" }
     },
     "preview-tv": {
       "extends": "preview",
-      "env": { "EXPO_TV": "1" }
+      "env": { "EXPO_TV": "1", "APP_VARIANT": "development" }
     },
     "production": {
       "autoIncrement": true,
-      "channel": "production"
+      "channel": "production",
+      "env": { "APP_VARIANT": "production" }
     },
     "production-tv": {
       "extends": "production",
-      "env": { "EXPO_TV": "1" }
+      "env": { "EXPO_TV": "1", "APP_VARIANT": "production" }
+    },
+    "explore": {
+      "extends": "preview",
+      "android": { "buildType": "apk" }
     }
   },
   "submit": {

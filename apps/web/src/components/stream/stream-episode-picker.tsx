@@ -14,13 +14,9 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select";
 import { Skeleton } from "@workspace/ui/components/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
 import { CheckCircle2Icon, ListVideoIcon, Loader } from "lucide-react";
 import { useEffect, useState } from "react";
+import { PlayerTooltip } from "@/components/stream/player-tooltip";
 import type { NextEpisodeRef } from "@/components/stream/stream-next-episode";
 import { tmdbImage } from "@/lib/tmdb";
 import type { StreamWithAddon } from "@/types/stream";
@@ -143,21 +139,19 @@ export function StreamEpisodePicker({
 
   return (
     <>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              aria-label="Cambiar episodio"
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-              onClick={() => setOpen(true)}
-              type="button"
-            />
-          }
-        >
-          <ListVideoIcon className="size-5" />
-        </TooltipTrigger>
-        <TooltipContent>Episodios</TooltipContent>
-      </Tooltip>
+      <PlayerTooltip
+        label="Episodios"
+        trigger={
+          <button
+            aria-label="Cambiar episodio"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            onClick={() => setOpen(true)}
+            type="button"
+          />
+        }
+      >
+        <ListVideoIcon className="size-5" />
+      </PlayerTooltip>
 
       <Drawer onOpenChange={setOpen} open={open} swipeDirection="right">
         <DrawerContent>

@@ -2,13 +2,9 @@
 
 import { CheckCircle2Icon, DownloadIcon } from "lucide-react";
 import posthog from "posthog-js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { PlayerTooltip } from "@/components/stream/player-tooltip";
 import {
   type CancellableConversion,
   deleteOfflineMediaFile,
@@ -345,57 +341,55 @@ export function PlayerDownloadButton({
         ? `Preparando en debrid… ${Math.round(state.progress * 100)} %`
         : "Preparando en debrid…";
     return (
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              aria-label="Cancelar preparación en debrid"
-              className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-              onClick={cancel}
-              type="button"
-            />
-          }
-        >
-          <svg
-            aria-hidden="true"
-            className="absolute size-5 animate-spin"
-            viewBox={ICON_VIEW_BOX}
+      <PlayerTooltip
+        label={label}
+        trigger={
+          <button
+            aria-label="Cancelar preparación en debrid"
+            className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            onClick={cancel}
+            type="button"
           >
-            <circle
-              cx="12"
-              cy="12"
-              fill="none"
-              r={R}
-              stroke="rgba(255,255,255,0.45)"
-              strokeWidth={RING_STROKE}
-            />
-            <circle
-              cx="12"
-              cy="12"
-              fill="none"
-              r={R}
-              stroke="white"
-              strokeDasharray={`${C * 0.25} ${C}`}
-              strokeLinecap="round"
-              strokeWidth={RING_STROKE}
-            />
-          </svg>
-          {/* X en su propio SVG para que no gire con el anillo. */}
-          <svg
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 m-auto size-5"
-            viewBox={ICON_VIEW_BOX}
-          >
-            <path
-              d={CROSS_PATH}
-              stroke="white"
-              strokeLinecap="round"
-              strokeWidth="2"
-            />
-          </svg>
-        </TooltipTrigger>
-        <TooltipContent>{label}</TooltipContent>
-      </Tooltip>
+            <svg
+              aria-hidden="true"
+              className="absolute size-5 animate-spin"
+              viewBox={ICON_VIEW_BOX}
+            >
+              <circle
+                cx="12"
+                cy="12"
+                fill="none"
+                r={R}
+                stroke="rgba(255,255,255,0.45)"
+                strokeWidth={RING_STROKE}
+              />
+              <circle
+                cx="12"
+                cy="12"
+                fill="none"
+                r={R}
+                stroke="white"
+                strokeDasharray={`${C * 0.25} ${C}`}
+                strokeLinecap="round"
+                strokeWidth={RING_STROKE}
+              />
+            </svg>
+            {/* X en su propio SVG para que no gire con el anillo. */}
+            <svg
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 m-auto size-5"
+              viewBox={ICON_VIEW_BOX}
+            >
+              <path
+                d={CROSS_PATH}
+                stroke="white"
+                strokeLinecap="round"
+                strokeWidth="2"
+              />
+            </svg>
+          </button>
+        }
+      />
     );
   }
 
@@ -403,55 +397,51 @@ export function PlayerDownloadButton({
     const percent = Math.round(state.progress * 100);
     const offset = C - state.progress * C;
     return (
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              aria-label={`Cancelar guardado sin conexión (${percent}%)`}
-              className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-              onClick={cancel}
-              type="button"
-            />
-          }
-        >
-          <svg
-            aria-hidden="true"
-            className="-rotate-90 size-5"
-            viewBox={ICON_VIEW_BOX}
+      <PlayerTooltip
+        label={`Cancelar guardado sin conexión · ${percent}%`}
+        trigger={
+          <button
+            aria-label={`Cancelar guardado sin conexión (${percent}%)`}
+            className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            onClick={cancel}
+            type="button"
           >
-            <circle
-              cx="12"
-              cy="12"
-              fill="none"
-              r={R}
-              stroke="rgba(255,255,255,0.45)"
-              strokeWidth={RING_STROKE}
-            />
-            <circle
-              className="transition-all duration-300"
-              cx="12"
-              cy="12"
-              fill="none"
-              r={R}
-              stroke="white"
-              strokeDasharray={C}
-              strokeDashoffset={offset}
-              strokeLinecap="round"
-              strokeWidth={RING_STROKE}
-            />
-            {/* El porcentaje ya lo muestra el tooltip; dentro del anillo solo la X. */}
-            <path
-              d={CROSS_PATH}
-              stroke="white"
-              strokeLinecap="round"
-              strokeWidth="2"
-            />
-          </svg>
-        </TooltipTrigger>
-        <TooltipContent>
-          Cancelar guardado sin conexión · {percent}%
-        </TooltipContent>
-      </Tooltip>
+            <svg
+              aria-hidden="true"
+              className="-rotate-90 size-5"
+              viewBox={ICON_VIEW_BOX}
+            >
+              <circle
+                cx="12"
+                cy="12"
+                fill="none"
+                r={R}
+                stroke="rgba(255,255,255,0.45)"
+                strokeWidth={RING_STROKE}
+              />
+              <circle
+                className="transition-all duration-300"
+                cx="12"
+                cy="12"
+                fill="none"
+                r={R}
+                stroke="white"
+                strokeDasharray={C}
+                strokeDashoffset={offset}
+                strokeLinecap="round"
+                strokeWidth={RING_STROKE}
+              />
+              {/* El porcentaje ya lo muestra el tooltip; dentro del anillo solo la X. */}
+              <path
+                d={CROSS_PATH}
+                stroke="white"
+                strokeLinecap="round"
+                strokeWidth="2"
+              />
+            </svg>
+          </button>
+        }
+      />
     );
   }
 
@@ -462,46 +452,44 @@ export function PlayerDownloadButton({
       ? formatRemaining(state.expiresAt - Date.now())
       : null;
     return (
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              aria-disabled="true"
-              aria-label={
-                remaining
-                  ? `Guardado para ver sin conexión, le quedan ${remaining}`
-                  : "Guardado para ver sin conexión"
-              }
-              className="flex size-9 shrink-0 cursor-default items-center justify-center rounded-full bg-emerald-50 text-emerald-700 shadow-[0_0_0_2px_rgba(16,185,129,0.2)] backdrop-blur-sm dark:bg-emerald-950 dark:text-emerald-300"
-              type="button"
-            />
-          }
-        >
-          <CheckCircle2Icon className="size-5" />
-        </TooltipTrigger>
-        <TooltipContent>
-          Disponible sin conexión
-          {remaining ? ` · le quedan ${remaining}` : ""}
-        </TooltipContent>
-      </Tooltip>
+      <PlayerTooltip
+        label={
+          <>
+            Disponible sin conexión
+            {remaining ? ` · le quedan ${remaining}` : ""}
+          </>
+        }
+        trigger={
+          <button
+            aria-disabled="true"
+            aria-label={
+              remaining
+                ? `Guardado para ver sin conexión, le quedan ${remaining}`
+                : "Guardado para ver sin conexión"
+            }
+            className="flex size-9 shrink-0 cursor-default items-center justify-center rounded-full bg-emerald-50 text-emerald-700 shadow-[0_0_0_2px_rgba(16,185,129,0.2)] backdrop-blur-sm dark:bg-emerald-950 dark:text-emerald-300"
+            type="button"
+          >
+            <CheckCircle2Icon className="size-5" />
+          </button>
+        }
+      />
     );
   }
 
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            aria-label="Guardar para ver sin conexión"
-            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-            onClick={start}
-            type="button"
-          />
-        }
-      >
-        <DownloadIcon className="size-5" />
-      </TooltipTrigger>
-      <TooltipContent>Ver sin conexión</TooltipContent>
-    </Tooltip>
+    <PlayerTooltip
+      label="Ver sin conexión"
+      trigger={
+        <button
+          aria-label="Guardar para ver sin conexión"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+          onClick={start}
+          type="button"
+        >
+          <DownloadIcon className="size-5" />
+        </button>
+      }
+    />
   );
 }
