@@ -2,12 +2,7 @@
 
 import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
+import { PlayerTooltip } from "@/components/stream/player-tooltip";
 import { TransitionLink } from "glimm/next";
 import { ArrowLeftIcon, LoaderIcon, MessageCircleIcon, UsersIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -52,6 +47,8 @@ const PlayerTopBar = memo(function PlayerTopBar({
   backHref,
   chatButton,
   contentTitle,
+  episodeTitle,
+  episodeLabel,
   handleBack,
   downloadButton,
   episodePicker,
@@ -66,6 +63,10 @@ const PlayerTopBar = memo(function PlayerTopBar({
   backHref: string;
   chatButton?: React.ReactNode;
   contentTitle: string;
+  /** Nombre del capítulo que suena; si falta se muestra solo el de la serie. */
+  episodeTitle?: string | null;
+  /** "T2 E1" del capítulo actual, en el idioma de la app. */
+  episodeLabel?: string | null;
   handleBack: (e: React.MouseEvent<HTMLAnchorElement>) => void;
   downloadButton?: React.ReactNode;
   episodePicker?: React.ReactNode;
@@ -89,7 +90,7 @@ const PlayerTopBar = memo(function PlayerTopBar({
   const isVisible = visible || hovered;
 
   return (
-    <TooltipProvider>
+    <>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: hover only reveals the controls; all actions stay keyboard accessible. */}
       <div
         className={cn(
@@ -111,25 +112,33 @@ const PlayerTopBar = memo(function PlayerTopBar({
         onMouseLeave={() => setHovered(false)}
       >
         {showBack ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <TransitionLink
-                  className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-                  href={backHref}
-                  onClick={handleBack}
-                  aria-label="Volver"
-                >
-                  <ArrowLeftIcon className="size-5" />
-                </TransitionLink>
-              }
-            />
-            <TooltipContent>Volver</TooltipContent>
-          </Tooltip>
+          <PlayerTooltip
+            label="Volver"
+            trigger={
+              <TransitionLink
+                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+                href={backHref}
+                onClick={handleBack}
+                aria-label="Volver"
+              />
+            }
+          >
+            <ArrowLeftIcon className="size-5" />
+          </PlayerTooltip>
         ) : null}
-        <h1 className="min-w-0 flex-1 truncate font-medium text-base text-white">
-          {contentTitle}
-        </h1>
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate font-medium text-base text-white">
+            {episodeTitle || contentTitle}
+          </h1>
+          {/* Segunda línea con la serie y el capítulo: con el título del
+              episodio arriba, sin esto se perdería de qué serie es. */}
+          {episodeTitle ? (
+            <p className="truncate text-[11px] text-white/60 leading-tight">
+              {contentTitle}
+              {episodeLabel ? ` · ${episodeLabel}` : ""}
+            </p>
+          ) : null}
+        </div>
         {showActions ? (
           <div className="flex items-center gap-3">
             {trackPicker}
@@ -141,7 +150,7 @@ const PlayerTopBar = memo(function PlayerTopBar({
           </div>
         ) : null}
       </div>
-    </TooltipProvider>
+    </>
   );
 });
 
@@ -748,6 +757,42 @@ export function StreamOnevid({
   });
 
   const isSeries = contentType === "series";
+
+  // Nombre del capítulo que se está viendo. La barra superior mostraba siempre
+  // el título de la serie; el backend ya expone los episodios para el selector
+  // (/api/series-meta), así que lo reutilizamos aquí. Si falla o no hay nombre,
+  // la barra se queda como antes (solo el título de la serie).
+  const [episodeName, setEpisodeName] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isSeries || isAddon || season < 1 || episode < 1) {
+      setEpisodeName(null);
+      return;
+    }
+    const controller = new AbortController();
+    fetch(
+      `/api/series-meta?id=${encodeURIComponent(contentId)}&season=${season}`,
+      { signal: controller.signal }
+    )
+      .then(async (response) => {
+        if (!response.ok) {
+          return null;
+        }
+        return (await response.json()) as {
+          episodes?: { season?: number; number?: number; name?: string }[];
+        };
+      })
+      .then((data) => {
+        const match = data?.episodes?.find(
+          (item) => item.season === season && item.number === episode
+        );
+        setEpisodeName(match?.name?.trim() || null);
+      })
+      .catch(() => {
+        /* sin nombre de capítulo: queda el título de la serie */
+      });
+    return () => controller.abort();
+  }, [contentId, episode, isAddon, isSeries, season]);
+
   const nextEpisode = useNextEpisode(
     contentId,
     season,
@@ -1192,30 +1237,28 @@ export function StreamOnevid({
   );
   const watchPartyButton =
     watchRoom || watchPartyJoining || isDirect ? null : (
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            // Botón plano como los demás selectores: el `Button` de la app
-            // traía su anillo azul al pasar el cursor y desentonaba con los
-            // iconos nativos del player.
-            <button
-              aria-label={t("Crear watch party")}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20 disabled:opacity-50"
-              data-dpad-focusable
-              disabled={creatingWatchRoom}
-              onClick={createWatchRoom}
-              type="button"
-            />
-          }
-        >
-          {creatingWatchRoom ? (
-            <LoaderIcon className="size-4 animate-spin" />
-          ) : (
-            <UsersIcon className="size-4" />
-          )}
-        </TooltipTrigger>
-        <TooltipContent>{t("Ver juntos")}</TooltipContent>
-      </Tooltip>
+      <PlayerTooltip
+        label={t("Ver juntos")}
+        trigger={
+          // Botón plano como los demás selectores: el `Button` de la app
+          // traía su anillo azul al pasar el cursor y desentonaba con los
+          // iconos nativos del player.
+          <button
+            aria-label={t("Crear watch party")}
+            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20 disabled:opacity-50"
+            data-dpad-focusable
+            disabled={creatingWatchRoom}
+            onClick={createWatchRoom}
+            type="button"
+          />
+        }
+      >
+        {creatingWatchRoom ? (
+          <LoaderIcon className="size-4 animate-spin" />
+        ) : (
+          <UsersIcon className="size-4" />
+        )}
+      </PlayerTooltip>
     );
 
   // Chat de la watch party: mismo botón plano que los demás selectores, con el
@@ -1223,30 +1266,26 @@ export function StreamOnevid({
   // arriba en la barra del título.
   const chatButton =
     watchRoom || watchPartyJoining ? (
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              aria-label={watchChatOpen ? "Ocultar chat" : "Abrir chat"}
-              aria-pressed={watchChatOpen}
-              className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-              data-dpad-focusable
-              onClick={() => setWatchChatOpen((open) => !open)}
-              type="button"
-            />
-          }
-        >
-          <MessageCircleIcon className="size-4" />
-          {!watchChatOpen && watchChatUnread > 0 ? (
-            <span className="absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 font-medium text-[10px] text-white leading-4">
-              {watchChatUnread > 9 ? "9+" : watchChatUnread}
-            </span>
-          ) : null}
-        </TooltipTrigger>
-        <TooltipContent>
-          {watchChatOpen ? "Ocultar chat" : "Abrir chat"}
-        </TooltipContent>
-      </Tooltip>
+      <PlayerTooltip
+        label={watchChatOpen ? "Ocultar chat" : "Abrir chat"}
+        trigger={
+          <button
+            aria-label={watchChatOpen ? "Ocultar chat" : "Abrir chat"}
+            aria-pressed={watchChatOpen}
+            className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            data-dpad-focusable
+            onClick={() => setWatchChatOpen((open) => !open)}
+            type="button"
+          />
+        }
+      >
+        <MessageCircleIcon className="size-4" />
+        {!watchChatOpen && watchChatUnread > 0 ? (
+          <span className="absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 font-medium text-[10px] text-white leading-4">
+            {watchChatUnread > 9 ? "9+" : watchChatUnread}
+          </span>
+        ) : null}
+      </PlayerTooltip>
     ) : null;
 
   const playerStage = (
@@ -1263,7 +1302,13 @@ export function StreamOnevid({
         chatButton={chatButton}
         contentTitle={contentTitle}
         downloadButton={downloadButton}
+        episodeLabel={
+          isSeries && season > 0 && episode > 0
+            ? `T${season} E${episode}`
+            : null
+        }
         episodePicker={episodePicker}
+        episodeTitle={episodeName}
         handleBack={handleBack}
         reserveRight={pillTopReserve}
         showActions={pillFallback}
