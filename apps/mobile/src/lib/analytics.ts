@@ -1,5 +1,6 @@
 import { PostHog } from 'posthog-react-native';
 import { Platform } from 'react-native';
+import { appVariant } from './app-variant';
 
 // Instancia ÚNICA de PostHog, compartida entre los componentes (montada vía
 // <PostHogProvider client={posthog}> en _layout) y el código que NO es React
@@ -26,9 +27,12 @@ export const posthog = new PostHog(
 // no se podía separar la telemetría de Android TV de la de móvil en PostHog
 // (todo llegaba como device_type "Mobile"). Con `is_tv` ya se filtra por
 // superficie para diagnosticar problemas específicos de TV (p. ej. "sin medios").
+// `app_variant` separa además el build "onevid Dev" (testers) de Producción; sin
+// él, las sesiones de prueba contaminarían los embudos reales.
 posthog.register({
   is_tv: Platform.isTV,
   app_surface: Platform.isTV ? 'tv' : 'mobile',
+  app_variant: appVariant,
 });
 
 // Helper seguro para capturar eventos desde cualquier módulo. Nunca lanza: la
