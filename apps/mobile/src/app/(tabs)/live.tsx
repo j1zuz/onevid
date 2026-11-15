@@ -497,8 +497,12 @@ export default function LiveTvTab() {
                       height: Math.round((playerWidth * 9) / 16),
                       marginHorizontal: 16,
                       marginBottom: 12,
-                      borderRadius: 12,
-                      overflow: 'hidden',
+                      // Sin `borderRadius` + `overflow: 'hidden'`: el
+                      // `LibVlcPlayerView` es un TextureView nativo y con el
+                      // recorte redondeado del padre quedaba en negro (solo
+                      // sonaba el audio). Es el mismo motivo por el que al
+                      // SALIR de pantalla completa —cuando se volvía a aplicar
+                      // el recorte— la imagen desaparecía.
                       backgroundColor: '#000',
                     }
               }
@@ -539,8 +543,9 @@ export default function LiveTvTab() {
 
       {/* En móvil el selector de categoría va fijo abajo, sobre las pestañas
           (como antes), para no comerle sitio a la guía. En TV va en el
-          encabezado. */}
-      {!Platform.isTV && categoryPicker && !loading && !error && source ? (
+          encabezado. Con un canal abierto no se pinta: en pantalla completa se
+          montaba ENCIMA del vídeo y en embebido le robaba el sitio al player. */}
+      {!Platform.isTV && categoryPicker && !loading && !error && source && !playing ? (
         <View
           style={{
             paddingHorizontal: 16,
