@@ -10,6 +10,10 @@ import { Badge } from "@workspace/ui/components/badge";
 import { cn } from "@workspace/ui/lib/utils";
 import { CheckIcon, LayersIcon, Loader } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  playerControlIconStyle,
+  playerControlStyle,
+} from "@/components/stream/player-control-size";
 import { PlayerTooltip } from "@/components/stream/player-tooltip";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import { QUALITY_LABELS } from "@/lib/stream-quality";
@@ -167,13 +171,14 @@ export function StreamSourcePicker({
         trigger={
           <button
             aria-label="Cambiar medio"
-            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            className="flex shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            style={playerControlStyle}
             onClick={() => setOpen(true)}
             type="button"
           />
         }
       >
-        <LayersIcon className="size-5" />
+        <LayersIcon style={playerControlIconStyle} />
       </PlayerTooltip>
 
       <Drawer onOpenChange={setOpen} open={open} swipeDirection="right">

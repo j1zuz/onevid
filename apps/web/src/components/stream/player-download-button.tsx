@@ -4,6 +4,10 @@ import { CheckCircle2Icon, DownloadIcon } from "lucide-react";
 import posthog from "posthog-js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+  playerControlIconStyle,
+  playerControlStyle,
+} from "@/components/stream/player-control-size";
 import { PlayerTooltip } from "@/components/stream/player-tooltip";
 import {
   type CancellableConversion,
@@ -346,13 +350,15 @@ export function PlayerDownloadButton({
         trigger={
           <button
             aria-label="Cancelar preparación en debrid"
-            className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            className="relative flex shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            style={playerControlStyle}
             onClick={cancel}
             type="button"
           >
             <svg
               aria-hidden="true"
-              className="absolute size-5 animate-spin"
+              className="absolute animate-spin"
+              style={playerControlIconStyle}
               viewBox={ICON_VIEW_BOX}
             >
               <circle
@@ -377,7 +383,8 @@ export function PlayerDownloadButton({
             {/* X en su propio SVG para que no gire con el anillo. */}
             <svg
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 m-auto size-5"
+              className="pointer-events-none absolute inset-0 m-auto"
+              style={playerControlIconStyle}
               viewBox={ICON_VIEW_BOX}
             >
               <path
@@ -402,13 +409,15 @@ export function PlayerDownloadButton({
         trigger={
           <button
             aria-label={`Cancelar guardado sin conexión (${percent}%)`}
-            className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            className="relative flex shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            style={playerControlStyle}
             onClick={cancel}
             type="button"
           >
             <svg
               aria-hidden="true"
-              className="-rotate-90 size-5"
+              className="-rotate-90"
+              style={playerControlIconStyle}
               viewBox={ICON_VIEW_BOX}
             >
               <circle
@@ -467,10 +476,11 @@ export function PlayerDownloadButton({
                 ? `Guardado para ver sin conexión, le quedan ${remaining}`
                 : "Guardado para ver sin conexión"
             }
-            className="flex size-9 shrink-0 cursor-default items-center justify-center rounded-full bg-emerald-50 text-emerald-700 shadow-[0_0_0_2px_rgba(16,185,129,0.2)] backdrop-blur-sm dark:bg-emerald-950 dark:text-emerald-300"
+            className="flex shrink-0 cursor-default items-center justify-center rounded-full bg-emerald-50 text-emerald-700 shadow-[0_0_0_2px_rgba(16,185,129,0.2)] backdrop-blur-sm dark:bg-emerald-950 dark:text-emerald-300"
+            style={playerControlStyle}
             type="button"
           >
-            <CheckCircle2Icon className="size-5" />
+            <CheckCircle2Icon style={playerControlIconStyle} />
           </button>
         }
       />
@@ -483,11 +493,12 @@ export function PlayerDownloadButton({
       trigger={
         <button
           aria-label="Guardar para ver sin conexión"
-          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+          className="flex shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+          style={playerControlStyle}
           onClick={start}
           type="button"
         >
-          <DownloadIcon className="size-5" />
+          <DownloadIcon style={playerControlIconStyle} />
         </button>
       }
     />

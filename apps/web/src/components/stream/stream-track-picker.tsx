@@ -9,6 +9,10 @@ import {
 import { cn } from "@workspace/ui/lib/utils";
 import { CheckIcon, LanguagesIcon } from "lucide-react";
 import { useState } from "react";
+import {
+  playerControlIconStyle,
+  playerControlStyle,
+} from "@/components/stream/player-control-size";
 import { PlayerTooltip } from "@/components/stream/player-tooltip";
 import type { MediaTrackOption } from "@/hooks/use-media-tracks";
 
@@ -100,13 +104,14 @@ export function StreamTrackPicker({
         trigger={
           <button
             aria-label="Audio y subtítulos"
-            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            className="flex shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            style={playerControlStyle}
             onClick={openPicker}
             type="button"
           />
         }
       >
-        <LanguagesIcon className="size-5" />
+        <LanguagesIcon style={playerControlIconStyle} />
       </PlayerTooltip>
 
       <Drawer onOpenChange={setOpen} open={open} swipeDirection="right">
