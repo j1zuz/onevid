@@ -102,6 +102,11 @@ export default function TabsLayout() {
         tabBar={Platform.isTV ? () => null : undefined}
         screenOptions={{
           headerShown: false,
+          // Solo iconos: sin el texto (Inicio, Descubrir…) la barra queda más
+          // limpia y recupera altura para el contenido. El nombre de cada
+          // pestaña se mantiene para lectores de pantalla
+          // (`tabBarAccessibilityLabel`).
+          tabBarShowLabel: false,
           tabBarStyle: {
             backgroundColor: COLORS.background,
             borderTopColor: '#222',
@@ -115,23 +120,43 @@ export default function TabsLayout() {
       >
         <Tabs.Screen
           name="home"
-          options={{ title: t('Inicio'), tabBarIcon: icon('home') }}
+          options={{
+            title: t('Inicio'),
+            tabBarAccessibilityLabel: t('Inicio'),
+            tabBarIcon: icon('home'),
+          }}
         />
         <Tabs.Screen
           name="discover"
-          options={{ title: t('Descubrir'), tabBarIcon: icon('discover') }}
+          options={{
+            title: t('Descubrir'),
+            tabBarAccessibilityLabel: t('Descubrir'),
+            tabBarIcon: icon('discover'),
+          }}
         />
         <Tabs.Screen
           name="live"
-          options={{ title: t('Live TV'), tabBarIcon: icon('live') }}
+          options={{
+            title: t('Live TV'),
+            tabBarAccessibilityLabel: t('Live TV'),
+            tabBarIcon: icon('live'),
+          }}
         />
         <Tabs.Screen
           name="library"
-          options={{ title: t('Biblioteca'), tabBarIcon: icon('library') }}
+          options={{
+            title: t('Biblioteca'),
+            tabBarAccessibilityLabel: t('Biblioteca'),
+            tabBarIcon: icon('library'),
+          }}
         />
         <Tabs.Screen
           name="settings"
-          options={{ title: t('Perfil'), tabBarIcon: profileIcon(avatar) }}
+          options={{
+            title: t('Perfil'),
+            tabBarAccessibilityLabel: t('Perfil'),
+            tabBarIcon: profileIcon(avatar),
+          }}
         />
       </Tabs>
 

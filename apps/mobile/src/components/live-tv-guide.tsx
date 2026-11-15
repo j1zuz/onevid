@@ -89,7 +89,14 @@ export function LiveTvGuideSkeleton({ rows = 6 }: { rows?: number }) {
         <Skeleton style={{ width: 64, height: 32, borderRadius: 999 }} />
         <Skeleton style={{ width: 32, height: 32, borderRadius: 999 }} />
       </View>
-      <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderColor: BORDER }}>
+      <View
+        style={{
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderColor: BORDER,
+          // Mismo inset que la guía real (16 px por lado).
+          marginHorizontal: 16,
+        }}
+      >
         <View
           style={{
             flexDirection: 'row',
@@ -185,9 +192,10 @@ export function LiveTvGuide({
   // menos tramos pero más grandes, como la guía de la web.
   const channelWidth = isTV ? 230 : 160;
   const visibleCells = isTV ? GUIDE_TICKS : 2;
-  // En TV la guía se alinea con la barra de búsqueda (16px por lado), como el
-  // resto de la pantalla; si no, la rejilla iba de borde a borde.
-  const horizontalInset = isTV ? 16 : 0;
+  // La guía se alinea con el resto de la pantalla (barra de búsqueda,
+  // reproductor): 16 px por lado. Antes solo se aplicaba en TV y en móvil la
+  // rejilla iba de borde a borde, pegada a la pantalla.
+  const horizontalInset = 16;
   const cellWidth = isTV
     ? Math.max(
         120,
