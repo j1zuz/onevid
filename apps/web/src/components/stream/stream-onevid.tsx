@@ -2,6 +2,10 @@
 
 import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
+import {
+  playerControlIconStyle,
+  playerControlStyle,
+} from "@/components/stream/player-control-size";
 import { PlayerTooltip } from "@/components/stream/player-tooltip";
 import { TransitionLink } from "glimm/next";
 import { ArrowLeftIcon, LoaderIcon, MessageCircleIcon, UsersIcon } from "lucide-react";
@@ -116,14 +120,15 @@ const PlayerTopBar = memo(function PlayerTopBar({
             label="Volver"
             trigger={
               <TransitionLink
-                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+                className="flex shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+                style={playerControlStyle}
                 href={backHref}
                 onClick={handleBack}
                 aria-label="Volver"
               />
             }
           >
-            <ArrowLeftIcon className="size-5" />
+            <ArrowLeftIcon style={playerControlIconStyle} />
           </PlayerTooltip>
         ) : null}
         <div className="min-w-0 flex-1">
@@ -1245,7 +1250,8 @@ export function StreamOnevid({
           // iconos nativos del player.
           <button
             aria-label={t("Crear watch party")}
-            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20 disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20 disabled:opacity-50"
+            style={playerControlStyle}
             data-dpad-focusable
             disabled={creatingWatchRoom}
             onClick={createWatchRoom}
@@ -1254,9 +1260,9 @@ export function StreamOnevid({
         }
       >
         {creatingWatchRoom ? (
-          <LoaderIcon className="size-4 animate-spin" />
+          <LoaderIcon className="animate-spin" style={playerControlIconStyle} />
         ) : (
-          <UsersIcon className="size-4" />
+          <UsersIcon style={playerControlIconStyle} />
         )}
       </PlayerTooltip>
     );
@@ -1272,14 +1278,15 @@ export function StreamOnevid({
           <button
             aria-label={watchChatOpen ? "Ocultar chat" : "Abrir chat"}
             aria-pressed={watchChatOpen}
-            className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            className="relative flex shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+            style={playerControlStyle}
             data-dpad-focusable
             onClick={() => setWatchChatOpen((open) => !open)}
             type="button"
           />
         }
       >
-        <MessageCircleIcon className="size-4" />
+        <MessageCircleIcon style={playerControlIconStyle} />
         {!watchChatOpen && watchChatUnread > 0 ? (
           <span className="absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 font-medium text-[10px] text-white leading-4">
             {watchChatUnread > 9 ? "9+" : watchChatUnread}
