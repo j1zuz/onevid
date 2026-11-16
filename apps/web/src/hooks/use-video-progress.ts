@@ -4,7 +4,12 @@ import { ACTIVE_PROFILE_COOKIE } from "@/components/stream/onevid-profile-contex
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invalidateWatchState } from "@/hooks/use-watch-state";
 
-const SAVE_INTERVAL_MS = 10_000; // throttle server writes to every 10 s
+// Checkpoint de seguridad: el progreso se guarda en los eventos que importan
+// (pausa, seek, salir del player, pestaña oculta) y este intervalo solo cubre
+// el caso de que la pestaña muera sin avisar. Antes eran 10 s, que gastaba ~360
+// POSTs por hora de reproducción (4 consultas y 2 escrituras en base cada uno)
+// para una precisión que los eventos ya dan.
+const SAVE_INTERVAL_MS = 60_000;
 const MIN_SEC = 30; // don't track accidental starts (mirrors server)
 
 /**

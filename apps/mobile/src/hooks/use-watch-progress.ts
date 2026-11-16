@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/api';
 
-// Cada 20 s (antes 10). `/api/onevid-progress` era el endpoint más llamado de
-// la app con diferencia — 10.907 llamadas en 21 días, 31 veces más que el
-// siguiente (medido en PostHog) — y para reanudar da igual perder 10 s de
-// precisión: `flush` ya cubre la pausa y la salida del reproductor.
-const SAVE_INTERVAL_MS = 20_000;
+// Checkpoint de seguridad: se guarda al pausar, al detenerse y al salir del
+// reproductor, así que este intervalo solo cubre que el proceso muera sin
+// avisar (matar la app, cuelgue). `/api/onevid-progress` era el endpoint más
+// llamado de la app (10.907 llamadas en 21 días, medido en PostHog) y cada POST
+// son 4 consultas y 2 escrituras en base: con 60 s baja a ~1/6 sin perder el
+// punto exacto al reanudar.
+const SAVE_INTERVAL_MS = 60_000;
 const MIN_SEC = 30; // don't track accidental starts (mirrors server)
 
 interface WatchProgressParams {

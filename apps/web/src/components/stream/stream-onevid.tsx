@@ -6,6 +6,7 @@ import {
   playerControlIconStyle,
   playerControlStyle,
 } from "@/components/stream/player-control-size";
+import { OfflineBadge } from "@/components/stream/offline-badge";
 import { PlayerTooltip } from "@/components/stream/player-tooltip";
 import { TransitionLink } from "glimm/next";
 import { ArrowLeftIcon, LoaderIcon, MessageCircleIcon, UsersIcon } from "lucide-react";
@@ -56,6 +57,7 @@ const PlayerTopBar = memo(function PlayerTopBar({
   handleBack,
   downloadButton,
   episodePicker,
+  offline = false,
   sourcePicker,
   trackPicker,
   visible,
@@ -74,6 +76,8 @@ const PlayerTopBar = memo(function PlayerTopBar({
   handleBack: (e: React.MouseEvent<HTMLAnchorElement>) => void;
   downloadButton?: React.ReactNode;
   episodePicker?: React.ReactNode;
+  /** Suena la copia descargada (OPFS): pinta el chip "Sin conexión". */
+  offline?: boolean;
   sourcePicker?: React.ReactNode;
   trackPicker?: React.ReactNode;
   visible: boolean;
@@ -144,6 +148,9 @@ const PlayerTopBar = memo(function PlayerTopBar({
             </p>
           ) : null}
         </div>
+        {/* Mismo chip que la página del offline: deja claro que lo que suena
+            es la copia descargada, no el stream del catálogo. */}
+        {offline ? <OfflineBadge label="Sin conexión" /> : null}
         {showActions ? (
           <div className="flex items-center gap-3">
             {trackPicker}
@@ -749,7 +756,7 @@ export function StreamOnevid({
     backgroundArt ?? tmdbImage(_contentPoster, "w1280") ?? _contentPoster;
   // Loader con pulso: el logo del título si existe; si no, su inicial.
 
-  const { onTimeUpdate, onEnded, initialResume } = useWatchProgress({
+  const { onTimeUpdate, onEnded, initialResume, flush } = useWatchProgress({
     // Un magnet no pertenece al catálogo: no guardamos progreso ni lo metemos
     // en "Continuar viendo". Con `mediaId` vacío el hook no lee ni escribe.
     mediaId: isDirect ? "" : contentId,
@@ -760,6 +767,23 @@ export function StreamOnevid({
     poster: _contentPoster,
     background: contentBackground,
   });
+
+  // Guardado por eventos: el checkpoint del hook es de 60 s, así que pausar o
+  // saltar en la barra guarda en el acto. `flush` usa la última posición
+  // conocida (`timeupdate`), que tras un seek ya es la nueva.
+  useEffect(() => {
+    const video = playerRefs.video;
+    if (!video) {
+      return;
+    }
+    const save = () => flush();
+    video.addEventListener("pause", save);
+    video.addEventListener("seeked", save);
+    return () => {
+      video.removeEventListener("pause", save);
+      video.removeEventListener("seeked", save);
+    };
+  }, [playerRefs.video, flush]);
 
   const isSeries = contentType === "series";
 
@@ -1221,6 +1245,10 @@ export function StreamOnevid({
         metadata={{
           title: contentTitle,
           poster: _contentPoster,
+          // Fondo y logo: la página /offline/play los usa para la pantalla de
+          // carga (fondo + logo pulsante), igual que el player del catálogo.
+          background: contentBackground,
+          logo,
           contentType,
           contentId,
           rawId,
@@ -1317,6 +1345,7 @@ export function StreamOnevid({
         episodePicker={episodePicker}
         episodeTitle={episodeName}
         handleBack={handleBack}
+        offline={Boolean(offlineMediaUrl)}
         reserveRight={pillTopReserve}
         showActions={pillFallback}
         showBack
