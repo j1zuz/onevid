@@ -16,7 +16,13 @@
 
 // Al cambiar estrategias, rutas o nombres de caché hay que subir VERSION: en
 // `activate` se borran las cachés que no empiecen por ella.
-const VERSION = "onevid-v1";
+//
+// v2: /offline/play pasó del <video controls> nativo al player con el skin de
+// Video.js. El HTML y los chunks de esa página viven en la caché del shell, así
+// que sin subir VERSION quien estuviera offline seguía viendo el reproductor
+// viejo (el nuevo solo aparecía con red, que es cuando la navegación va a la
+// red). Las descargas (OPFS) no se tocan: no viven en Cache Storage.
+const VERSION = "onevid-v2";
 const SHELL_CACHE = `${VERSION}-shell`;
 const STATIC_CACHE = `${VERSION}-static`;
 const PAGE_CACHE = `${VERSION}-pages`;
