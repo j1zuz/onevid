@@ -2175,26 +2175,23 @@ export function Player({
                   <PictureInPicture2 size={20} color="#fff" />
                 </Pressable>
               ) : null}
-  {onFullscreen ? (
-                  <Pressable
-                    style={withRing(styles.actionBtn)}
-                    onPress={() => {
-                      onFullscreen();
-                      showControls();
-                    }}
-                    accessibilityLabel={
-                      fullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'
-                    }
-                    accessibilityRole="button"
-                    hitSlop={6}
-                  >
-                    {fullscreen ? (
-                      <Minimize2 size={20} color="#fff" />
-                    ) : (
-                      <Maximize size={20} color="#fff" />
-                    )}
-                  </Pressable>
-                ) : null}
+              {/* Pantalla completa: se oculta YA dentro de pantalla completa
+                  (para salir está el botón de atrás). Dentro del player no
+                  aporta nada y se confundía con el de "Llenar pantalla". */}
+              {onFullscreen && !fullscreen ? (
+                <Pressable
+                  style={withRing(styles.actionBtn)}
+                  onPress={() => {
+                    onFullscreen();
+                    showControls();
+                  }}
+                  accessibilityLabel="Pantalla completa"
+                  accessibilityRole="button"
+                  hitSlop={6}
+                >
+                  <Maximize size={20} color="#fff" />
+                </Pressable>
+              ) : null}
             </View>
           </View>
 

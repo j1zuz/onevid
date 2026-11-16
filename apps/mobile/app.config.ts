@@ -45,8 +45,11 @@ const ID_SUFFIX: Record<AppVariant, string> = {
   production: '',
 };
 
+// Misma marca ("onevid") en las dos variantes: se distinguen por el icono
+// (el de Dev lleva la etiqueta "Beta"), no por el nombre. En Android el nombre
+// sale de aquí; en iOS del CFBundleDisplayName generado en el prebuild.
 const NAME_SUFFIX: Record<AppVariant, string> = {
-  development: ' Dev',
+  development: '',
   production: '',
 };
 
@@ -56,10 +59,21 @@ const ICON: Record<AppVariant, string | null> = {
   production: null,
 };
 
+// Capa del icono adaptativo de Android. La etiqueta "Beta" del icono original
+// vive en la esquina superior izquierda, que el launcher recorta (zona segura:
+// círculo central de 72/108), así que nunca se veía. Esta versión lleva el
+// cartel y el emblema dentro de la zona segura; el fondo negro lo pone
+// `adaptiveIcon.backgroundColor`.
+const ADAPTIVE_FOREGROUND: Record<AppVariant, string | null> = {
+  development: './assets/images/onevid-icon-dev-foreground.png',
+  production: null,
+};
+
 export default ({ config }: ConfigContext): ExpoConfig => {
   const name = `${config.name ?? BASE_NAME}${NAME_SUFFIX[variant]}`;
   const appId = `${APP_ID_PREFIX}${ID_SUFFIX[variant]}`;
   const icon = ICON[variant] ?? undefined;
+  const adaptiveForeground = ADAPTIVE_FOREGROUND[variant] ?? undefined;
 
   // `expo-dev-client` se declara aquí (y no en app.json) porque la opción
   // depende de la variante: solo el build de desarrollo debe responder al
@@ -88,7 +102,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
             icon,
             adaptiveIcon: {
               ...config.android?.adaptiveIcon,
-              foregroundImage: icon,
+              foregroundImage: adaptiveForeground ?? icon,
             },
           }
         : {}),

@@ -91,8 +91,10 @@ export function LiveTvGuideSkeleton({ rows = 6 }: { rows?: number }) {
       </View>
       <View
         style={{
-          borderTopWidth: StyleSheet.hairlineWidth,
+          borderWidth: 1,
           borderColor: BORDER,
+          borderRadius: 12,
+          overflow: 'hidden',
           // Mismo inset que la guía real (16 px por lado).
           marginHorizontal: 16,
         }}
@@ -387,7 +389,17 @@ export function LiveTvGuide({
           horizontalInset > 0 ? { marginHorizontal: horizontalInset } : undefined
         }
       >
-        <View style={{ width: channelWidth + timelineWidth }}>
+        <View
+          style={{
+            width: channelWidth + timelineWidth,
+            // Marco de la rejilla: sin esto la tabla iba de borde a borde y
+            // las esquinas quedaban rectas, sin borde.
+            borderWidth: 1,
+            borderColor: BORDER,
+            borderRadius: 12,
+            overflow: 'hidden',
+          }}
+        >
           <View
             style={{
               flexDirection: 'row',
@@ -396,8 +408,7 @@ export function LiveTvGuide({
               borderColor: BORDER,
               backgroundColor: '#141414',
             }}
-          >
-            <View
+          >            <View
               style={{
                 width: channelWidth,
                 flexDirection: 'row',
