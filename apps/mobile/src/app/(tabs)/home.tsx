@@ -67,13 +67,14 @@ export default function HomeTab() {
   });
   const continueItems = continueQuery.data ?? [];
 
-  // Precalienta las 2 primeras de "Continuar viendo": ese camino entra DIRECTO
-  // al reproductor (sin pasar por el detalle), así que sin esto paga la petición
-  // de fuentes + la resolución de la URL del CDN al abrir. Se piden mientras el
-  // usuario decide y el player arranca caliente.
+  // Precalienta "Continuar viendo": ese camino entra DIRECTO al reproductor (sin
+  // pasar por el detalle), así que sin esto paga la petición de fuentes + la
+  // resolución de la URL del CDN al abrir. Se piden mientras el usuario decide y
+  // el player arranca caliente. 4 y no 2: con la caché de fuentes en 5 min la
+  // mayoría de las reanudaciones caen dentro de la ventana.
   useEffect(() => {
     if (!catalogEnabled) return;
-    for (const item of (continueQuery.data ?? []).slice(0, 2)) {
+    for (const item of (continueQuery.data ?? []).slice(0, 4)) {
       const season = item.season > 0 ? String(item.season) : undefined;
       const episode = item.episode > 0 ? String(item.episode) : undefined;
       void queryClient
@@ -148,6 +149,12 @@ export default function HomeTab() {
         logo: item.logo,
         type: item.type,
         id: item.id,
+        // Posición que YA conocemos (viene con la fila): el player abre el
+        // medio en ese segundo con `:start-time` en vez de pedir el progreso
+        // otra vez y hacer un seek después del primer fotograma.
+        ...(item.positionSec > 30
+          ? { resume: String(Math.floor(item.positionSec)) }
+          : {}),
         ...(item.type === 'series' && item.season && item.episode
           ? {
               season: String(item.season),

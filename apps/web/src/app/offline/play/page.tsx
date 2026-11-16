@@ -1,5 +1,7 @@
 "use client";
 
+import { createPlayer, videoFeatures } from "@videojs/react";
+import { Video, VideoSkin } from "@videojs/react/video";
 import { ArrowLeftIcon, LoaderIcon, WifiOffIcon } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
@@ -8,6 +10,11 @@ import {
   getOfflineMediaMetadata,
 } from "@/hooks/use-mediabunny";
 import { useTranslation } from "@/lib/onevid-i18n-context";
+import "@videojs/react/video/skin.css";
+import "@/components/stream/video-js-player-overrides.css";
+
+// Mismo player que el del catálogo (skin y features), creado una sola vez.
+const { Player } = createPlayer({ features: videoFeatures });
 
 /**
  * Reproductor local de una descarga sin conexión.
@@ -91,14 +98,25 @@ function OfflinePlayer() {
       </header>
 
       {src ? (
-        <video
-          autoPlay
-          className="size-full bg-black object-contain"
-          controls
-          playsInline
-          preload="auto"
-          src={src}
-        />
+        // Mismo skin del reproductor del catálogo (Video.js), pero sobre el blob
+        // local y sin resolver fuentes: así los controles se sienten igual que
+        // los del player normal. No usa `stream-video-player-root` para no
+        // heredar los overrides del player de streaming (ahí el botón de play se
+        // oculta porque hay gesto de tap).
+        <div className="player-offline-root absolute inset-0">
+          <Player key={src}>
+            <VideoSkin>
+              <Video
+                autoPlay
+                className="size-full bg-black object-contain"
+                onError={() => setError(t("No se pudo reproducir la descarga."))}
+                playsInline
+                preload="auto"
+                src={src}
+              />
+            </VideoSkin>
+          </Player>
+        </div>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
           {error ? (

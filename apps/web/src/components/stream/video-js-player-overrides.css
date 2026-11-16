@@ -139,3 +139,12 @@
   width: var(--media-icon-size, calc(var(--media-spacing) * 4.5));
   height: var(--media-icon-size, calc(var(--media-spacing) * 4.5));
 }
+
+/* /offline/play: el mismo skin del reproductor, sobre el archivo local. El
+   wrapper fija el tamaño (el skin no lo hace solo) y el <video> llena la
+   pantalla sin deformar, como en modo reproducción del catálogo. */
+.player-offline-root,
+.player-offline-root .media-skin {
+  width: 100%;
+  height: 100%;
+}
