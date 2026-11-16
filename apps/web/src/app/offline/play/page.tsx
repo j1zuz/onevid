@@ -16,12 +16,19 @@ import "@/components/stream/video-js-player-overrides.css";
 // Mismo player que el del catálogo (skin y features), creado una sola vez.
 const { Player } = createPlayer({ features: videoFeatures });
 
+// Si el archivo no abre en este tiempo, se muestra el error en vez de dejar el
+// spinner para siempre (OPFS puede quedarse colgado si la cuota está revuelta o
+// si el handler desapareció entre navegaciones).
+const OPEN_TIMEOUT_MS = 10_000;
+
 /**
  * Reproductor local de una descarga sin conexión.
  *
  * No usa el player del catálogo (que necesita red para pedir fuentes): toma el
- * archivo de OPFS y lo reproduce con un blob URL. El service worker precachea
- * esta página, así el enlace de /offline funciona sin internet.
+ * archivo de OPFS y lo reproduce con un blob URL, pero con el mismo skin de
+ * Video.js para que los controles se sientan iguales. El service worker
+ * precachea esta página (y sus chunks), así el enlace de /offline funciona sin
+ * internet.
  */
 function OfflinePlayer() {
   const { t: rawT } = useTranslation();
@@ -29,15 +36,24 @@ function OfflinePlayer() {
     (key: string) => rawT(key as never) as unknown as string,
     [rawT]
   );
+  // `t` no debe reiniciar el efecto de carga (si cambia de identidad, se
+  // cancelaba la promesa en curso y la página se quedaba en "Abriendo…").
+  const translate = useRef(t);
+  useEffect(() => {
+    translate.current = t;
+  }, [t]);
+
   const searchParams = useSearchParams();
   const key = searchParams.get("key") ?? "";
   const [src, setSrc] = useState<string | null>(null);
   const [title, setTitle] = useState("");
+  const [poster, setPoster] = useState("");
   const [error, setError] = useState("");
   const urlRef = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
+    let timeoutId: number | undefined;
     setSrc(null);
     setError("");
 
@@ -45,19 +61,31 @@ function OfflinePlayer() {
     if (metadata?.title) {
       setTitle(metadata.title);
     }
+    if (metadata?.poster) {
+      setPoster(metadata.poster);
+    }
 
     if (!key) {
-      setError(t("No se indicó qué descarga reproducir."));
+      setError(translate.current("No se indicó qué descarga reproducir."));
       return;
     }
+
+    timeoutId = window.setTimeout(() => {
+      if (active) {
+        setError(translate.current("La descarga tardó demasiado en abrirse."));
+      }
+    }, OPEN_TIMEOUT_MS);
 
     getOfflineMediaFile(key)
       .then((file) => {
         if (!active) {
           return;
         }
+        window.clearTimeout(timeoutId);
         if (!file) {
-          setError(t("La descarga ya no está en este dispositivo."));
+          setError(
+            translate.current("La descarga ya no está en este dispositivo.")
+          );
           return;
         }
         const url = URL.createObjectURL(file);
@@ -66,18 +94,20 @@ function OfflinePlayer() {
       })
       .catch(() => {
         if (active) {
-          setError(t("No se pudo abrir la descarga."));
+          window.clearTimeout(timeoutId);
+          setError(translate.current("No se pudo abrir la descarga."));
         }
       });
 
     return () => {
       active = false;
+      window.clearTimeout(timeoutId);
       if (urlRef.current) {
         URL.revokeObjectURL(urlRef.current);
         urlRef.current = null;
       }
     };
-  }, [key, t]);
+  }, [key]);
 
   return (
     <main className="fixed inset-0 flex flex-col bg-black text-white">
@@ -99,17 +129,18 @@ function OfflinePlayer() {
 
       {src ? (
         // Mismo skin del reproductor del catálogo (Video.js), pero sobre el blob
-        // local y sin resolver fuentes: así los controles se sienten igual que
-        // los del player normal. No usa `stream-video-player-root` para no
-        // heredar los overrides del player de streaming (ahí el botón de play se
-        // oculta porque hay gesto de tap).
+        // local y sin resolver fuentes. No usa `stream-video-player-root` para
+        // no heredar los overrides del player de streaming (ahí el botón de play
+        // se oculta porque hay gesto de tap).
         <div className="player-offline-root absolute inset-0">
           <Player key={src}>
             <VideoSkin>
               <Video
                 autoPlay
                 className="size-full bg-black object-contain"
-                onError={() => setError(t("No se pudo reproducir la descarga."))}
+                onError={() =>
+                  setError(t("No se pudo reproducir la descarga."))
+                }
                 playsInline
                 preload="auto"
                 src={src}
@@ -118,7 +149,7 @@ function OfflinePlayer() {
           </Player>
         </div>
       ) : (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
           {error ? (
             <>
               <p className="text-sm">{error}</p>
@@ -132,10 +163,24 @@ function OfflinePlayer() {
             </>
           ) : (
             <>
-              <LoaderIcon className="size-5 animate-spin text-white/70" />
-              <p className="text-sm text-white/70">
+              {/* Carátula de la descarga mientras abre, en vez de un spinner
+                  suelto: es el mismo título que el usuario acaba de elegir. */}
+              {poster ? (
+                <img
+                  alt=""
+                  className="max-h-[45vh] w-auto max-w-[70vw] rounded-lg object-contain opacity-70"
+                  src={poster}
+                />
+              ) : null}
+              {title ? (
+                <p className="max-w-[80vw] truncate font-medium text-base">
+                  {title}
+                </p>
+              ) : null}
+              <span className="flex items-center gap-2 text-sm text-white/70">
+                <LoaderIcon className="size-4 animate-spin" />
                 {t("Abriendo descarga…")}
-              </p>
+              </span>
             </>
           )}
         </div>
@@ -145,6 +190,7 @@ function OfflinePlayer() {
 }
 
 export default function OfflinePlayPage() {
+  // `useSearchParams` obliga a un límite de Suspense en Next.
   return (
     <Suspense fallback={null}>
       <OfflinePlayer />

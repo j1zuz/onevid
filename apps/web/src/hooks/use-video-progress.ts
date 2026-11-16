@@ -7,6 +7,21 @@ import { invalidateWatchState } from "@/hooks/use-watch-state";
 const SAVE_INTERVAL_MS = 10_000; // throttle server writes to every 10 s
 const MIN_SEC = 30; // don't track accidental starts (mirrors server)
 
+/**
+ * Aviso a la UI de que el progreso cambió: la fila "Continuar viendo" (y la
+ * vista "Ver todo") escuchan este evento para volver a pedir la lista y pintar
+ * la barra en la posición real. Sin esto, al volver del reproductor seguían
+ * mostrando la posición de cuando se cargó la página.
+ */
+export const PROGRESS_CHANGED_EVENT = "onevid:progress-changed";
+
+function notifyProgressChanged() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.dispatchEvent(new Event(PROGRESS_CHANGED_EVENT));
+}
+
 type MediaType = "movie" | "series";
 
 interface WatchProgressParams {
@@ -127,9 +142,18 @@ export function useWatchProgress(params: WatchProgressParams) {
           background: p.background,
           year: p.year,
         }),
-      }).catch(() => {
-        /* fire-and-forget */
-      });
+      })
+        .then((response) => {
+          // El servidor confirma que guardó (200): ahora la fila "Continuar
+          // viendo" puede refrescarse. Un 4xx (sin perfil, perfil con PIN…)
+          // no se anuncia para no recargar la lista en balde.
+          if (response.ok) {
+            notifyProgressChanged();
+          }
+        })
+        .catch(() => {
+          /* fire-and-forget */
+        });
     } catch {
       /* ignore */
     }

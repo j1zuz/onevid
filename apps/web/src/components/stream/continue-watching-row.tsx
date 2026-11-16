@@ -12,6 +12,7 @@ import {
   VIEW_ALL_GRID_CLASS,
 } from "@/components/stream/poster-card";
 import { useOneVidProfiles } from "@/components/stream/onevid-profile-context";
+import { PROGRESS_CHANGED_EVENT } from "@/hooks/use-video-progress";
 import { FEED_ROW_ITEM_LIMIT } from "@/lib/onevid-feed";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { MediaMeta } from "@/lib/tmdb";
@@ -58,30 +59,54 @@ export function ContinueWatchingRow({
       setItems([]);
       return;
     }
-    setItems(null);
     const controller = new AbortController();
-    fetch("/api/onevid-progress", {
-      headers: { "X-Profile-Id": activeProfileId },
-      signal: controller.signal,
-    })
-      .then((r) => (r.ok ? (r.json() as Promise<{ results: ContinueWatchingItem[] }>) : null))
-      .then((data) => {
-        setItems(data?.results ?? []);
+    const load = () => {
+      fetch("/api/onevid-progress", {
+        headers: { "X-Profile-Id": activeProfileId },
+        signal: controller.signal,
       })
-      .catch((error: unknown) => {
-        // Un fetch cancelado (cleanup del efecto: cambio de perfil/idioma,
-        // remount al entrar a la vista completa, o el doble-invoke de Strict
-        // Mode en dev) no es "sin datos" — no toques el estado, que ya lo
-        // resuelve la ejecución del efecto que sí sigue en pie. Si lo
-        // tratábamos igual que un error real, se veía un parpadeo de "No
-        // tienes nada para continuar viendo" antes de que llegaran los items.
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
-        /* no profile / offline — just don't show the row */
-        setItems([]);
-      });
-    return () => controller.abort();
+        .then((r) =>
+          r.ok ? (r.json() as Promise<{ results: ContinueWatchingItem[] }>) : null
+        )
+        .then((data) => {
+          setItems(data?.results ?? []);
+        })
+        .catch((error: unknown) => {
+          // Un fetch cancelado (cleanup del efecto: cambio de perfil/idioma,
+          // remount al entrar a la vista completa, o el doble-invoke de Strict
+          // Mode en dev) no es "sin datos" — no toques el estado, que ya lo
+          // resuelve la ejecución del efecto que sí sigue en pie. Si lo
+          // tratábamos igual que un error real, se veía un parpadeo de "No
+          // tienes nada para continuar viendo" antes de que llegaran los items.
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return;
+          }
+          /* no profile / offline — just don't show the row */
+          setItems([]);
+        });
+    };
+    setItems(null);
+    load();
+
+    // El reproductor vive en otra ruta: al volver, esta fila seguía con la
+    // posición de cuando se cargó la página. Se refresca cuando el player avisa
+    // de que guardó progreso, y al recuperar foco/visibilidad por si el aviso
+    // se perdió (p. ej. el guardado del `pagehide` llegó después).
+    const onChange = () => load();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        load();
+      }
+    };
+    window.addEventListener(PROGRESS_CHANGED_EVENT, onChange);
+    window.addEventListener("focus", onChange);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener(PROGRESS_CHANGED_EVENT, onChange);
+      window.removeEventListener("focus", onChange);
+      document.removeEventListener("visibilitychange", onVisible);
+      controller.abort();
+    };
   }, [activeProfileId, language]);
 
   if (items === null) {
