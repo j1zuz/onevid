@@ -1,11 +1,23 @@
+"use client";
+
 import { Separator } from "@workspace/ui/components/separator";
+import { useEffect, useState } from "react";
 
-// Calculado una sola vez, al cargar el módulo (no en cada render): así no
-// cuenta como un valor "inestable" durante el prerender. Se actualiza en cada
-// build/deploy.
-const currentYear = new Date().getFullYear();
-
+// El año se calcula en el navegador, no al renderizar en el servidor: el HTML
+// prerenderizado del Worker salía con 1970 (el reloj del entorno de prerender
+// devuelve la época), así que el footer mostraba "© 1970 onevid". En el cliente
+// el año es el real y, si el usuario deja la pestaña abierta en Nochevieja, se
+// corrige solo al volver a mirarla.
 export default function Footer() {
+  const [year, setYear] = useState<number | null>(null);
+
+  useEffect(() => {
+    const update = () => setYear(new Date().getFullYear());
+    update();
+    const id = window.setInterval(update, 60 * 60 * 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
   return (
     <footer className="shrink-0 py-6">
       <div className="flex flex-col">
@@ -63,7 +75,7 @@ export default function Footer() {
             className="shrink-0 text-muted-foreground text-xs"
             suppressHydrationWarning
           >
-            © {currentYear} onevid
+            © {year ? `${year} ` : ""}onevid
           </span>
           <a
             className="shrink-0 text-muted-foreground text-xs transition-colors hover:text-foreground"

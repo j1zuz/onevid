@@ -497,12 +497,14 @@ export default function LiveTvTab() {
                       height: Math.round((playerWidth * 9) / 16),
                       marginHorizontal: 16,
                       marginBottom: 12,
-                      // Sin `borderRadius` + `overflow: 'hidden'`: el
-                      // `LibVlcPlayerView` es un TextureView nativo y con el
-                      // recorte redondeado del padre quedaba en negro (solo
-                      // sonaba el audio). Es el mismo motivo por el que al
-                      // SALIR de pantalla completa —cuando se volvía a aplicar
-                      // el recorte— la imagen desaparecía.
+                      // Borde y esquinas redondeadas del marco. El recorte
+                      // (`overflow: 'hidden'`) NO se usa: el `LibVlcPlayerView`
+                      // es un TextureView nativo y con el clip del padre la
+                      // imagen quedaba en negro (solo sonaba el audio). Por eso
+                      // el borde se pinta encima del vídeo, sin recortarlo.
+                      borderWidth: 1,
+                      borderColor: '#262626',
+                      borderRadius: 12,
                       backgroundColor: '#000',
                     }
               }
@@ -543,9 +545,15 @@ export default function LiveTvTab() {
 
       {/* En móvil el selector de categoría va fijo abajo, sobre las pestañas
           (como antes), para no comerle sitio a la guía. En TV va en el
-          encabezado. Con un canal abierto no se pinta: en pantalla completa se
-          montaba ENCIMA del vídeo y en embebido le robaba el sitio al player. */}
-      {!Platform.isTV && categoryPicker && !loading && !error && source && !playing ? (
+          encabezado. Se mantiene visible con un canal abierto (sirve para
+          cambiar de categoría sin cerrar el player); solo desaparece en
+          pantalla completa, donde quedaría encima del vídeo. */}
+      {!Platform.isTV &&
+      categoryPicker &&
+      !loading &&
+      !error &&
+      source &&
+      !fullscreen ? (
         <View
           style={{
             paddingHorizontal: 16,
