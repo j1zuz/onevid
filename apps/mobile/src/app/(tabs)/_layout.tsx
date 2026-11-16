@@ -8,7 +8,7 @@ import { TabIcon, type TabIconName } from '@/components/tab-icon';
 import { TvSidebar } from '@/components/tv-sidebar';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { avatarSource } from '@/lib/avatars';
-import { loadActiveProfile, subscribeActiveProfile } from '@/lib/profiles';
+import { refreshActiveProfile, subscribeActiveProfile } from '@/lib/profiles';
 import { COLORS } from '@/lib/theme';
 
 function icon(name: TabIconName) {
@@ -83,7 +83,10 @@ export default function TabsLayout() {
         setAvatar(undefined); // sin sesión → avatarSource(undefined) = black.jpg
         return;
       }
-      loadActiveProfile()
+      // `refreshActiveProfile` relee del backend cuando hay red: el avatar
+      // puede haberse cambiado desde otro dispositivo (la web comparte cuenta)
+      // y la copia local se quedaba con el anterior.
+      refreshActiveProfile()
         .catch(() => null)
         .then((p) => {
           if (!cancelled) setAvatar(p?.avatar);

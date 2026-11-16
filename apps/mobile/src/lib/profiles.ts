@@ -66,6 +66,40 @@ export async function loadActiveProfile(): Promise<Profile | null> {
   }
 }
 
+/**
+ * Relee el perfil activo: primero la copia local (instantánea y offline) y, si
+ * hay red, la lista real del backend.
+ *
+ * La copia de SecureStore solo se actualiza desde este dispositivo, pero el
+ * avatar y el nombre también se pueden cambiar desde la web (misma cuenta), así
+ * que el tab "Perfil" —y Configuración— se quedaban con el avatar viejo. Esto
+ * los sincroniza en cada focus; sin red devuelve la copia local tal cual.
+ */
+export async function refreshActiveProfile(): Promise<Profile | null> {
+  const local = await loadActiveProfile().catch(() => null);
+  if (!local) {
+    return null;
+  }
+  try {
+    const { profiles } = await listProfiles();
+    const fresh = profiles.find((p) => p.id === local.id);
+    if (!fresh) {
+      return local;
+    }
+    if (
+      fresh.avatar !== local.avatar ||
+      fresh.name !== local.name ||
+      fresh.isKids !== local.isKids
+    ) {
+      // `setActiveProfile` persiste y avisa a los suscriptores (tab, Config).
+      await setActiveProfile(fresh);
+    }
+    return fresh;
+  } catch {
+    return local;
+  }
+}
+
 export async function setActiveProfile(p: Profile): Promise<void> {
   const previousId = getActiveProfileId();
   setActiveProfileId(p.id);

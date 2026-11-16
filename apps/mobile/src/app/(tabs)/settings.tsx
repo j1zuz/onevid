@@ -24,8 +24,8 @@ import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { avatarSource } from '@/lib/avatars';
 import {
   clearActiveProfile,
-  loadActiveProfile,
   type Profile,
+  refreshActiveProfile,
 } from '@/lib/profiles';
 import { queryClient } from '@/lib/query';
 import { COLORS } from '@/lib/theme';
@@ -65,11 +65,13 @@ export default function SettingsTab() {
   // Drawer de login por QR (modo Stream).
   const [loginOpen, setLoginOpen] = useState(false);
 
-  // El perfil activo se carga aparte (es local, de SecureStore).
+  // El perfil activo se carga aparte: copia local al instante y, con red,
+  // contraste con el backend (el avatar o el nombre pueden haberse cambiado
+  // desde la web y la copia de SecureStore no lo sabría).
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      loadActiveProfile()
+      refreshActiveProfile()
         .then((p) => {
           if (!cancelled) setProfile(p);
         })
