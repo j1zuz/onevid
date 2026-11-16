@@ -367,6 +367,8 @@ export default function PlayerScreen() {
     episodeTitle?: string;
     /** '1' = canal de Live TV: sin progreso/seek ni descarga offline. */
     live?: string;
+    /** Segundo desde el que abrir (continuar viendo): llega de la fila del Inicio. */
+    resume?: string;
   }>();
   const title = params.title;
   // Un canal en directo no tiene duración: ocultamos la barra de progreso, los
@@ -413,6 +415,14 @@ export default function PlayerScreen() {
   // "Continue watching": server-synced playback progress. Lives here in
   // PlayerScreen (stable) rather than in Player, which remounts on every source
   // fallback (key={url}); we hand its callbacks + resume position down as props.
+  //
+  // Si la fila "Continuar viendo" ya nos pasó la posición (`?resume=`), se usa
+  // tal cual: sin GET extra y con `:start-time` el medio abre directamente ahí.
+  const startAtSec = useMemo(() => {
+    const raw = Number(params.resume);
+    return Number.isFinite(raw) && raw > 30 ? Math.floor(raw) : undefined;
+  }, [params.resume]);
+
   const { onTime: reportTime, flush, resumeMs } = useWatchProgress({
     mediaId,
     mediaType,
@@ -422,6 +432,7 @@ export default function PlayerScreen() {
     background,
     poster,
     logo,
+    initialPositionSec: startAtSec,
   });
 
   // ¿Se llegó al final? Mismo umbral que el servidor (PROGRESS_DONE_RATIO). Va
@@ -892,6 +903,7 @@ export default function PlayerScreen() {
               : PLAYBACK_START_TIMEOUT_MS
           }
           resumeMs={resumeMs}
+          startAtSec={startAtSec}
           onProgress={onTime}
           onFlush={flush}
           onBack={handleBack}
@@ -1124,6 +1136,7 @@ export function Player({
   loadingInline,
   startTimeoutMs = PLAYBACK_START_TIMEOUT_MS,
   resumeMs,
+  startAtSec,
   onProgress,
   onFlush,
   onBack,
@@ -1158,6 +1171,11 @@ export function Player({
   startTimeoutMs?: number;
   /** Posición guardada (ms) a la que saltar al primer fotograma ("Continuar viendo"). */
   resumeMs?: number | null;
+  /**
+   * Segundo en el que abrir el medio (`:start-time` de VLC). Evita el arranque
+   * en 0 + seek posterior, que reabría el stream y añadía buffering.
+   */
+  startAtSec?: number;
   /** Reporta la posición actual (ms) y la duración (ms) para guardar el progreso. */
   onProgress?: (positionMs: number, durationMs: number) => void;
   /** Fuerza un guardado inmediato del progreso (pausa / detenido). */
@@ -1312,6 +1330,18 @@ export function Player({
   const [subtitleId, setSubtitleId] = useState<number | null>(null);
   const [menu, setMenu] = useState<'audio' | 'subtitle' | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
+  // Opciones del player nativo. `VLC_OPTIONS` es constante de módulo a
+  // propósito (ver lib/vlc-options): un array nuevo por render reinicia el
+  // player. `:start-time` se añade SOLO cuando la posición de reanudar se
+  // conoce de antemano, porque cambia la identidad del array una vez (al
+  // montar) y no en cada render.
+  const vlcOptions = useMemo(
+    () =>
+      startAtSec && startAtSec > 30
+        ? [...VLC_OPTIONS, `:start-time=${startAtSec}`]
+        : VLC_OPTIONS,
+    [startAtSec],
+  );
   // La ventana ya está en pantalla completa. Este estado controla si la imagen
   // conserva todo el fotograma ("contain", con posibles bandas negras) o llena
   // físicamente la pantalla ("cover", recortando sólo el excedente).
@@ -1382,13 +1412,15 @@ export function Player({
     if (resumedRef.current || !firstFrame) {
       return;
     }
-    if (resumeMs && resumeMs > 30_000) {
+    // Con `startAtSec` el medio ya se abrió en ese segundo (`:start-time`): un
+    // seek extra solo reabriría el stream y añadiría buffering.
+    if (!startAtSec && resumeMs && resumeMs > 30_000) {
       // El seek dispara onTimeChanged, que actualiza `time` (no lo tocamos aquí
       // para no llamar setState dentro del effect).
       playerRef.current?.seek(resumeMs, 'time');
     }
     resumedRef.current = true;
-  }, [firstFrame, resumeMs]);
+  }, [firstFrame, resumeMs, startAtSec]);
 
   // Reporta la fuente como no reproducible al padre (auto-fallback). Una sola vez
   // por fuente y solo si aún no se había visto imagen: un corte tras el primer
@@ -1919,9 +1951,9 @@ export function Player({
           // `null` libera el player (no crear media con URL vacía → evita el
           // error nativo "media could not be set").
           source={url?.trim() ? url : null}
-          // Constante de módulo a propósito: ver VLC_OPTIONS (un array nuevo por
-          // render reinicia el player nativo).
-          options={VLC_OPTIONS}
+          // Constante de módulo (o memoizada con la posición de arranque): ver
+          // VLC_OPTIONS (un array nuevo por render reinicia el player nativo).
+          options={vlcOptions}
           // En TV forzamos AudioTrack como salida de audio. El default de libVLC 3.7
           // (AAudio) falla EN SILENCIO en algunos Android TV baratos (KTC): vídeo y
           // pista de audio OK pero sin sonido, sin error. Es el mismo remedio que el

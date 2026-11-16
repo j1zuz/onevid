@@ -68,12 +68,12 @@ export function sourcesQueryOptions(
         body: JSON.stringify({ id: compoundId, type }),
       }),
     // Las URLs de addons/debrid pueden caducar o cambiar, así que la ventana de
-    // reutilización es CORTA: 60 s. Es margen de sobra para el pre-warm (el
-    // detalle prefetchea la lista y el usuario le da Play poco después → arranque
-    // caliente) sin llegar a reutilizar un enlace viejo; pasado ese minuto se
-    // refresca sola. Antes era 0/0, lo que forzaba un refetch en cada pantalla.
-    staleTime: 60_000,
-    gcTime: 60_000,
+    // reutilización se mantiene acotada, pero 60 s se quedaba corta: entre ver
+    // la fila "Continuar viendo" y tocar un título pasan minutos y se resolvía
+    // todo de cero. 5 min cubre el caso normal; pasado ese tiempo se refresca
+    // sola (y si el enlace caducó, el player salta a la siguiente fuente).
+    staleTime: 300_000,
+    gcTime: 300_000,
   };
 }
 

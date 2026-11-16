@@ -12,6 +12,12 @@ interface WatchProgressParams {
   background?: string;
   enabled?: boolean;
   episode?: number;
+  /**
+   * Posición conocida de antemano (segundos), p. ej. la que trae la fila
+   * "Continuar viendo". Con esto no se pide `/api/onevid-progress` y el player
+   * puede abrir el medio ya en ese punto.
+   */
+  initialPositionSec?: number;
   logo?: string;
   mediaId?: string;
   mediaType: 'movie' | 'series';
@@ -29,19 +35,34 @@ interface WatchProgressParams {
  * a missing profile (409) is a silent no-op. Local files (no mediaId) are skipped.
  */
 export function useWatchProgress(params: WatchProgressParams) {
-  const { mediaId, mediaType, season = 0, episode = 0, enabled = true } = params;
+  const {
+    mediaId,
+    mediaType,
+    season = 0,
+    episode = 0,
+    enabled = true,
+    initialPositionSec,
+  } = params;
   const paramsRef = useRef(params);
   useEffect(() => {
     paramsRef.current = params;
   });
 
-  const [resumeMs, setResumeMs] = useState<number | null>(null);
+  const [resumeMs, setResumeMs] = useState<number | null>(
+    initialPositionSec && initialPositionSec > 0 ? initialPositionSec * 1000 : null,
+  );
   const lastSavedAt = useRef(0);
   const latest = useRef({ position: 0, duration: 0 });
   const active = enabled && Boolean(mediaId);
 
   useEffect(() => {
     if (!(active && mediaId)) {
+      return;
+    }
+    // La posición ya vino por parámetro (fila "Continuar viendo"): no hay nada
+    // que preguntar al servidor y el player puede abrir el medio directamente
+    // en ese segundo.
+    if (initialPositionSec && initialPositionSec > 0) {
       return;
     }
     let cancelled = false;
@@ -60,7 +81,7 @@ export function useWatchProgress(params: WatchProgressParams) {
     return () => {
       cancelled = true;
     };
-  }, [active, mediaId, mediaType, season, episode]);
+  }, [active, mediaId, mediaType, season, episode, initialPositionSec]);
 
   const post = useCallback((positionSec: number, durationSec: number) => {
     const p = paramsRef.current;
