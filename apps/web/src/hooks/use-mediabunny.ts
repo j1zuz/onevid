@@ -150,6 +150,13 @@ export function setOfflineRetentionDays(days: number): void {
 export interface OfflineMediaInfo {
   title: string;
   poster?: string;
+  /**
+   * Fondo y logo del título. Solo se usan para la pantalla de carga de
+   * /offline/play (fondo + logo pulsante, como el player del catálogo); en
+   * descargas antiguas faltan y la página cae al póster y al título.
+   */
+  background?: string;
+  logo?: string;
   contentType?: "movie" | "series";
   contentId?: string;
   rawId?: string;
@@ -351,6 +358,8 @@ function markOfflineMediaSaved(
     storageKey,
     title: info?.title?.trim() || storageKey,
     poster: info?.poster,
+    background: info?.background,
+    logo: info?.logo,
     contentType: info?.contentType,
     contentId: info?.contentId,
     rawId: info?.rawId,
