@@ -22,7 +22,10 @@
 // que sin subir VERSION quien estuviera offline seguía viendo el reproductor
 // viejo (el nuevo solo aparecía con red, que es cuando la navegación va a la
 // red). Las descargas (OPFS) no se tocan: no viven en Cache Storage.
-const VERSION = "onevid-v2";
+// v3: el shell de /offline se refresca solo (mensaje REFRESH_OFFLINE_SHELL)
+// cuando cambia el HTML desplegado, así un deploy de esa página ya no necesita
+// subir VERSION a mano.
+const VERSION = "onevid-v3";
 const SHELL_CACHE = `${VERSION}-shell`;
 const STATIC_CACHE = `${VERSION}-static`;
 const PAGE_CACHE = `${VERSION}-pages`;
@@ -160,8 +163,50 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("message", (event) => {
   if (event.data === "SKIP_WAITING") {
     void self.skipWaiting();
+    return;
+  }
+  if (event.data && event.data.type === "REFRESH_OFFLINE_SHELL") {
+    event.waitUntil(refreshOfflineShell());
   }
 });
+
+/**
+ * Mantiene el shell de `/offline` al día con lo desplegado.
+ *
+ * Ese HTML y sus chunks viven en esta caché, así que sin esto un deploy de la
+ * página offline solo llegaba a quien navegara con red: sin conexión se servía
+ * el HTML viejo hasta subir VERSION a mano. Comparamos el HTML cacheado con el
+ * del servidor (una petición pequeña) y, solo si cambió, volvemos a precachear
+ * la página y sus assets.
+ */
+async function refreshOfflineShell() {
+  const shell = await caches.open(SHELL_CACHE);
+  for (const url of [OFFLINE_URL, OFFLINE_PLAY_URL]) {
+    try {
+      const fresh = await fetch(url, { cache: "reload" });
+      if (!fresh.ok) {
+        continue;
+      }
+      const text = await fresh.clone().text();
+      const cached = await shell.match(url);
+      const cachedText = cached ? await cached.text() : "";
+      if (cached && cachedText === text) {
+        continue;
+      }
+      await shell.put(url, fresh);
+      const assets = pageAssets(text);
+      await Promise.all(
+        assets.map((asset) =>
+          shell.add(asset).catch(() => {
+            /* best-effort: un chunk que falle no rompe el shell */
+          })
+        )
+      );
+    } catch {
+      /* sin red: se reintenta en el próximo aviso */
+    }
+  }
+}
 
 async function trimCache(cache, maxEntries) {
   try {

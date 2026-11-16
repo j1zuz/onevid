@@ -53,6 +53,22 @@ export function ServiceWorkerRegistrar() {
       window.location.reload();
     };
 
+    /**
+     * Pide al service worker que revise si el HTML de `/offline` cambió desde el
+     * último deploy (comparación barata, una petición por página). Sin esto, un
+     * cambio en esas páginas solo llegaba al navegar con red: sin conexión se
+     * servía el HTML cacheado del shell.
+     */
+    const refreshOfflineShell = () => {
+      try {
+        navigator.serviceWorker.controller?.postMessage({
+          type: "REFRESH_OFFLINE_SHELL",
+        });
+      } catch {
+        /* sin controller todavía: se reintenta al activarse */
+      }
+    };
+
     const applyUpdate = () => {
       toast.dismiss(UPDATE_TOAST_ID);
       const worker = waitingWorker.current;
@@ -93,6 +109,9 @@ export function ServiceWorkerRegistrar() {
       if (applyingUpdate) {
         reload();
       }
+      // Worker nuevo al mando: el shell de /offline puede ser de una versión
+      // anterior del sitio.
+      refreshOfflineShell();
     };
     navigator.serviceWorker.addEventListener(
       "controllerchange",
@@ -129,6 +148,9 @@ export function ServiceWorkerRegistrar() {
           markWaiting(reg.waiting);
         }
         reg.addEventListener("updatefound", () => watchInstalling(reg));
+        // Con controller activo, aprovecha la visita para refrescar el shell de
+        // /offline si el despliegue cambió esas páginas.
+        refreshOfflineShell();
       } catch {
         /* sin SW la app sigue funcionando, solo pierde el modo offline */
       }
