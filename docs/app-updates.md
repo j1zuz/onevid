@@ -68,3 +68,18 @@ abrirla.
   Android lo pedirá una vez; después el botón funciona directo.
 - Los cambios solo de JavaScript pueden seguir yendo por OTA (`eas update`) sin
   pasar por aquí; este flujo es para builds nativos (icono, permisos, librerías).
+
+## Android TV
+
+El perfil `preview-tv` compila el APK de TV con la misma variante development
+(icono beta incluido). Se publica en el mismo release:
+
+```bash
+cd apps/mobile
+eas build --profile preview-tv --platform android
+./scripts/publish-dev-release.sh --from-eas --tv-from-eas "Notas"
+```
+
+En Android TV no hay instalador accesible, así que la app no muestra el aviso
+de actualización: la TV se actualiza con adb/EAS. El APK queda en la tabla de
+descargas del release para instalarlo a mano.
