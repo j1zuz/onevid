@@ -13,12 +13,17 @@ import {
 } from 'heroui-native';
 import { type ComponentProps, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Platform, Pressable, ScrollView, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoginOptionsSheet } from '@/components/login-options-sheet';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { type AppMode, setAppMode } from '@/lib/app-mode';
 import { apiFetch } from '@/lib/api';
+import {
+  canUpdateInApp,
+  checkAppUpdate,
+  installedAppVersion,
+} from '@/lib/app-update';
 import { clearAccessToken } from '@/lib/auth';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { avatarSource } from '@/lib/avatars';
@@ -64,6 +69,8 @@ export default function SettingsTab() {
   const mode = surface?.mode;
   // Drawer de login por QR (modo Stream).
   const [loginOpen, setLoginOpen] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const updateFocus = useTvFocus();
 
   // El perfil activo se carga aparte: copia local al instante y, con red,
   // contraste con el backend (el avatar o el nombre pueden haberse cambiado
@@ -157,6 +164,33 @@ export default function SettingsTab() {
   const handleLogin = useCallback(() => {
     setLoginOpen(true);
   }, []);
+
+  // Comprueba si hay un APK más nuevo. Si lo hay abre /update; si no, avisa
+  // que ya está al día. Solo existe en la variante Dev de Android.
+  const handleCheckUpdate = useCallback(async () => {
+    if (checkingUpdate) return;
+    setCheckingUpdate(true);
+    try {
+      const found = await checkAppUpdate();
+      if (found) {
+        router.push({
+          pathname: '/update',
+          params: {
+            version: found.version,
+            url: found.url,
+            notes: found.notes ?? '',
+          },
+        });
+      } else {
+        Alert.alert(
+          t('Estás al día'),
+          `${t('Versión instalada')} ${installedAppVersion()}`,
+        );
+      }
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }, [checkingUpdate, t]);
 
   // Vuelve a la bienvenida (salir del modo local): deja el modo por defecto
   // para que un arranque en frío vuelva a mostrar la elección de cuenta.
@@ -306,6 +340,31 @@ export default function SettingsTab() {
                   label={currentLanguageLabel}
                   onPress={() => setLangOpen(true)}
                 />
+              </ListGroup>
+            ) : null}
+
+            {canUpdateInApp ? (
+              <ListGroup>
+                <ListGroup.Item
+                  onPress={() => void handleCheckUpdate()}
+                  {...updateFocus.focusProps}
+                  style={tvFocusRing(updateFocus.focused)}
+                >
+                  <ListGroup.ItemPrefix>
+                    <GlassIcon name="circle-arrow-right" size={24} />
+                  </ListGroup.ItemPrefix>
+                  <ListGroup.ItemContent>
+                    <ListGroup.ItemTitle>
+                      {checkingUpdate
+                        ? t('Buscando actualizaciones…')
+                        : t('Buscar actualizaciones')}
+                    </ListGroup.ItemTitle>
+                    <ListGroup.ItemDescription>
+                      {t('Versión')} {installedAppVersion()}
+                    </ListGroup.ItemDescription>
+                  </ListGroup.ItemContent>
+                  <ListGroup.ItemSuffix />
+                </ListGroup.Item>
               </ListGroup>
             ) : null}
 

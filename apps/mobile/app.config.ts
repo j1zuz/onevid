@@ -94,6 +94,16 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     android: {
       ...config.android,
       package: appId,
+      // Solo la variante Dev instala APKs por su cuenta (updater de la app).
+      // Producción se actualiza desde la tienda y no debe pedir este permiso.
+      ...(variant === 'development'
+        ? {
+            permissions: [
+              ...(config.android?.permissions ?? []),
+              'android.permission.REQUEST_INSTALL_PACKAGES',
+            ],
+          }
+        : {}),
       ...(icon
         ? {
             icon,
