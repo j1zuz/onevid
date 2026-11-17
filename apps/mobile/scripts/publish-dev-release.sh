@@ -7,34 +7,67 @@
 # app, sin volver a pasarles un enlace.
 #
 # Uso:
-#   ./scripts/publish-dev-release.sh <ruta-del.apk> ["notas de la versión"]
+#   ./scripts/publish-dev-release.sh <ruta.apk | URL> ["notas"]
+#   ./scripts/publish-dev-release.sh --from-eas ["notas"]
 #
-# La versión sale de `app.json` (campo `version`). Súbela ANTES de compilar el
-# APK; si no, la app instalada y el manifest quedan con la misma versión y no
-# se ofrece la actualización.
+#   --from-eas  coge el último build Android del perfil `preview` terminado en
+#               EAS (el mismo que se comparte con `eas build`), descarga su APK
+#               y publica versión y notas. Así no hace falta compilar local.
 #
-# Requisitos: `gh` autenticado con permiso sobre el repo y el APK ya compilado
-# (por ejemplo `bun --filter onevid build:android`).
+# La versión sale de `dev-version.json` (o de la del build con --from-eas). Súbela
+# antes de compilar: si el APK y el manifest tienen la misma versión que la
+# instalada, la app no ofrece actualizar.
+#
+# Requisitos: `gh` autenticado, `curl`, y para --from-eas, `eas` autenticado.
 set -euo pipefail
 
-APK="${1:?Falta la ruta del APK}"
+MODE="${1:-}"
 NOTES="${2:-}"
 TAG="app-dev"
 ASSET_APK="onevid-dev.apk"
 ASSET_MANIFEST="onevid-dev.json"
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-if [[ ! -f "$APK" ]]; then
-  echo "No existe el APK: $APK" >&2
+if [[ "$MODE" == "--from-eas" ]]; then
+  SOURCE="$(eas build:list --platform android --profile preview --limit 1 \
+    --non-interactive --json | python3 -c '
+import json, sys
+build = json.load(sys.stdin)[0]
+url = (build.get("artifacts") or {}).get("buildUrl") or ""
+version = build.get("appVersion") or ""
+print(url)
+print(version)
+')"
+  APK_URL="$(sed -n '1p' <<<"$SOURCE")"
+  EAS_VERSION="$(sed -n '2p' <<<"$SOURCE")"
+  if [[ -z "$APK_URL" ]]; then
+    echo "El último build de EAS no tiene artifact (¿terminó bien?)." >&2
+    exit 1
+  fi
+  SRC="$APK_URL"
+  VERSION="${EAS_VERSION:-$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$APP_DIR/dev-version.json")}"
+elif [[ -n "$MODE" ]]; then
+  SRC="$MODE"
+  VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$APP_DIR/dev-version.json")"
+else
+  echo "Uso: $0 <ruta.apk | URL> [notas] | $0 --from-eas [notas]" >&2
   exit 1
 fi
-
-VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$APP_DIR/app.json")"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
-cp "$APK" "$WORKDIR/$ASSET_APK"
+if [[ "$SRC" =~ ^https?:// ]]; then
+  echo "Descargando $SRC"
+  curl -fL --retry 3 -o "$WORKDIR/$ASSET_APK" "$SRC"
+else
+  if [[ ! -f "$SRC" ]]; then
+    echo "No existe el APK: $SRC" >&2
+    exit 1
+  fi
+  cp "$SRC" "$WORKDIR/$ASSET_APK"
+fi
+
 python3 - "$WORKDIR/$ASSET_MANIFEST" "$VERSION" "$NOTES" <<'PY'
 import json, sys
 out, version, notes = sys.argv[1], sys.argv[2], sys.argv[3]

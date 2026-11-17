@@ -33,18 +33,27 @@ app Dev  ──GET──▶  /api/onevid-app-update?variant=dev
 
 ## Publicar una versión
 
-1. Sube `version` en `apps/mobile/app.json` (por ejemplo `1.3.0`).
-2. Compila el APK:
-   ```bash
-   bun --filter onevid build:android
-   ```
-3. Publícalo:
+La versión de la variante Dev vive en `apps/mobile/dev-version.json`, **no** en
+`app.json`: así una release de pruebas no cambia la versión de producción.
+
+1. Sube `version` en `apps/mobile/dev-version.json` (por ejemplo `1.0.2`).
+2. Compila en EAS (nube, sin toolchain local):
    ```bash
    cd apps/mobile
-   ./scripts/publish-dev-release.sh ./onevid-dev.apk "Arregla el chat de Ver juntos"
+   eas build --profile preview --platform android
    ```
-   El script lee la versión de `app.json`, escribe el manifest y crea/actualiza
-   el release `app-dev` (con `--clobber` para reemplazar los assets).
+   o local con `bun --filter onevid build:android`.
+3. Publícalo. Con el último build de EAS ya terminado:
+   ```bash
+   ./scripts/publish-dev-release.sh --from-eas "Arregla el chat de Ver juntos"
+   ```
+   o con un APK/URL concreta:
+   ```bash
+   ./scripts/publish-dev-release.sh ./onevid-dev.apk "Notas"
+   ```
+   El script escribe el manifest y crea/actualiza el release `app-dev` (con
+   `--clobber`). El enlace de instalación de EAS sigue sirviendo para instalar
+   a mano la primera vez; luego ya lo hace la app.
 
 En un máximo de 5 minutos la app lo detecta; si ya estaba abierta, al volver a
 abrirla.
