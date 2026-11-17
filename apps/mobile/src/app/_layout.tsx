@@ -5,7 +5,7 @@ import { PostHogProvider } from 'posthog-react-native';
 import { posthog } from '@/lib/analytics';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Constants from 'expo-constants';
-import { Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { NavigationBar } from 'expo-navigation-bar';
 import { ObserveRoot, useObserve } from 'expo-observe';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -15,6 +15,7 @@ import {
   type ComponentProps,
   type ComponentType,
   useEffect,
+  useRef,
   useState,
 } from 'react';
 import { Platform, StatusBar as RNStatusBar } from 'react-native';
@@ -30,6 +31,7 @@ import i18next from '@/lib/i18n';
 import { useLanguageOverride } from '@/lib/i18n/language-preference';
 import { useDeviceLocale } from '@/lib/i18n/use-device-locale';
 import { type AppMode, loadAppMode } from '@/lib/app-mode';
+import { checkAppUpdate } from '@/lib/app-update';
 import { validateSession } from '@/lib/auth';
 import { queryClient } from '@/lib/query';
 import { COLORS } from '@/lib/theme';
@@ -139,6 +141,38 @@ function RootLayout() {
     return () => clearTimeout(id);
   }, [authReady, skipAnimatedSplash, markInteractive]);
 
+  // Updater de la app Dev: una sola consulta por arranque, después de que la
+  // UI ya está visible, para no competir con el splash ni con el picker de
+  // perfiles. Si hay versión nueva se abre /update con los datos ya cargados.
+  const updateChecked = useRef(false);
+  useEffect(() => {
+    if (!authReady || (!splashDone && !skipAnimatedSplash)) return;
+    if (updateChecked.current) return;
+    updateChecked.current = true;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      checkAppUpdate()
+        .then((found) => {
+          if (cancelled || !found) return;
+          router.push({
+            pathname: '/update',
+            params: {
+              version: found.version,
+              url: found.url,
+              notes: found.notes ?? '',
+            },
+          });
+        })
+        .catch(() => {
+          /* sin red: se reintenta en el próximo arranque */
+        });
+    }, 1200);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [authReady, skipAnimatedSplash, splashDone]);
+
   const handleSplashLayoutReady = () => {
     // El overlay ya está pintado (negro + banda de video + logo), así que es
     // seguro quitar el splash nativo sin que se vea ningún hueco.
@@ -192,6 +226,12 @@ function RootLayout() {
                   {/* Expo 56 recomienda declarar la orientación por ruta. El lock
                       imperativo del player queda como respaldo al volver de PiP,
                       pero la navegación ya presenta esta pantalla en landscape. */}
+                  <AppStack.Screen
+                    name="update"
+                    options={{
+                      animation: reduceMotion ? 'none' : 'fade',
+                    }}
+                  />
                   <AppStack.Screen
                     name="player"
                     options={{

@@ -124,5 +124,20 @@
   "Sin descripción disponible.": "No description available.",
   "Ver canal en vivo": "Watch channel live",
   "Página {{page}} de {{pageCount}}": "Page {{page}} of {{pageCount}}",
-  "Sin guía configurada": "No guide configured"
+  "Sin guía configurada": "No guide configured",
+  "Nueva versión disponible": "New version available",
+  "Estás al día": "You're up to date",
+  "Actualiza desde la tienda": "Update from the store",
+  "Instalada": "Installed",
+  "Buscando actualizaciones…": "Checking for updates…",
+  "Versión instalada": "Installed version",
+  "Descargando…": "Downloading…",
+  "Abriendo el instalador…": "Opening installer…",
+  "No se pudo descargar la actualización.": "The update could not be downloaded.",
+  "Descargar e instalar": "Download and install",
+  "Buscar actualizaciones": "Check for updates",
+  "Más tarde": "Later",
+  "Versión": "Version",
+  "Instalador abierto. Confirma la instalación.": "Installer opened. Confirm the installation.",
+  "Abrimos la descarga en el navegador.": "We opened the download in your browser."
 }

@@ -1,4 +1,5 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
+import devVersion from './dev-version.json';
 
 /**
  * Variantes de app: Dev y Producción.
@@ -50,6 +51,11 @@ const ID_SUFFIX: Record<AppVariant, string> = {
 // `app.json`. El identificador nativo es el que las distingue para el sistema.
 const DEV_NAME = 'Onevid';
 
+// Versión propia de la variante Dev, en `dev-version.json`. Se sube en cada
+// build para que el updater detecte que hay una versión nueva; así producción
+// conserva su versión de `app.json` y no se toca por una release de pruebas.
+const DEV_VERSION = devVersion.version;
+
 // `null` = producción usa los iconos de `app.json` sin tocarlos.
 const ICON: Record<AppVariant, string | null> = {
   development: './assets/images/onevid-icon-dev.png',
@@ -83,6 +89,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
   return {
     ...config,
+    version: variant === 'development' ? DEV_VERSION : config.version,
     slug: config.slug ?? BASE_NAME,
     name,
     ...(icon ? { icon } : {}),
@@ -94,6 +101,16 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     android: {
       ...config.android,
       package: appId,
+      // Solo la variante Dev instala APKs por su cuenta (updater de la app).
+      // Producción se actualiza desde la tienda y no debe pedir este permiso.
+      ...(variant === 'development'
+        ? {
+            permissions: [
+              ...(config.android?.permissions ?? []),
+              'android.permission.REQUEST_INSTALL_PACKAGES',
+            ],
+          }
+        : {}),
       ...(icon
         ? {
             icon,
