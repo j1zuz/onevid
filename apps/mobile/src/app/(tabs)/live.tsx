@@ -28,9 +28,12 @@ import {
   useWindowDimensions,
   ScrollView,
   type ScrollViewInstance,
+  StyleSheet,
   TextInput,
   View,
 } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
+import Svg, { Defs, Mask, Rect } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
 import { LiveTvCategoryPicker } from '@/components/live-tv-category-picker';
@@ -73,6 +76,7 @@ export default function LiveTvTab() {
   // encogerlo y dejar un hueco a la derecha.
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const playerWidth = Math.max(0, Math.round(windowWidth - 32));
+  const playerHeight = Math.round((playerWidth * 9) / 16);
   const searchRef = useRef<ComponentRef<typeof SearchField.Input>>(null);
   // Si el usuario toca el buscador a propósito no le quitamos el foco; solo se
   // combate el foco automático de Android.
@@ -484,7 +488,11 @@ export default function LiveTvTab() {
               (antes había dos ramas y al entrar recargaba el directo). Va
               dentro del scroll para que el D-pad pueda bajar al EPG. */}
           {playing ? (
-            <View
+            <Animated.View
+              // La entrada/salida de pantalla completa anima el mismo
+              // reproductor desde el tamaño de la tarjeta incrustada hasta la
+              // pantalla (y al revés), en vez de saltar de golpe.
+              layout={fullscreen ? undefined : LinearTransition.duration(260)}
               style={
                 fullscreen
                   ? {
@@ -494,17 +502,9 @@ export default function LiveTvTab() {
                     }
                   : {
                       width: playerWidth,
-                      height: Math.round((playerWidth * 9) / 16),
+                      height: playerHeight,
                       marginHorizontal: 16,
                       marginBottom: 12,
-                      // Borde y esquinas redondeadas del marco. El recorte
-                      // (`overflow: 'hidden'`) NO se usa: el `LibVlcPlayerView`
-                      // es un TextureView nativo y con el clip del padre la
-                      // imagen quedaba en negro (solo sonaba el audio). Por eso
-                      // el borde se pinta encima del vídeo, sin recortarlo.
-                      borderWidth: 1,
-                      borderColor: '#262626',
-                      borderRadius: 12,
                       backgroundColor: '#000',
                     }
               }
@@ -530,7 +530,56 @@ export default function LiveTvTab() {
                 title={playing.name}
                 url={sanitizeUrlForVlc(playing.url)}
               />
-            </View>
+              {/* El vídeo es una TextureView nativa que no se recorta con
+                  `overflow: hidden` (quedaba en negro). Las esquinas se
+                  redondean pintando el exterior del marco encima del vídeo,
+                  sin recortarlo. */}
+              {fullscreen ? null : (
+                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                  <Svg height={playerHeight} width={playerWidth}>
+                    <Defs>
+                      <Mask id="live-tv-corners">
+                        <Rect
+                          fill="#fff"
+                          height={playerHeight}
+                          width={playerWidth}
+                          x={0}
+                          y={0}
+                        />
+                        <Rect
+                          fill="#000"
+                          height={playerHeight}
+                          rx={12}
+                          ry={12}
+                          width={playerWidth}
+                          x={0}
+                          y={0}
+                        />
+                      </Mask>
+                    </Defs>
+                    <Rect
+                      fill="#000"
+                      height={playerHeight}
+                      mask="url(#live-tv-corners)"
+                      width={playerWidth}
+                      x={0}
+                      y={0}
+                    />
+                    <Rect
+                      fill="none"
+                      height={playerHeight - 1}
+                      rx={11.5}
+                      ry={11.5}
+                      stroke="#262626"
+                      strokeWidth={1}
+                      width={playerWidth - 1}
+                      x={0.5}
+                      y={0.5}
+                    />
+                  </Svg>
+                </View>
+              )}
+            </Animated.View>
           ) : null}
           {fullscreen ? null : (
             <LiveTvGuide

@@ -76,6 +76,23 @@ export default function TabsLayout() {
       }),
     [authed],
   );
+  // Al montar los tabs (justo después de elegir perfil) el evento
+  // `setActiveProfile` ya ocurrió y `useFocusEffect` del layout no siempre
+  // corre: el avatar se quedaba en negro. Leemos el perfil activo una vez aquí
+  // y cada vez que cambia la sesión.
+  useEffect(() => {
+    if (!authed) return;
+    let cancelled = false;
+    refreshActiveProfile()
+      .catch(() => null)
+      .then((p) => {
+        if (!cancelled) setAvatar(p?.avatar);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authed]);
+
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;

@@ -48,8 +48,10 @@ export function installedAppVersion(): string {
   return Application.nativeApplicationVersion ?? '0.0.0';
 }
 
+// En Android TV no hay instalador de APKs accesible: el aviso se omite y la
+// app de TV se actualiza con adb/EAS.
 export const canUpdateInApp =
-  Platform.OS === 'android' && isDevelopmentBuild;
+  Platform.OS === 'android' && !Platform.isTV && isDevelopmentBuild;
 
 /**
  * Pregunta al backend si hay una versión más nueva. Devuelve `null` cuando no
