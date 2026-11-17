@@ -6,7 +6,12 @@ import {
   playerControlIconStyle,
   playerControlStyle,
 } from "@/components/stream/player-control-size";
+import { SpeechIcon } from "@videojs/react/icons";
 import { OfflineBadge } from "@/components/stream/offline-badge";
+import {
+  PlayerMenuRow,
+  PlayerMenuRowGroup,
+} from "@/components/stream/player-menu-row";
 import { PlayerTooltip } from "@/components/stream/player-tooltip";
 import { TransitionLink } from "glimm/next";
 import { ArrowLeftIcon, LoaderIcon, MessageCircleIcon, UsersIcon } from "lucide-react";
@@ -400,6 +405,10 @@ export function StreamOnevid({
   const [pillTopReserve, setPillTopReserve] = useState(0);
   // El pill no apareció: dejamos los iconos en la barra superior como siempre.
   const [pillFallback, setPillFallback] = useState(false);
+  // Contenido del menú de ajustes del skin (Velocidad/Calidad/Subtítulos). Va
+  // con `keepMounted`, así que existe siempre: ahí van nuestras acciones como
+  // filas del menú en vez de botones sueltos en la píldora.
+  const [menuContent, setMenuContent] = useState<HTMLElement | null>(null);
   const shouldUseMediaBunny = Boolean(
     !offlineMediaUrl &&
       !isTv &&
@@ -452,6 +461,7 @@ export function StreamOnevid({
       return true;
     };
     attach(locate());
+    setMenuContent(stage.querySelector<HTMLElement>(".media-menu-content"));
     // El player se monta después de resolver la fuente, y además se remonta al
     // guardar la copia sin conexión (la fuente pasa al blob local). Por eso el
     // observador no se apaga: si el pill que teníamos queda desconectado, se
@@ -461,6 +471,7 @@ export function StreamOnevid({
       if (cancelled) {
         return;
       }
+      setMenuContent(stage.querySelector<HTMLElement>(".media-menu-content"));
       if (host?.isConnected) {
         return;
       }
@@ -1215,8 +1226,13 @@ export function StreamOnevid({
   // superior cuando hay ancho (horizontal/escritorio) o dentro del pill de
   // controles del player en vertical de móvil, donde no le quitan el ancho al
   // título.
+  // Con menú de ajustes disponible, las acciones se pintan como filas suyas;
+  // si el skin no lo expone, se quedan como botones en la píldora.
+  const menuVariant = menuContent ? "menu" : "icon";
+
   const trackPicker = (
     <StreamTrackPicker
+      variant={menuVariant}
       activeAudioId={activeAudioId}
       activeSubtitleId={browserTracks.activeSubtitleId}
       audioTracks={audioTracks}
@@ -1227,6 +1243,7 @@ export function StreamOnevid({
   );
   const episodePicker = isSeries ? (
     <StreamEpisodePicker
+      variant={menuVariant}
       episode={episode}
       onSelect={handleEpisodeSelect}
       poster={_contentPoster}
@@ -1237,6 +1254,7 @@ export function StreamOnevid({
   const downloadButton =
     !isTv && sourceUrl ? (
       <PlayerDownloadButton
+      variant={menuVariant}
         audioTrackIndex={
           usesMediaBunnyAudio ? mediaBunny.activeAudioTrack : undefined
         }
@@ -1262,6 +1280,7 @@ export function StreamOnevid({
     ) : null;
   const sourcePicker = isDirect ? null : (
     <StreamSourcePicker
+      variant={menuVariant}
       activeSource={selectedSource}
       contentId={rawId}
       contentType={contentType}
@@ -1294,6 +1313,26 @@ export function StreamOnevid({
         )}
       </PlayerTooltip>
     );
+
+  // Versiones "fila de menú" de esas dos acciones, para cuando el menú de
+  // ajustes está disponible.
+  const watchPartyRow =
+    watchRoom || watchPartyJoining || isDirect ? null : (
+      <PlayerMenuRow
+        busy={creatingWatchRoom}
+        icon={<SpeechIcon className="size-4" />}
+        label={t("Ver juntos")}
+        onClick={createWatchRoom}
+      />
+    );
+  const chatRow =
+    watchRoom || watchPartyJoining ? (
+      <PlayerMenuRow
+        icon={<MessageCircleIcon className="size-4" />}
+        label={watchChatOpen ? "Ocultar chat" : "Abrir chat"}
+        onClick={() => setWatchChatOpen((open) => !open)}
+      />
+    ) : null;
 
   // Chat de la watch party: mismo botón plano que los demás selectores, con el
   // globo de no leídos, para que viva en la fila de controles del player y no
@@ -1358,7 +1397,24 @@ export function StreamOnevid({
           (audio/subtítulos, episodios, descarga, fuentes y ver juntos): se leen
           como parte de ella y heredan su auto-ocultado. Solo si el pill no
           aparece vuelven a la barra superior (`pillFallback`). */}
-      {controlsPill
+      {/* Con menú de ajustes: nuestras acciones son filas dentro de él
+          (Velocidad/Calidad/Subtítulos + separador + las nuestras). */}
+      {menuContent
+        ? createPortal(
+            <PlayerMenuRowGroup>
+              {trackPicker}
+              {episodePicker}
+              {downloadButton}
+              {sourcePicker}
+              {watchPartyRow}
+              {chatRow}
+            </PlayerMenuRowGroup>,
+            menuContent
+          )
+        : null}
+      {/* Sin menú: se quedan como botones dentro de la píldora de controles,
+          que es donde vivían antes. */}
+      {!menuContent && controlsPill
         ? createPortal(
             <div className="player-compact-actions flex items-center gap-0.5">
               {trackPicker}

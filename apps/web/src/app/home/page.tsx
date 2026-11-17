@@ -352,7 +352,7 @@ async function OneVidContent({
                 {/* biome-ignore lint/performance/noImgElement: SVG data URI */}
                 <img
                   alt="onevid"
-                  className="size-8 rounded-(--radius) border border-border/70 object-contain"
+                  className="size-8 rounded-(--radius) object-cover"
                   height={32}
                   src="/onevid-pwa-512.png"
                   width={32}

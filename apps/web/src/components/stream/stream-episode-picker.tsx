@@ -20,6 +20,8 @@ import {
   playerControlIconStyle,
   playerControlStyle,
 } from "@/components/stream/player-control-size";
+import { RestartIcon } from "@videojs/react/icons";
+import { PlayerMenuRow } from "@/components/stream/player-menu-row";
 import { PlayerTooltip } from "@/components/stream/player-tooltip";
 import type { NextEpisodeRef } from "@/components/stream/stream-next-episode";
 import { tmdbImage } from "@/lib/tmdb";
@@ -27,6 +29,8 @@ import type { StreamWithAddon } from "@/types/stream";
 
 interface EpisodePickerProps {
   poster?: string;
+  /** "menu" = fila dentro del menú de ajustes del player. */
+  variant?: "icon" | "menu";
   seriesId: string;
   season: number;
   episode: number;
@@ -46,6 +50,7 @@ interface EpisodeMeta {
 }
 
 export function StreamEpisodePicker({
+  variant = "icon",
   seriesId,
   season,
   episode,
@@ -143,20 +148,28 @@ export function StreamEpisodePicker({
 
   return (
     <>
-      <PlayerTooltip
-        label="Episodios"
-        trigger={
-          <button
-            aria-label="Cambiar episodio"
-            className="flex shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-            style={playerControlStyle}
-            onClick={() => setOpen(true)}
-            type="button"
-          />
-        }
-      >
-        <ListVideoIcon style={playerControlIconStyle} />
-      </PlayerTooltip>
+      {variant === "menu" ? (
+        <PlayerMenuRow
+          icon={<RestartIcon className="size-4" />}
+          label="Episodios"
+          onClick={() => setOpen((value) => !value)}
+        />
+      ) : (
+        <PlayerTooltip
+          label="Episodios"
+          trigger={
+            <button
+              aria-label="Cambiar episodio"
+              className="flex shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+              style={playerControlStyle}
+              onClick={() => setOpen(true)}
+              type="button"
+            />
+          }
+        >
+          <ListVideoIcon style={playerControlIconStyle} />
+        </PlayerTooltip>
+      )}
 
       <Drawer onOpenChange={setOpen} open={open} swipeDirection="right">
         <DrawerContent>

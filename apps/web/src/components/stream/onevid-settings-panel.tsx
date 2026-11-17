@@ -2,6 +2,7 @@
 
 import {
   ArrowLeftIcon,
+  ChartColumnIcon,
   CheckIcon,
   ChevronRightIcon,
   CircleCheckIcon,
@@ -29,6 +30,7 @@ import { OfflineDownloadsManager } from "./offline-downloads-manager";
 import { OneVidProfileAvatar } from "./onevid-profile-avatar";
 import { useOneVidProfiles } from "./onevid-profile-context";
 import { OneVidQualityOrder } from "./onevid-quality-order";
+import { OneVidStats } from "./onevid-stats";
 import { OneVidProfileManager } from "./onevid-profile-manager";
 
 const NEXT_LOCALE_COOKIE = "NEXT_LOCALE";
@@ -41,6 +43,7 @@ function persistLocaleCookie(locale: SupportedLanguage) {
 
 export type SettingsView =
   | "account"
+  | "profile"
   | "catalog"
   | "downloads"
   | "home"
@@ -145,11 +148,6 @@ function AccountInfoView({
         value={
           <span className="inline-flex items-center gap-2">
             <StatusBadge ok={debrid.hasTorbox} />
-            {debrid.hasTorbox && debrid.provider === "torbox" ? (
-              <span className="text-muted-foreground text-xs">
-                {t("Activo")}
-              </span>
-            ) : null}
           </span>
         }
       />
@@ -158,11 +156,6 @@ function AccountInfoView({
         value={
           <span className="inline-flex items-center gap-2">
             <StatusBadge ok={debrid.hasRealDebrid} />
-            {debrid.hasRealDebrid && debrid.provider === "realdebrid" ? (
-              <span className="text-muted-foreground text-xs">
-                {t("Activo")}
-              </span>
-            ) : null}
           </span>
         }
       />
@@ -276,6 +269,11 @@ export function OneVidSettingsPanel({
           onClick={() => setView("account")}
         />
         <SettingsRow
+          icon={<ChartColumnIcon className="size-4" />}
+          label={t("Perfil")}
+          onClick={() => setView("profile")}
+        />
+        <SettingsRow
           icon={<SettingsIcon className="size-4" />}
           label={t("Configuración")}
           onClick={() => setView("catalog")}
@@ -324,6 +322,8 @@ export function OneVidSettingsPanel({
           userName={userName}
         />
       )}
+
+      {view === "profile" && <OneVidStats />}
 
       {view === "catalog" && (
         <SetupStepper

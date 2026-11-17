@@ -14,7 +14,8 @@
     "dev:vinext": "VINEXT=1 vite dev --port 3001",
     "build:vinext": "bun run email:build && VINEXT=1 vite build",
     "start:vinext": "VINEXT=1 vite preview",
-    "email:build": "bun scripts/build-emails.tsx"
+    "email:build": "bun scripts/build-emails.tsx",
+    "db:activity": "bun scripts/apply-profile-activity-schema.ts"
   },
   "dependencies": {
     "@better-auth/api-key": "1.7.15",
@@ -35,8 +36,10 @@
     "better-auth": "1.7.15",
     "dotenv": "18.0.9",
     "drizzle-orm": "0.45.4",
+    "echarts": "^6.1.0",
     "emoji-mart": "^5.6.0",
     "glimm": "^0.4.0",
+    "html-to-image": "^1.11.13",
     "i18next": "26.7.1",
     "input-otp": "^1.4.2",
     "lucide-react": "catalog:",

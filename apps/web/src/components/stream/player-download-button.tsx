@@ -8,6 +8,8 @@ import {
   playerControlIconStyle,
   playerControlStyle,
 } from "@/components/stream/player-control-size";
+import { QualityIcon } from "@videojs/react/icons";
+import { PlayerMenuRow } from "@/components/stream/player-menu-row";
 import { PlayerTooltip } from "@/components/stream/player-tooltip";
 import {
   type CancellableConversion,
@@ -39,6 +41,8 @@ interface PlayerDownloadButtonProps {
    */
   audioTrackIndex?: number;
   onSaved?: () => void;
+  /** "menu" = fila dentro del menú de ajustes del player. */
+  variant?: "icon" | "menu";
 }
 
 type DownloadState =
@@ -171,6 +175,7 @@ function classifyDownloadError(error: unknown): {
  * descarga visible ni expone el archivo al sistema.
  */
 export function PlayerDownloadButton({
+  variant = "icon",
   url,
   filename,
   storageKey,
@@ -344,6 +349,20 @@ export function PlayerDownloadButton({
       state.progress !== null && state.progress > 0
         ? `Preparando en debrid… ${Math.round(state.progress * 100)} %`
         : "Preparando en debrid…";
+    if (variant === "menu") {
+      return (
+        <PlayerMenuRow
+          icon={<QualityIcon className="size-4" />}
+          label="Preparando descarga…"
+          onClick={cancel}
+          state={
+            state.progress !== null && state.progress > 0
+              ? `${Math.round(state.progress * 100)}%`
+              : undefined
+          }
+        />
+      );
+    }
     return (
       <PlayerTooltip
         label={label}
@@ -403,6 +422,16 @@ export function PlayerDownloadButton({
   if (state.status === "downloading") {
     const percent = Math.round(state.progress * 100);
     const offset = C - state.progress * C;
+    if (variant === "menu") {
+      return (
+        <PlayerMenuRow
+          icon={<QualityIcon className="size-4" />}
+          label="Cancelar descarga"
+          onClick={cancel}
+          state={`${percent}%`}
+        />
+      );
+    }
     return (
       <PlayerTooltip
         label={`Cancelar guardado sin conexión · ${percent}%`}
@@ -460,6 +489,16 @@ export function PlayerDownloadButton({
     const remaining = state.expiresAt
       ? formatRemaining(state.expiresAt - Date.now())
       : null;
+    if (variant === "menu") {
+      return (
+        <PlayerMenuRow
+          icon={<CheckCircle2Icon className="size-4 text-emerald-400" />}
+          label="Disponible sin conexión"
+          onClick={() => undefined}
+          state={remaining ?? undefined}
+        />
+      );
+    }
     return (
       <PlayerTooltip
         label={
@@ -483,6 +522,16 @@ export function PlayerDownloadButton({
             <CheckCircle2Icon style={playerControlIconStyle} />
           </button>
         }
+      />
+    );
+  }
+
+  if (variant === "menu") {
+    return (
+      <PlayerMenuRow
+        icon={<QualityIcon className="size-4" />}
+        label="Guardar sin conexión"
+        onClick={start}
       />
     );
   }

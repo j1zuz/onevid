@@ -1,5 +1,5 @@
 import { hashPassword, verifyPassword } from "better-auth/crypto";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   oneVidProfile,
   oneVidProfileProgress,
@@ -590,6 +590,32 @@ export interface ContinueWatchingItem {
  * positions (accidental starts) and keeps completed titles as finished rows so
  * the UI can show them as watched while excluding them from "Continue watching".
  */
+/**
+ * Suma a la actividad diaria del perfil el tiempo transcurrido desde el último
+ * guardado de progreso.
+ *
+ * El progreso por título no sirve para un calendario ("qué días vi algo"), así
+ * que se acumula por día: cada POST de `/api/onevid-progress` (~60 s) suma el
+ * delta desde `last_seen_at`, con tope de 2 min para no contar pausas largas ni
+ * pestañas dormidas. Alimenta el heatmap de estadísticas (día/mes).
+ */
+export async function addProfileActivity(profileId: string): Promise<void> {
+  await db.execute(sql`
+    INSERT INTO onevid_profile_activity (profile_id, day, seconds, last_seen_at)
+    VALUES (${profileId}, CURRENT_DATE, 0, now())
+    ON CONFLICT (profile_id, day) DO UPDATE
+    SET seconds = onevid_profile_activity.seconds
+        + LEAST(
+            GREATEST(
+              EXTRACT(EPOCH FROM (now() - onevid_profile_activity.last_seen_at)),
+              0
+            ),
+            120
+          )::int,
+        last_seen_at = now()
+  `);
+}
+
 export async function setProfileProgress(
   profileId: string,
   input: ProgressInput

@@ -85,6 +85,9 @@ export async function POST(request: Request) {
   if (!name) {
     return Response.json({ error: "name requerido" }, { status: 400 });
   }
+  if (name.length > 24) {
+    return Response.json({ error: "name_too_long" }, { status: 400 });
+  }
 
   const pinCheck = await checkManageAuth(session.user.id, authPin);
   if (pinCheck !== "ok") {

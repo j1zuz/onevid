@@ -41,6 +41,7 @@ function isSettingsView(value: string | undefined): value is SettingsView {
     value === "catalog" ||
     value === "downloads" ||
     value === "language" ||
+    value === "profile" ||
     value === "profiles" ||
     value === "quality" ||
     value === "home"
@@ -165,14 +166,14 @@ export default async function AccountPage({
           data-dpad-focus-subtle
         >
           <Link
-            className="flex shrink-0 items-center rounded border border-transparent"
+            className="flex shrink-0 items-center"
             data-dpad-focusable
             href="/home"
           >
             {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
             <img
               alt="onevid"
-              className="size-8 rounded-md border border-border/70 bg-card p-1"
+              className="size-8 rounded-md border border-border/70 object-cover"
               height={32}
               src="/onevid-pwa-512.png"
               width={32}

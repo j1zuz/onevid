@@ -70,6 +70,8 @@ import {
 import { Fragment, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { OneVidProfileAvatar } from "@/components/stream/onevid-profile-avatar";
+import { ImageLightbox } from "@/components/watch/image-lightbox";
+import { createPortal } from "react-dom";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import { MESSAGE_REACTIONS } from "@/lib/watch-party-reactions";
 import type {
@@ -184,8 +186,13 @@ function attachmentImageUrl(
 
 function MessageAttachment({
   attachment,
+  chipOverlay,
+  onPreview,
 }: {
   attachment: WatchChatAttachment;
+  /** Chips de reacción que se montan sobre la propia imagen. */
+  chipOverlay?: React.ReactNode;
+  onPreview: (src: string, alt?: string) => void;
 }) {
   const { t } = useTranslation();
   const assetUrl = safeHttpUrl(attachment.asset_url);
@@ -207,14 +214,26 @@ function MessageAttachment({
 
   const image = attachmentImageUrl(attachment);
   if (image) {
+    const label = attachment.title ?? "GIF";
+    // La miniatura abre la vista previa a tamaño completo (el original cuando
+    // Stream lo expone en `asset_url`, si no la propia miniatura).
+    const full = assetUrl ?? image;
     return (
-      // biome-ignore lint/performance/noImgElement: GIF remoto de Giphy
-      <img
-        alt={attachment.title ?? "GIF"}
-        className="max-h-56 w-full rounded-xl bg-black/20 object-contain"
-        loading="lazy"
-        src={image}
-      />
+      <button
+        aria-label={`Ver ${label}`}
+        className="group relative block w-auto max-w-full cursor-zoom-in"
+        onClick={() => onPreview(full, label)}
+        type="button"
+      >
+        {/* biome-ignore lint/performance/noImgElement: GIF remoto de Giphy */}
+        <img
+          alt={label}
+          className="max-h-56 w-auto max-w-full rounded-xl bg-black/20 object-contain transition-opacity group-hover:opacity-90"
+          loading="lazy"
+          src={image}
+        />
+        {chipOverlay}
+      </button>
     );
   }
 
@@ -313,8 +332,21 @@ export function WatchPartyChat({
     file: File;
     url: string | null;
   } | null>(null);
+  // Imagen abierta a pantalla completa (adjuntos y GIF del chat).
+  const [lightbox, setLightbox] = useState<{
+    alt?: string;
+    src: string;
+  } | null>(null);
   // Mensaje al que se está respondiendo (cita); se limpia al enviar.
   const [replyTo, setReplyTo] = useState<WatchChatMessage | null>(null);
+  // Mensaje con el selector de reacciones abierto. Se pinta pegado al mensaje
+  // (posicionamiento propio) en vez de con el popover flotante, que se abría
+  // lejos del botón cuando el disparador vive dentro del scroll del chat.
+  const [reactionPicker, setReactionPicker] = useState<{
+    id: string;
+    left: number;
+    top: number;
+  } | null>(null);
   const [kickTarget, setKickTarget] = useState<WatchMember | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
@@ -819,50 +851,41 @@ export function WatchPartyChat({
               // Los chips van dentro de la burbuja (montados en su borde de
               // arriba) para que queden en su esquina y no se salgan hacia los
               // botones de acciones, que van al otro lado.
-              const reactionChips =
+              const renderReactionChips = (position: string) =>
                 message.reactions.length > 0 ? (
-                      <div
-                        className={cn(
-                          // Pegadas al borde de arriba de la burbuja, del lado
-                          // del mensaje: derecha en los tuyos, izquierda en los
-                          // ajenos.
-                          "absolute -top-3.5 z-10 flex max-w-[85%] flex-wrap gap-1",
-                          own ? "right-2 justify-end" : "left-2"
-                        )}
-                      >
-                        {message.reactions.map((reaction) => {
-                          const mine = reaction.mine;
-                          return (
-                            <button
-                              aria-pressed={mine}
-                              className={cn(
-                                // Fondo sólido: el chip se monta sobre el
-                                // borde de la burbuja y con transparencia se
-                                // mezclaba con el azul de los mensajes propios.
-                                "flex items-center gap-1 rounded-full border bg-card px-1.5 py-0.5 text-[11px] shadow-sm transition-colors",
-                                mine
-                                  ? "border-primary/70 text-foreground"
-                                  : "border-border/70 text-muted-foreground hover:bg-muted"
-                              )}
-                              key={reaction.emoji}
-                              onClick={() =>
-                                void onToggleReaction(
-                                  message.id,
-                                  reaction.emoji,
-                                  mine
-                                )
-                              }
-                              type="button"
-                            >
-                              <span>{reaction.emoji}</span>
-                              <span className="tabular-nums">
-                                {reaction.count}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : null;
+                  <div
+                    className={cn(
+                      "absolute z-10 flex max-w-[85%] flex-wrap gap-1",
+                      position
+                    )}
+                  >
+                    {message.reactions.map((reaction) => {
+                      const mine = reaction.mine;
+                      return (
+                        <button
+                          aria-pressed={mine}
+                          className={cn(
+                            // Fondo sólido: el chip se monta sobre el borde de
+                            // la burbuja/imagen y con transparencia se mezclaba.
+                            "flex items-center gap-1 rounded-full border bg-card px-1.5 py-0.5 text-[11px] shadow-sm transition-colors",
+                            mine
+                              ? "border-primary/70 text-foreground"
+                              : "border-border/70 text-muted-foreground hover:bg-muted"
+                          )}
+                          key={reaction.emoji}
+                          onClick={() =>
+                            void onToggleReaction(message.id, reaction.emoji, mine)
+                          }
+                          type="button"
+                        >
+                          <span>{reaction.emoji}</span>
+                          <span className="tabular-nums">{reaction.count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null;
+
               return (
                 <Fragment key={message.id}>
                 {showDay ? (
@@ -881,6 +904,7 @@ export function WatchPartyChat({
                     "group/msg flex gap-2",
                     own ? "flex-row-reverse" : "flex-row"
                   )}
+                  data-message-id={message.id}
                 >
                   {own ? null : (
                     <MemberAvatar
@@ -892,7 +916,7 @@ export function WatchPartyChat({
                   )}
                   <div
                     className={cn(
-                      "flex max-w-[82%] flex-col gap-1.5",
+                      "relative flex max-w-[82%] flex-col gap-1.5",
                       own ? "items-end" : "items-start"
                     )}
                   >
@@ -920,53 +944,43 @@ export function WatchPartyChat({
                       )}
                     >
                       <div className="flex items-center gap-0.5 pb-1 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover/msg:opacity-100">
-                        <Popover>
-                          <PopoverTrigger
-                            render={
-                              <button
-                                aria-label={t("Reaccionar al mensaje")}
-                                className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                                data-dpad-focusable
-                                disabled={!ready || sending}
-                                type="button"
-                              />
+                        <button
+                          aria-expanded={reactionPicker?.id === message.id}
+                          aria-label={t("Reaccionar al mensaje")}
+                          className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          data-dpad-focusable
+                          disabled={!ready || sending}
+                          onClick={(event) => {
+                            if (reactionPicker?.id === message.id) {
+                              setReactionPicker(null);
+                              return;
                             }
-                          >
-                            <SmilePlusIcon className="size-3.5" />
-                          </PopoverTrigger>
-                          <PopoverContent
-                            align="center"
-                            className="w-auto p-1"
-                            side="top"
-                          >
-                            <div className="flex items-center gap-0.5">
-                              {MESSAGE_REACTIONS.map(({ emoji, label }) => (
-                                <button
-                                  aria-label={t("Reaccionar {{emoji}}", {
-                                    emoji,
-                                  })}
-                                  aria-pressed={hasReacted(emoji)}
-                                  className={cn(
-                                    "rounded-full px-1.5 py-1 text-base transition-transform hover:scale-110 hover:bg-muted",
-                                    hasReacted(emoji) && "bg-muted"
-                                  )}
-                                  key={emoji}
-                                  title={label}
-                                  onClick={() =>
-                                    void onToggleReaction(
-                                      message.id,
-                                      emoji,
-                                      hasReacted(emoji)
-                                    )
-                                  }
-                                  type="button"
-                                >
-                                  {emoji}
-                                </button>
-                              ))}
-                            </div>
-                          </PopoverContent>
-                        </Popover>
+                            // Se mide el contenido real (la imagen si la hay,
+                            // si no la burbuja) y el panel se pinta fijo sobre
+                            // él: nada de anclajes CSS que se descolocan.
+                            const button = event.currentTarget;
+                            const holder =
+                              button.closest<HTMLElement>(
+                                "[data-message-id]"
+                              ) ?? button;
+                            const image = holder.querySelector("img");
+                            const rect = (
+                              image ?? holder
+                            ).getBoundingClientRect();
+                            const width = 236;
+                            setReactionPicker({
+                              id: message.id,
+                              left: Math.min(
+                                Math.max(rect.left + 8, 8),
+                                Math.max(window.innerWidth - width - 8, 8)
+                              ),
+                              top: Math.max(rect.top + 8, 8),
+                            });
+                          }}
+                          type="button"
+                        >
+                          <SmilePlusIcon className="size-3.5" />
+                        </button>
                         <DropdownMenu>
                           <DropdownMenuTrigger
                             render={
@@ -1046,7 +1060,11 @@ export function WatchPartyChat({
                               : "rounded-bl-md bg-muted text-foreground"
                           )}
                         >
-                          {reactionChips}
+                          {renderReactionChips(
+                            own
+                              ? "right-2 -top-3.5 justify-end"
+                              : "left-2 -top-3.5"
+                          )}
                           {message.quoted ? (
                             <div
                               className={cn(
@@ -1072,13 +1090,24 @@ export function WatchPartyChat({
                         </div>
                       ) : null}
                     </div>
-                    {message.text || message.quoted ? null : reactionChips}
-                    {message.attachments.map((attachment, index) => (
-                      <MessageAttachment
-                        attachment={attachment}
-                        key={`${message.id}-${index}`}
-                      />
-                    ))}
+                    <div className="relative">
+                      {message.attachments.map((attachment, index) => (
+                        <MessageAttachment
+                          attachment={attachment}
+                          chipOverlay={
+                            message.text || message.quoted
+                              ? null
+                              : renderReactionChips(
+                                  own
+                                    ? "top-2 right-2 justify-end"
+                                    : "top-2 left-2"
+                                )
+                          }
+                          key={`${message.id}-${index}`}
+                          onPreview={(src, alt) => setLightbox({ src, alt })}
+                        />
+                      ))}
+                    </div>
                     </div>
                     <p className="flex items-center gap-1 px-1 text-[10px] text-muted-foreground">
                       {message.pinned ? (
@@ -1095,9 +1124,78 @@ export function WatchPartyChat({
               );
             })}
 
+            {/* Selector de reacciones: panel fijo colocado sobre el contenido
+                del mensaje (imagen o burbuja) medido al abrirlo. */}
+            {reactionPicker
+              ? (() => {
+                  const target = messages.find(
+                    (item) => item.id === reactionPicker.id
+                  );
+                  if (!target) {
+                    return null;
+                  }
+                  if (typeof document === "undefined") {
+                    return null;
+                  }
+                  return createPortal(
+                    <>
+                      <button
+                        aria-label={t("Cerrar")}
+                        className="fixed inset-0 z-40 cursor-default"
+                        onClick={() => setReactionPicker(null)}
+                        type="button"
+                      />
+                      <div
+                        className="fixed z-50 flex items-center gap-0.5 rounded-xl border border-border bg-popover p-1 shadow-lg"
+                        style={{
+                          left: reactionPicker.left,
+                          top: reactionPicker.top,
+                        }}
+                      >
+                        {MESSAGE_REACTIONS.map(({ emoji, label }) => {
+                          const mine = target.reactions.some(
+                            (reaction) =>
+                              reaction.emoji === emoji && reaction.mine
+                          );
+                          return (
+                            <button
+                              aria-label={t("Reaccionar {{emoji}}", { emoji })}
+                              aria-pressed={mine}
+                              className={cn(
+                                "rounded-full px-1.5 py-1 text-base transition-transform hover:scale-110 hover:bg-muted",
+                                mine && "bg-muted"
+                              )}
+                              key={emoji}
+                              title={label}
+                              onClick={() => {
+                                void onToggleReaction(target.id, emoji, mine);
+                                setReactionPicker(null);
+                              }}
+                              type="button"
+                            >
+                              {emoji}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>,
+                    document.body
+                  );
+                })()
+              : null}
+
+            {/* Vista previa a pantalla completa de una imagen del chat. */}
+            {lightbox ? (
+              <ImageLightbox
+                alt={lightbox.alt}
+                onClose={() => setLightbox(null)}
+                src={lightbox.src}
+              />
+            ) : null}
+
             {gifPreview ? (
               <div className="ml-auto flex w-full max-w-[82%] flex-col items-end gap-1">
-                <div className="w-full overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+                <div className="w-fit max-w-full overflow-hidden rounded-2xl border border-white/10 bg-white/5">
                   <p className="flex items-center gap-1.5 px-3 pt-2 text-[11px] text-muted-foreground">
                     <EyeIcon className="size-3" />
                     {t("Solo visible para ti")}
@@ -1106,7 +1204,7 @@ export function WatchPartyChat({
                     // biome-ignore lint/performance/noImgElement: GIF remoto de Giphy
                     <img
                       alt={t("Vista previa del GIF")}
-                      className="mt-1 max-h-56 w-full object-contain"
+                      className="mt-1 max-h-56 max-w-full w-auto object-contain"
                       src={gifPreviewImage}
                     />
                   ) : null}

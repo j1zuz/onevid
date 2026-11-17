@@ -24,6 +24,7 @@
   "registries": {
     "@tailark": "https://tailark.com/r/{name}.json",
     "@motion-primitives": "https://motion-primitives.com/c/{name}.json",
-    "@reui": "https://reui.io/r/{style}/{name}.json"
+    "@reui": "https://reui.io/r/{style}/{name}.json",
+    "@evilcharts": "https://evilcharts.com/r/{name}.json"
   }
 }

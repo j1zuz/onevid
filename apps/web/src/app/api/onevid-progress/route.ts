@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { checkRateLimitDb } from "@/lib/rate-limit-db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import {
+  addProfileActivity,
   getProfileProgress,
   listProfileProgress,
   listProfileWatchState,
@@ -215,5 +216,8 @@ export async function POST(request: Request) {
   }
 
   await setProfileProgress(resolved.profile.id, input);
+  // Actividad del día para el heatmap de estadísticas. Best-effort: si la tabla
+  // no está migrada todavía, guardar el progreso no debe fallar.
+  await addProfileActivity(resolved.profile.id).catch(() => undefined);
   return Response.json({ ok: true });
 }

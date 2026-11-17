@@ -199,7 +199,7 @@ export function TvDeviceLogin() {
         {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
         <img
           alt="onevid"
-          className="size-12 rounded-md border border-border/70 bg-card p-1.5"
+          className="size-12 rounded-md border border-border/70 object-cover"
           height={48}
           src="/onevid-pwa-512.png"
           width={48}
