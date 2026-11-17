@@ -386,10 +386,10 @@ export const deviceCode = pgTable(
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
   },
-  (table) => [
-    index("device_code_userCode_idx").on(table.userCode),
-    index("device_code_deviceCode_idx").on(table.deviceCode),
-  ]
+  // `device_code` y `user_code` ya llevan UNIQUE, así que un índice extra
+  // sobre la misma columna solo duplicaba escrituras. `user_id` es FK y no
+  // tiene índice automático en Postgres.
+  (table) => [index("device_code_user_id_idx").on(table.userId)]
 );
 
 // ─── Watch party ────────────────────────────────────────────────────────────
@@ -446,6 +446,7 @@ export const watchRoomMember = pgTable(
   (table) => [
     uniqueIndex("watch_room_member_unique").on(table.roomId, table.userId),
     index("watch_room_member_room").on(table.roomId, table.joinedAt),
+    index("watch_room_member_user_id_idx").on(table.userId),
   ]
 );
 

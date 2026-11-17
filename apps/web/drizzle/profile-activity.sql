@@ -21,6 +21,6 @@ CREATE TABLE IF NOT EXISTS "onevid_profile_activity" (
   PRIMARY KEY ("profile_id", "day")
 );
 
--- Consultas del heatmap: últimos N días de un perfil, ordenados por fecha.
-CREATE INDEX IF NOT EXISTS "onevid_profile_activity_profile_day"
-  ON "onevid_profile_activity" ("profile_id", "day");
+-- La PK compuesta (profile_id, day) ya cubre las consultas del heatmap:
+-- últimos N días de un perfil, ordenados por fecha. No hace falta un índice
+-- adicional sobre las mismas columnas.
