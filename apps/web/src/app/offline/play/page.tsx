@@ -1,6 +1,19 @@
 "use client";
 
-import { createPlayer, videoFeatures } from "@videojs/react";
+import { createPlayer, I18nProvider, registerI18n, videoFeatures } from "@videojs/react";
+import deLocale from "@videojs/react/i18n/locales/de";
+import enLocale from "@videojs/react/i18n/locales/en";
+import esLocale from "@videojs/react/i18n/locales/es";
+import frLocale from "@videojs/react/i18n/locales/fr";
+import hiLocale from "@videojs/react/i18n/locales/hi";
+import idLocale from "@videojs/react/i18n/locales/id";
+import itLocale from "@videojs/react/i18n/locales/it";
+import jaLocale from "@videojs/react/i18n/locales/ja";
+import koLocale from "@videojs/react/i18n/locales/ko";
+import nlLocale from "@videojs/react/i18n/locales/nl";
+import ptLocale from "@videojs/react/i18n/locales/pt";
+import ruLocale from "@videojs/react/i18n/locales/ru";
+import trLocale from "@videojs/react/i18n/locales/tr";
 import { Video, VideoSkin } from "@videojs/react/video";
 import { ArrowLeftIcon } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -17,6 +30,25 @@ import "@/components/stream/video-js-player-overrides.css";
 // Mismo player que el del catálogo (skin y features), creado una sola vez.
 const { Player } = createPlayer({ features: videoFeatures });
 
+// Textos del skin en el idioma del usuario: su i18n es propio.
+for (const [locale, pack] of [
+  ["de", deLocale],
+  ["en", enLocale],
+  ["es", esLocale],
+  ["fr", frLocale],
+  ["hi", hiLocale],
+  ["id", idLocale],
+  ["it", itLocale],
+  ["ja", jaLocale],
+  ["ko", koLocale],
+  ["nl", nlLocale],
+  ["pt", ptLocale],
+  ["ru", ruLocale],
+  ["tr", trLocale],
+] as const) {
+  registerI18n(locale, pack);
+}
+
 // Si el archivo no abre en este tiempo, se muestra el error en vez de dejar el
 // spinner para siempre (OPFS puede quedarse colgado si la cuota está revuelta o
 // si el handler desapareció entre navegaciones).
@@ -32,7 +64,7 @@ const OPEN_TIMEOUT_MS = 10_000;
  * internet.
  */
 function OfflinePlayer() {
-  const { t: rawT } = useTranslation();
+  const { language, t: rawT } = useTranslation();
   const t = useCallback(
     (key: string) => rawT(key as never) as unknown as string,
     [rawT]
@@ -143,6 +175,7 @@ function OfflinePlayer() {
         // no heredar los overrides del player de streaming (ahí el botón de play
         // se oculta porque hay gesto de tap).
         <div className="player-offline-root absolute inset-0">
+          <I18nProvider locale={(language || "es").split("-")[0]}>
           <Player key={src}>
             <VideoSkin>
               <Video
@@ -157,6 +190,7 @@ function OfflinePlayer() {
               />
             </VideoSkin>
           </Player>
+          </I18nProvider>
         </div>
       ) : (
         <div className="relative flex flex-1 flex-col items-center justify-center px-6 text-center">

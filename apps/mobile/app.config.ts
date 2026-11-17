@@ -45,13 +45,10 @@ const ID_SUFFIX: Record<AppVariant, string> = {
   production: '',
 };
 
-// Misma marca ("onevid") en las dos variantes: se distinguen por el icono
-// (el de Dev lleva la etiqueta "Beta"), no por el nombre. En Android el nombre
-// sale de aquí; en iOS del CFBundleDisplayName generado en el prebuild.
-const NAME_SUFFIX: Record<AppVariant, string> = {
-  development: '',
-  production: '',
-};
+// Nombre visible. La variante Dev lleva la inicial en mayúscula ("Onevid")
+// para reconocerla de un vistazo; producción mantiene el nombre base de
+// `app.json`. El identificador nativo es el que las distingue para el sistema.
+const DEV_NAME = 'Onevid';
 
 // `null` = producción usa los iconos de `app.json` sin tocarlos.
 const ICON: Record<AppVariant, string | null> = {
@@ -70,7 +67,7 @@ const ADAPTIVE_FOREGROUND: Record<AppVariant, string | null> = {
 };
 
 export default ({ config }: ConfigContext): ExpoConfig => {
-  const name = `${config.name ?? BASE_NAME}${NAME_SUFFIX[variant]}`;
+  const name = variant === 'development' ? DEV_NAME : (config.name ?? BASE_NAME);
   const appId = `${APP_ID_PREFIX}${ID_SUFFIX[variant]}`;
   const icon = ICON[variant] ?? undefined;
   const adaptiveForeground = ADAPTIVE_FOREGROUND[variant] ?? undefined;

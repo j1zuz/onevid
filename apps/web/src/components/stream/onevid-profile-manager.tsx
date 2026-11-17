@@ -34,6 +34,9 @@ import {
 
 const AVATARS = ["black", "blue", "green", "orange", "purple", "red"];
 
+/** Límite de longitud del nombre de perfil (igual que el servidor). */
+const MAX_PROFILE_NAME = 24;
+
 function errorMessage(
   error: string | undefined,
   t: (key: string) => string
@@ -44,6 +47,8 @@ function errorMessage(
       return t("PIN incorrecto");
     case "max_profiles":
       return t("Máximo 5 perfiles");
+    case "name_too_long":
+      return t("Máximo 24 caracteres en el nombre");
     case "code_invalid":
       return t("Código incorrecto o expirado");
     case "no_email":
@@ -62,60 +67,114 @@ function AvatarPicker({
   onChange: (a: string) => void;
   value: string;
 }) {
+  const { t } = useTranslation();
   const selectedSticker = stickerAvatarId(value);
+  // Los avatares (gradientes y stickers) viven en un diálogo aparte, más grandes
+  // y legibles: se abre tocando el propio avatar de la fila.
+  const [stickersOpen, setStickersOpen] = useState(false);
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
-        {AVATARS.map((a) => (
+    <>
+      <div className="flex items-center gap-3">
+        {/* El avatar elegido; al tocarlo se abre el selector completo. */}
+        {selectedSticker ? (
           <button
-            aria-label={a}
-            className={cn(
-              "size-10 overflow-hidden rounded-full ring-offset-background transition",
-              value === a
-                ? "ring-2 ring-primary ring-offset-2"
-                : "opacity-70 hover:opacity-100"
-            )}
-            key={a}
-            onClick={() => onChange(a)}
+            aria-label={selectedSticker}
+            aria-pressed
+            className="flex size-10 items-center justify-center rounded-full bg-primary/15 ring-2 ring-primary ring-offset-2 ring-offset-background"
+            onClick={() => setStickersOpen(true)}
+            type="button"
+          >
+            <Sticker name={selectedSticker as StickerName} size={26} />
+          </button>
+        ) : (
+          <button
+            aria-label={value}
+            aria-pressed
+            className="size-10 overflow-hidden rounded-full ring-2 ring-primary ring-offset-2 ring-offset-background"
+            onClick={() => setStickersOpen(true)}
             type="button"
           >
             {/* biome-ignore lint/performance/noImgElement: small local static asset */}
             <img
-              alt={a}
+              alt={value}
               className="size-full object-cover"
-              src={avatarImageSrc(a)}
+              src={avatarImageSrc(value)}
             />
           </button>
-        ))}
+        )}
       </div>
 
-      {/* Stickers de stick-it-up: se guardan como `sticker:<id>`. */}
-      <div className="max-h-56 overflow-y-auto rounded-xl border border-border p-2">
-        <div className="grid grid-cols-8 gap-2 sm:grid-cols-10">
-          {STICKER_AVATAR_IDS.map((id) => {
-            const active = selectedSticker === id;
-            return (
+      {/* Stickers de stick-it-up: se guardan como `sticker:<id>` y se eligen en
+          un diálogo propio, más grandes y con scroll si hace falta. */}
+      <Dialog onOpenChange={setStickersOpen} open={stickersOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t("Avatar")}</DialogTitle>
+            <DialogDescription>
+              {t("Elige un avatar para el perfil.")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap gap-2 pb-1">
+            {AVATARS.map((option) => (
               <button
-                aria-label={id}
-                aria-pressed={active}
+                aria-label={option}
+                aria-pressed={value === option}
                 className={cn(
-                  "flex aspect-square items-center justify-center rounded-xl p-1 transition",
-                  active
-                    ? "bg-primary/15 ring-2 ring-primary"
-                    : "hover:bg-muted"
+                  "size-10 overflow-hidden rounded-full ring-offset-background transition",
+                  value === option
+                    ? "ring-2 ring-primary ring-offset-2"
+                    : "opacity-70 hover:opacity-100"
                 )}
-                key={id}
-                onClick={() => onChange(stickerAvatarValue(id))}
+                key={option}
+                onClick={() => {
+                  onChange(option);
+                  setStickersOpen(false);
+                }}
                 type="button"
               >
-                <Sticker name={id as StickerName} size={34} />
+                {/* biome-ignore lint/performance/noImgElement: small local static asset */}
+                <img
+                  alt={option}
+                  className="size-full object-cover"
+                  src={avatarImageSrc(option)}
+                />
               </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
+            ))}
+          </div>
+          <div
+            className="grid max-h-[60vh] grid-cols-5 gap-2 overflow-y-auto p-1 pr-2 sm:grid-cols-6
+              [scrollbar-color:rgba(255,255,255,0.2)_transparent] [scrollbar-width:thin]
+              [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20
+              [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-1.5"
+          >
+            {STICKER_AVATAR_IDS.map((id) => {
+              const active = selectedSticker === id;
+              return (
+                <button
+                  aria-label={id}
+                  aria-pressed={active}
+                  className={cn(
+                    "flex aspect-square items-center justify-center rounded-xl p-1.5 transition",
+                    active
+                      ? "bg-primary/15 ring-2 ring-primary"
+                      : "hover:bg-muted"
+                  )}
+                  key={id}
+                  onClick={() => {
+                    onChange(stickerAvatarValue(id));
+                    setStickersOpen(false);
+                  }}
+                  type="button"
+                >
+                  <Sticker name={id as StickerName} size={44} />
+                </button>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -173,18 +232,30 @@ function AuthPinField({
       <Label className="text-xs" htmlFor={pinId}>
         {label}
       </Label>
-      <Input
-        autoComplete="off"
-        className="h-8 w-32 text-xs"
-        disabled={disabled}
-        id={pinId}
-        inputMode="numeric"
-        maxLength={4}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="••••"
-        type="password"
-        value={value}
-      />
+      <div className="flex flex-wrap items-center gap-3">
+        <Input
+          autoComplete="off"
+          className="h-8 w-32 text-xs"
+          disabled={disabled}
+          id={pinId}
+          inputMode="numeric"
+          maxLength={4}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="••••"
+          type="password"
+          value={value}
+        />
+        {resetSent ? null : (
+          <button
+            className="text-muted-foreground text-xs underline-offset-2 hover:underline"
+            disabled={busy}
+            onClick={handleRequestReset}
+            type="button"
+          >
+            {t("¿Olvidaste tu PIN?")}
+          </button>
+        )}
+      </div>
       {resetSent ? (
         <div className="mt-1 flex flex-col gap-2">
           <Label className="text-xs" htmlFor={codeId}>
@@ -222,16 +293,7 @@ function AuthPinField({
             </Button>
           </div>
         </div>
-      ) : (
-        <button
-          className="self-start text-muted-foreground text-xs underline-offset-2 hover:underline"
-          disabled={busy}
-          onClick={handleRequestReset}
-          type="button"
-        >
-          {t("¿Olvidaste tu PIN?")}
-        </button>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -281,6 +343,9 @@ export function OneVidProfileManager({
   // Lock PIN editor: "" = leave unchanged, a 4-digit value = set/change.
   const [editLockPin, setEditLockPin] = useState("");
   const [editHadPin, setEditHadPin] = useState(false);
+  // "Ingresa tu PIN para confirmar" solo se muestra si el usuario va a cambiar
+  // el PIN del perfil o a quitar su bloqueo.
+  const [pinActionStarted, setPinActionStarted] = useState(false);
 
   // Confirmación de eliminación inline
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -357,6 +422,7 @@ export function OneVidProfileManager({
   }
 
   function startEdit(p: OneVidProfile) {
+    setPinActionStarted(false);
     setEditingId(p.id);
     setEditName(p.name);
     setEditAvatar(p.avatar);
@@ -452,26 +518,32 @@ export function OneVidProfileManager({
           {visibleProfiles.map((p) => {
             if (editingId === p.id) {
               return (
-                <li className="rounded-md border bg-muted/30 p-4" key={p.id}>
-                  <div className="flex flex-col gap-4">
-                    <Input
-                      className="h-8 text-xs"
-                      onChange={(e) => setEditName(e.target.value)}
-                      value={editName}
-                    />
-                    <AvatarPicker onChange={setEditAvatar} value={editAvatar} />
-                    <label
-                      className="flex items-center gap-2 text-xs"
-                      htmlFor="edit-kids"
-                    >
-                      <Switch
-                        checked={editKids}
-                        id="edit-kids"
-                        onCheckedChange={setEditKids}
+                <li className="rounded-lg border bg-muted/30 p-5" key={p.id}>
+                  <div className="flex flex-col gap-5">
+                    <div className="flex items-center gap-3">
+                      <AvatarPicker
+                        onChange={setEditAvatar}
+                        value={editAvatar}
                       />
-                      {t("Perfil infantil")}
-                    </label>
-                    <div className="flex flex-col gap-2">
+                      <Input
+                        className="h-9 w-auto min-w-[6ch] max-w-full [field-sizing:content] px-3 text-sm"
+                        maxLength={MAX_PROFILE_NAME}
+                        onChange={(e) => setEditName(e.target.value)}
+                        value={editName}
+                      />
+                      <label
+                        className="ml-auto flex shrink-0 items-center gap-2.5 text-xs"
+                        htmlFor="edit-kids"
+                      >
+                        <Switch
+                          checked={editKids}
+                          id="edit-kids"
+                          onCheckedChange={setEditKids}
+                        />
+                        {t("Perfil infantil")}
+                      </label>
+                    </div>
+                    <div className="mt-2 flex flex-col gap-2.5">
                       <Label className="text-xs" htmlFor="edit-lock-pin">
                         {editHadPin
                           ? t("Cambiar PIN del perfil (4 dígitos)")
@@ -480,19 +552,29 @@ export function OneVidProfileManager({
                       <div className="flex items-center gap-3">
                         <Input
                           autoComplete="off"
-                          className="h-8 w-32 text-xs"
+                          className="h-9 w-32 text-sm"
                           id="edit-lock-pin"
                           inputMode="numeric"
                           maxLength={4}
-                          onChange={(e) => setEditLockPin(e.target.value)}
+                          onChange={(e) => {
+                            setEditLockPin(e.target.value);
+                            setPinActionStarted(true);
+                          }}
                           placeholder="••••"
                           type="password"
                           value={editLockPin}
                         />
                         {editHadPin && (
                           <Button
-                            disabled={busy || authMissing}
-                            onClick={() => handleRemoveLock(p.id)}
+                            disabled={busy}
+                            onClick={() => {
+                              if (authPin.length < 4) {
+                                setPinActionStarted(true);
+                                toast(t("Escribe el PIN de control parental"));
+                                return;
+                              }
+                              handleRemoveLock(p.id);
+                            }}
                             size="sm"
                             variant="ghost"
                           >
@@ -501,19 +583,31 @@ export function OneVidProfileManager({
                         )}
                       </div>
                     </div>
-                    {managePinRequired && (
+                    {managePinRequired &&
+                    (pinActionStarted || editLockPin.length > 0) ? (
                       <AuthPinField
                         disabled={busy}
                         label={authPinLabel(p.id)}
                         onChange={setAuthPin}
                         value={authPin}
                       />
-                    )}
-                    <div className="flex gap-3">
+                    ) : null}
+                    <div className="flex gap-3 pt-1">
                       <Button
                         className="btn-primary"
-                        disabled={busy || !editName.trim() || authMissing}
-                        onClick={() => handleSaveEdit(p.id)}
+                        disabled={busy || !editName.trim()}
+                        onClick={() => {
+                          if (managePinRequired && authPin.length !== 4) {
+                            setPinActionStarted(true);
+                            toast(
+                              t(
+                                "Escribe el PIN de control parental para guardar los cambios"
+                              )
+                            );
+                            return;
+                          }
+                          handleSaveEdit(p.id);
+                        }}
                         size="sm"
                       >
                         {t("Guardar")}
@@ -621,24 +715,27 @@ export function OneVidProfileManager({
           (creating ? (
             <div className="flex flex-col gap-2 rounded-md border border-dashed p-3">
               <Label className="text-xs">{t("Nuevo perfil")}</Label>
-              <Input
-                className="h-8 text-xs"
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder={t("Nombre")}
-                value={newName}
-              />
-              <AvatarPicker onChange={setNewAvatar} value={newAvatar} />
-              <label
-                className="flex items-center gap-2 text-xs"
-                htmlFor="new-kids"
-              >
-                <Switch
-                  checked={newKids}
-                  id="new-kids"
-                  onCheckedChange={setNewKids}
+              <div className="flex items-center gap-3">
+                <AvatarPicker onChange={setNewAvatar} value={newAvatar} />
+                <Input
+                  className="h-9 w-auto min-w-[6ch] max-w-full [field-sizing:content] px-3 text-sm"
+                  maxLength={MAX_PROFILE_NAME}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder={t("Nombre")}
+                  value={newName}
                 />
-                {t("Perfil infantil")}
-              </label>
+                <label
+                  className="ml-auto flex shrink-0 items-center gap-2.5 text-xs"
+                  htmlFor="new-kids"
+                >
+                  <Switch
+                    checked={newKids}
+                    id="new-kids"
+                    onCheckedChange={setNewKids}
+                  />
+                  {t("Perfil infantil")}
+                </label>
+              </div>
               <div className="flex flex-col gap-1.5">
                 <Label className="text-xs" htmlFor="new-lock-pin">
                   {t("PIN del perfil (4 dígitos, opcional)")}

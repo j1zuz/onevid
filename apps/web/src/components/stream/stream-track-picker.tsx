@@ -7,12 +7,14 @@ import {
   DrawerTitle,
 } from "@workspace/ui/components/drawer";
 import { cn } from "@workspace/ui/lib/utils";
+import { CaptionsOffIcon } from "@videojs/react/icons";
 import { CheckIcon, LanguagesIcon } from "lucide-react";
 import { useState } from "react";
 import {
   playerControlIconStyle,
   playerControlStyle,
 } from "@/components/stream/player-control-size";
+import { PlayerMenuRow } from "@/components/stream/player-menu-row";
 import { PlayerTooltip } from "@/components/stream/player-tooltip";
 import type { MediaTrackOption } from "@/hooks/use-media-tracks";
 
@@ -24,6 +26,8 @@ interface StreamTrackPickerProps {
   onSelectAudio: (id: string) => void;
   onSelectSubtitle: (id: string | null) => void;
   subtitleTracks: MediaTrackOption[];
+  /** "menu" = fila dentro del menú de ajustes del player. */
+  variant?: "icon" | "menu";
 }
 
 function TrackRow({
@@ -70,6 +74,7 @@ function TrackRow({
  * alternativas, el panel lo dice en lugar de abrirse vacío.
  */
 export function StreamTrackPicker({
+  variant = "icon",
   activeAudioId,
   activeSubtitleId,
   audioTracks,
@@ -99,20 +104,28 @@ export function StreamTrackPicker({
 
   return (
     <>
-      <PlayerTooltip
-        label="Audio y subtítulos"
-        trigger={
-          <button
-            aria-label="Audio y subtítulos"
-            className="flex shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-            style={playerControlStyle}
-            onClick={openPicker}
-            type="button"
-          />
-        }
-      >
-        <LanguagesIcon style={playerControlIconStyle} />
-      </PlayerTooltip>
+      {variant === "menu" ? (
+        <PlayerMenuRow
+          icon={<CaptionsOffIcon className="size-4" />}
+          label="Audio y subtítulos"
+          onClick={() => (open ? setOpen(false) : openPicker())}
+        />
+      ) : (
+        <PlayerTooltip
+          label="Audio y subtítulos"
+          trigger={
+            <button
+              aria-label="Audio y subtítulos"
+              className="flex shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+              style={playerControlStyle}
+              onClick={openPicker}
+              type="button"
+            />
+          }
+        >
+          <LanguagesIcon style={playerControlIconStyle} />
+        </PlayerTooltip>
+      )}
 
       <Drawer onOpenChange={setOpen} open={open} swipeDirection="right">
         <DrawerContent container={portalContainer ?? undefined}>

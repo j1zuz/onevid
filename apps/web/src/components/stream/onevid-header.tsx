@@ -353,7 +353,7 @@ export function OneVidHeader({
         {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
         <img
           alt="onevid"
-          className="size-8 rounded-md bg-card p-1"
+          className="size-8 rounded-md object-cover"
           height={32}
           src="/onevid-pwa-512.png"
           width={32}

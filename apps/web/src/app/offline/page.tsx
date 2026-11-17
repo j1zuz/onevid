@@ -84,7 +84,7 @@ export default function OfflinePage() {
           {/* biome-ignore lint/performance/noImgElement: icono estático local */}
           <img
             alt="onevid"
-            className="size-8 rounded-md border border-border/70 bg-card p-1"
+            className="size-8 rounded-md border border-border/70 object-cover"
             height={32}
             src="/onevid-pwa-512.png"
             width={32}

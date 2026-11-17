@@ -3,6 +3,8 @@
 import {
   createPlayer,
   Gesture,
+  I18nProvider,
+  registerI18n,
   selectControls,
   selectPlayback,
   useMedia,
@@ -24,8 +26,43 @@ import {
   type ReactNode,
 } from "react";
 import "@videojs/react/video/skin.css";
+import deLocale from "@videojs/react/i18n/locales/de";
+import enLocale from "@videojs/react/i18n/locales/en";
+import esLocale from "@videojs/react/i18n/locales/es";
+import frLocale from "@videojs/react/i18n/locales/fr";
+import hiLocale from "@videojs/react/i18n/locales/hi";
+import idLocale from "@videojs/react/i18n/locales/id";
+import itLocale from "@videojs/react/i18n/locales/it";
+import jaLocale from "@videojs/react/i18n/locales/ja";
+import koLocale from "@videojs/react/i18n/locales/ko";
+import nlLocale from "@videojs/react/i18n/locales/nl";
+import ptLocale from "@videojs/react/i18n/locales/pt";
+import ruLocale from "@videojs/react/i18n/locales/ru";
+import trLocale from "@videojs/react/i18n/locales/tr";
+
+// El skin trae sus propios textos (Speed, Quality, Audio, Captions…) y su i18n
+// es independiente del nuestro. Se registran los paquetes de los idiomas que
+// soporta la app y el provider recibe el que el usuario eligió.
+for (const [locale, pack] of [
+  ["de", deLocale],
+  ["en", enLocale],
+  ["es", esLocale],
+  ["fr", frLocale],
+  ["hi", hiLocale],
+  ["id", idLocale],
+  ["it", itLocale],
+  ["ja", jaLocale],
+  ["ko", koLocale],
+  ["nl", nlLocale],
+  ["pt", ptLocale],
+  ["ru", ruLocale],
+  ["tr", trLocale],
+] as const) {
+  registerI18n(locale, pack);
+}
 import { cn } from "@workspace/ui/lib/utils";
 import "./video-js-player-overrides.css";
+import { useTranslation } from "@/lib/onevid-i18n-context";
 import type { MimeType } from "@/types/stream";
 
 type HlsJsConfig = NonNullable<HlsEngineConfig["hlsJs"]>;
@@ -456,6 +493,9 @@ export function VideoJsStreamPlayer({
   );
   const liveHlsConfig = LIVE_HLS_CONFIGS[liveConfigVariant];
 
+  // Idioma elegido por el usuario para el i18n del skin (`es-419` → `es`).
+  const { language } = useTranslation();
+  const videoLocale = (language || "es").split("-")[0];
   const rootClassName = cn(
     "stream-video-player-root relative w-full overflow-hidden rounded-lg",
     isPlayMode && "play-mode",
@@ -723,6 +763,7 @@ export function VideoJsStreamPlayer({
           : undefined
       }
     >
+      <I18nProvider locale={videoLocale}>
       <Player>
         <VideoSkin>
           {liveMode ? <LivePlaybackErrorBridge onError={handleError} /> : null}
@@ -760,6 +801,7 @@ export function VideoJsStreamPlayer({
           <PausedPlayFallback />
         </VideoSkin>
       </Player>
+      </I18nProvider>
     </div>
   );
 }

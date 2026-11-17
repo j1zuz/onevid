@@ -8,12 +8,14 @@ import {
 } from "@workspace/ui/components/drawer";
 import { Badge } from "@workspace/ui/components/badge";
 import { cn } from "@workspace/ui/lib/utils";
+import { SwitchesIcon } from "@videojs/react/icons";
 import { CheckIcon, LayersIcon, Loader } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   playerControlIconStyle,
   playerControlStyle,
 } from "@/components/stream/player-control-size";
+import { PlayerMenuRow } from "@/components/stream/player-menu-row";
 import { PlayerTooltip } from "@/components/stream/player-tooltip";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 import { QUALITY_LABELS } from "@/lib/stream-quality";
@@ -29,6 +31,8 @@ interface StreamSourcePickerProps {
   contentId: string;
   contentType: StreamType;
   onSelect: (source: StreamWithAddon) => void;
+  /** "menu" = fila dentro del menú de ajustes del player. */
+  variant?: "icon" | "menu";
 }
 
 function getStreamLines(source: StreamWithAddon): string[] {
@@ -110,6 +114,7 @@ function SourceItem({
  * usuario lo abre, la lista casi siempre ya está (o está a punto).
  */
 export function StreamSourcePicker({
+  variant = "icon",
   activeSource,
   contentId,
   contentType,
@@ -166,20 +171,28 @@ export function StreamSourcePicker({
 
   return (
     <>
-      <PlayerTooltip
-        label="Cambiar medio"
-        trigger={
-          <button
-            aria-label="Cambiar medio"
-            className="flex shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
-            style={playerControlStyle}
-            onClick={() => setOpen(true)}
-            type="button"
-          />
-        }
-      >
-        <LayersIcon style={playerControlIconStyle} />
-      </PlayerTooltip>
+      {variant === "menu" ? (
+        <PlayerMenuRow
+          icon={<SwitchesIcon className="size-4" />}
+          label="Fuentes"
+          onClick={() => setOpen((value) => !value)}
+        />
+      ) : (
+        <PlayerTooltip
+          label="Cambiar medio"
+          trigger={
+            <button
+              aria-label="Cambiar medio"
+              className="flex shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+              style={playerControlStyle}
+              onClick={() => setOpen(true)}
+              type="button"
+            />
+          }
+        >
+          <LayersIcon style={playerControlIconStyle} />
+        </PlayerTooltip>
+      )}
 
       <Drawer onOpenChange={setOpen} open={open} swipeDirection="right">
         <DrawerContent>

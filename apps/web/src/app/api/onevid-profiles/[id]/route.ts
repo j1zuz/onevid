@@ -77,7 +77,11 @@ export async function PATCH(
     pinHash?: string | null;
   } = {};
   if (typeof body.name === "string" && body.name.trim()) {
-    updates.name = body.name.trim();
+    const name = body.name.trim();
+    if (name.length > 24) {
+      return Response.json({ error: "name_too_long" }, { status: 400 });
+    }
+    updates.name = name;
   }
   if (isValidAvatar(body.avatar)) {
     updates.avatar = body.avatar;
