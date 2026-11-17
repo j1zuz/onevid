@@ -33,6 +33,7 @@ TV_FROM_EAS=0
 SRC=""
 TV_SRC=""
 NOTES=""
+POSITIONAL=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -40,12 +41,18 @@ while [[ $# -gt 0 ]]; do
     --tv-from-eas) TV_FROM_EAS=1; shift ;;
     --tv) TV_SRC="${2:?falta la ruta/URL del APK de TV}"; shift 2 ;;
     --notes) NOTES="${2:?falta el texto de notas}"; shift 2 ;;
-    *)
-      if [[ -z "$SRC" ]]; then SRC="$1"; else NOTES="$1"; fi
-      shift
-      ;;
+    *) POSITIONAL+=("$1"); shift ;;
   esac
 done
+
+# Con --from-eas el primer posicional son las notas (el APK viene del build);
+# sin él, el primero es el APK/URL y el segundo las notas.
+if [[ "$FROM_EAS" == "1" || "$TV_FROM_EAS" == "1" ]]; then
+  if [[ ${#POSITIONAL[@]} -gt 0 && -z "$NOTES" ]]; then NOTES="${POSITIONAL[0]}"; fi
+else
+  if [[ ${#POSITIONAL[@]} -gt 0 ]]; then SRC="${POSITIONAL[0]}"; fi
+  if [[ ${#POSITIONAL[@]} -gt 1 && -z "$NOTES" ]]; then NOTES="${POSITIONAL[1]}"; fi
+fi
 
 latest_build() {
   eas build:list --platform android --profile "$1" --limit 1 \
@@ -116,16 +123,15 @@ fi
 # (así no lista un APK de TV que todavía no se ha subido).
 BODY="$(gh release view "$TAG" --json assets,body --jq '.assets[].name' | python3 -c '
 import sys
-names = [line.strip() for line in sys.stdin if line.strip()]
+names = {line.strip() for line in sys.stdin if line.strip()}
 rows = []
-labels = {
-    "onevid-dev.apk": ("APK", "Android"),
-    "onevid-dev-tv.apk": ("APK", "Android TV"),
-}
-for name in names:
-    if name not in labels:
+labels = [
+    ("onevid-dev.apk", "APK", "Android"),
+    ("onevid-dev-tv.apk", "APK", "Android TV"),
+]
+for name, pkg, platform in labels:
+    if name not in names:
         continue
-    pkg, platform = labels[name]
     rows.append(f"| {pkg} | {platform} | [{name}](https://github.com/j1zuz/onevid/releases/download/app-dev/{name}) |")
 print("\n".join(rows))
 ')"
@@ -137,6 +143,8 @@ fi
 
 {
   echo "Canal de actualizaciones de la app Dev."
+  echo
+  echo "**Versión:** \`$VERSION\`"
   echo
   echo "## Descargas"
   echo
