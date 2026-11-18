@@ -34,6 +34,7 @@ import {
 } from "@/components/stream/video-js-stream-player";
 import { WatchPartyRoom } from "@/components/watch/watch-party-room";
 import { useIsTv } from "@/hooks/use-is-tv";
+import { useMediaSourceSupport } from "@/hooks/use-media-source-support";
 import { trackLabel, useMediaTracks } from "@/hooks/use-media-tracks";
 import {
   deleteOfflineMediaFile,
@@ -409,11 +410,27 @@ export function StreamOnevid({
   // con `keepMounted`, así que existe siempre: ahí van nuestras acciones como
   // filas del menú en vez de botones sueltos en la píldora.
   const [menuContent, setMenuContent] = useState<HTMLElement | null>(null);
+  // El formato necesita transcodificación en el navegador (contenedor o audio
+  // que el <video> nativo no decodifica).
+  const requiresTranscode = Boolean(
+    sourceUrl && needsMediaBunny(sourceFilename, sourceCodecHint)
+  );
+  // Transcodificar exige MediaSource (MSE). Safari en iPhone no lo expone, así
+  // que ahí el camino de MediaBunny no puede funcionar nunca: en vez de
+  // mandarlo a un fallo garantizado, se intenta el <video> nativo y, si el
+  // formato tampoco es nativo, se muestra un aviso específico.
+  const mediaSourceSupported = useMediaSourceSupport();
   const shouldUseMediaBunny = Boolean(
     !offlineMediaUrl &&
       !isTv &&
-      sourceUrl &&
-      needsMediaBunny(sourceFilename, sourceCodecHint)
+      mediaSourceSupported === true &&
+      requiresTranscode
+  );
+  const transcodeUnavailable = Boolean(
+    requiresTranscode &&
+      mediaSourceSupported === false &&
+      !offlineMediaUrl &&
+      !isTv
   );
   const mediaBunny = useMediaBunny(
     shouldUseMediaBunny ? sourceUrl : null,
@@ -427,6 +444,11 @@ export function StreamOnevid({
       mediaBunny.status === "streaming" || mediaBunny.status === "done"
         ? mediaBunny.src
         : "";
+  } else if (requiresTranscode && mediaSourceSupported === null) {
+    // Aún no sabemos si hay MSE: no montamos el <video> con la URL cruda para
+    // no montarlo dos veces (y descargar dos veces) cuando el chequeo termine
+    // en "sí" y haya que pasar a MediaBunny.
+    activeSrc = "";
   }
   const mediaBunnyError =
     mediaBunny.status === "error" ? mediaBunny.message : null;
@@ -565,6 +587,10 @@ export function StreamOnevid({
     setHasPlayed(false);
     setCanPlay(false);
     setIsBuffering(true);
+    // El reintento manual SÍ puede volver a arrancar la transcodificación: sin
+    // esto, tras agotar MAX_PLAYBACK_RETRIES el contador se queda en el tope y
+    // el botón solo remontaba el <video> (que no tenía fuente que mostrar).
+    setMediaBunnyRetry(0);
     setPlaybackRetry((current) => current + 1);
   }, []);
 
@@ -574,7 +600,7 @@ export function StreamOnevid({
     setSourceErrors([]);
     setSourcesAttempt((current) => current + 1);
   }, []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset retry state whenever the source changes; these values are triggers, not reads.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset retry state whenever the SOURCE changes; these values are triggers, not reads.
   useEffect(() => {
     setPlaybackRetry(0);
     setPlaybackError(null);
@@ -583,7 +609,13 @@ export function StreamOnevid({
       clearTimeout(retryTimerRef.current);
       retryTimerRef.current = null;
     }
-  }, [activeSrc, sourceCodecHint, sourceUrl]);
+    // A propósito SIN `activeSrc`: ese valor cambia por el propio error de
+    // reproducción (blob → ""), y al resetear `mediaBunnyRetry(0)` aquí se
+    // reiniciaba el contador en cada fallo. El tope MAX_PLAYBACK_RETRIES nunca
+    // se alcanzaba y un `sourceopen timed out` se repetía indefinidamente
+    // (~1 ciclo cada 20 s, 338 eventos en una sola sesión). El reset del
+    // reintento manual vive en `retryPlayback`.
+  }, [sourceCodecHint, sourceUrl]);
   useEffect(
     () => () => {
       if (retryTimerRef.current !== null) {
@@ -618,6 +650,27 @@ export function StreamOnevid({
     sourceCodecHint,
     sourceFilename,
   ]);
+  // El navegador no puede transcodificar (sin MSE): se registra una vez por
+  // fuente para medir cuántos usuarios caen aquí. Antes esto solo se veía como
+  // el fallo genérico de MediaBunny, que no distinguía "sin soporte" de un
+  // error real de conversión.
+  useEffect(() => {
+    if (!transcodeUnavailable) {
+      return;
+    }
+    posthog.capture("mediabunny_unavailable", {
+      content_id: contentId,
+      content_type: contentType,
+      filename: sourceFilename,
+      codec_hint: sourceCodecHint,
+    });
+  }, [
+    transcodeUnavailable,
+    contentId,
+    contentType,
+    sourceFilename,
+    sourceCodecHint,
+  ]);
   const handlePlaybackError = useCallback(
     (error: Error) => {
       // An interrupted download can leave an unreadable cached blob. Do not
@@ -651,6 +704,13 @@ export function StreamOnevid({
         codec_hint: sourceCodecHint,
         retry: playbackRetry,
       });
+      // Sin MSE este formato no se puede convertir: reintentar el <video>
+      // nativo con el mismo archivo repite el error. Se avisa ya, sin bucle.
+      if (transcodeUnavailable) {
+        setIsBuffering(false);
+        setPlaybackError(error.message);
+        return;
+      }
       if (playbackRetry < MAX_PLAYBACK_RETRIES) {
         setIsBuffering(true);
         setPlaybackError(null);
@@ -671,6 +731,7 @@ export function StreamOnevid({
       playbackRetry,
       sourceCodecHint,
       sourceFilename,
+      transcodeUnavailable,
     ]
   );
   // El <video> real y el objeto media del skin, que publica el player: los
@@ -1451,14 +1512,20 @@ export function StreamOnevid({
                 ? t(
                     "Esta fuente usa HTTP y el navegador la bloquea en una página HTTPS. Pide una fuente HTTPS al proveedor.",
                   )
-                : (playbackError ??
-                  (mediaBunny.status === "error"
-                    ? t(
-                        "No se pudo reproducir esta fuente. Puedes reintentar o elegir otra.",
-                      )
-                    : ""))}
+                : transcodeUnavailable && playbackError
+                  ? t(
+                      "Tu navegador no puede convertir este formato. Prueba con otra fuente o usa la app.",
+                    )
+                  : (playbackError ??
+                    (mediaBunny.status === "error"
+                      ? t(
+                          "No se pudo reproducir esta fuente. Puedes reintentar o elegir otra.",
+                        )
+                      : ""))}
             </p>
-            {!mixedContentBlocked && (
+            {/* Sin MSE el reintento repite el mismo camino que no puede
+                funcionar: en su lugar se ofrece el selector de fuentes. */}
+            {!mixedContentBlocked && !transcodeUnavailable && (
               <Button onClick={retryPlayback} size="sm" variant="outline">
                 {t("Reintentar")}
               </Button>
