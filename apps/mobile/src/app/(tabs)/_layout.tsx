@@ -1,14 +1,19 @@
 import { Image } from 'expo-image';
 import { Tabs, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Platform, View } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
 import { TabIcon, type TabIconName } from '@/components/tab-icon';
 import { TvSidebar } from '@/components/tv-sidebar';
+import { useActiveProfile } from '@/hooks/use-active-profile';
 import { useAppSurface } from '@/hooks/use-app-surface';
+import { track } from '@/lib/analytics';
 import { avatarSource } from '@/lib/avatars';
-import { refreshActiveProfile, subscribeActiveProfile } from '@/lib/profiles';
+import {
+  getActiveProfileSnapshot,
+  refreshActiveProfile,
+} from '@/lib/profiles';
 import { COLORS } from '@/lib/theme';
 
 function icon(name: TabIconName) {
@@ -25,33 +30,40 @@ function icon(name: TabIconName) {
   return TabIconComponent;
 }
 
-// Ícono del tab "Perfil": el avatar del perfil activo (en vez de un ícono fijo).
-function profileIcon(avatar: string | undefined) {
-  const ProfileIcon = ({
-    focused,
-    size,
-  }: {
-    focused: boolean;
-    size: number;
-  }) => {
-    const d = size + 4;
-    return (
-      <Image
-        source={avatarSource(avatar)}
-        style={{
-          width: d,
-          height: d,
-          borderRadius: d / 2,
-          opacity: focused ? 1 : 0.55,
-          borderWidth: focused ? 2 : 0,
-          borderColor: '#fff',
-        }}
-      />
-    );
-  };
-  ProfileIcon.displayName = 'ProfileIcon';
-  return ProfileIcon;
-}
+/**
+ * Ícono del tab "Perfil": el avatar del perfil activo (en vez de un ícono fijo).
+ *
+ * Lee el perfil DENTRO del componente, con su propia suscripción. Antes el
+ * avatar llegaba por `options` (`tabBarIcon: profileIcon(avatar)`): si el
+ * navegador no volvía a evaluar el ícono —o si el aviso de "perfil elegido"
+ * llegaba antes de que el layout existiera— se quedaba el avatar negro por
+ * defecto aunque el perfil ya estuviera seleccionado y Configuración mostrara
+ * el correcto.
+ */
+const ProfileTabIcon = ({
+  focused,
+  size,
+}: {
+  focused: boolean;
+  size: number;
+}) => {
+  const profile = useActiveProfile();
+  const d = size + 4;
+  return (
+    <Image
+      source={avatarSource(profile?.avatar)}
+      style={{
+        width: d,
+        height: d,
+        borderRadius: d / 2,
+        opacity: focused ? 1 : 0.55,
+        borderWidth: focused ? 2 : 0,
+        borderColor: '#fff',
+      }}
+    />
+  );
+};
+ProfileTabIcon.displayName = 'ProfileTabIcon';
 
 export default function TabsLayout() {
   const { t } = useTranslation();
@@ -65,28 +77,28 @@ export default function TabsLayout() {
   // Cambio de pestaña con un desplazamiento suave en móvil; en TV (sin tab bar,
   // se navega con el rail) y con "reducir movimiento" se cambia en seco.
   const reduceMotion = useReducedMotion();
-  const [avatar, setAvatar] = useState<string | undefined>(undefined);
-  // Al editar el avatar se avisa desde `setActiveProfile`: así el tab se
-  // actualiza al momento aunque la pestaña no vuelva a enfocarse.
-  useEffect(
-    () =>
-      subscribeActiveProfile((p) => {
-        if (!authed) return;
-        setAvatar(p?.avatar);
-      }),
-    [authed],
-  );
-  // Al montar los tabs (justo después de elegir perfil) el evento
-  // `setActiveProfile` ya ocurrió y `useFocusEffect` del layout no siempre
-  // corre: el avatar se quedaba en negro. Leemos el perfil activo una vez aquí
-  // y cada vez que cambia la sesión.
+  // Al montar los tabs se relee el perfil activo aunque el aviso de
+  // "perfil elegido" haya llegado antes de que el layout existiera. El icono
+  // del tab ya se suscribe por su cuenta al snapshot; esto solo garantiza que
+  // el snapshot esté cargado y deja una medición para saber si el avatar llegó.
   useEffect(() => {
     if (!authed) return;
+    const startedAt = Date.now();
+    const hadSnapshot = Boolean(getActiveProfileSnapshot());
     let cancelled = false;
     refreshActiveProfile()
       .catch(() => null)
       .then((p) => {
-        if (!cancelled) setAvatar(p?.avatar);
+        if (cancelled) return;
+        try {
+          track('profile_avatar_tab', {
+            had_snapshot: hadSnapshot,
+            resolved: Boolean(p?.avatar),
+            delay_ms: Date.now() - startedAt,
+          });
+        } catch {
+          // La analítica nunca debe romper la navegación.
+        }
       });
     return () => {
       cancelled = true;
@@ -95,22 +107,14 @@ export default function TabsLayout() {
 
   useFocusEffect(
     useCallback(() => {
-      let cancelled = false;
       if (!authed) {
-        setAvatar(undefined); // sin sesión → avatarSource(undefined) = black.jpg
         return;
       }
       // `refreshActiveProfile` relee del backend cuando hay red: el avatar
       // puede haberse cambiado desde otro dispositivo (la web comparte cuenta)
-      // y la copia local se quedaba con el anterior.
-      refreshActiveProfile()
-        .catch(() => null)
-        .then((p) => {
-          if (!cancelled) setAvatar(p?.avatar);
-        });
-      return () => {
-        cancelled = true;
-      };
+      // y la copia local se quedaba con el anterior. Si cambió, avisa a los
+      // suscriptores y el icono se repinta solo.
+      void refreshActiveProfile().catch(() => undefined);
     }, [authed]),
   );
 
@@ -175,7 +179,7 @@ export default function TabsLayout() {
           options={{
             title: t('Perfil'),
             tabBarAccessibilityLabel: t('Perfil'),
-            tabBarIcon: profileIcon(avatar),
+            tabBarIcon: ProfileTabIcon,
           }}
         />
       </Tabs>

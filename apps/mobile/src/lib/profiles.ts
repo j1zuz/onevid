@@ -35,6 +35,36 @@ function profileTokenKey(id: string): string {
 type ActiveProfileListener = (profile: Profile | null) => void;
 const activeProfileListeners = new Set<ActiveProfileListener>();
 
+/**
+ * Copia en memoria del perfil activo.
+ *
+ * SecureStore es asíncrono y el tab "Perfil" lee el perfil justo después de
+ * elegirlo (antes de que termine la escritura), así que se quedaba con
+ * `undefined` y pintaba el avatar negro por defecto en vez del elegido. Con
+ * esta copia la lectura es síncrona y siempre coincide con lo seleccionado.
+ */
+let currentProfile: Profile | null = null;
+
+/** Perfil activo en memoria (síncrono) o null si todavía no se cargó. */
+export function getActiveProfileSnapshot(): Profile | null {
+  return currentProfile;
+}
+
+// Suscriptores del snapshot (sin argumento): los usa `useActiveProfile` con
+// `useSyncExternalStore` para repintar el icono del tab aunque el navegador no
+// vuelva a evaluar sus `options`.
+const profileSnapshotListeners = new Set<() => void>();
+
+export function subscribeProfileSnapshot(listener: () => void): () => void {
+  profileSnapshotListeners.add(listener);
+  return () => profileSnapshotListeners.delete(listener);
+}
+
+function setCurrentProfile(profile: Profile | null) {
+  currentProfile = profile;
+  for (const listener of profileSnapshotListeners) listener();
+}
+
 export function subscribeActiveProfile(
   listener: ActiveProfileListener,
 ): () => void {
@@ -49,11 +79,25 @@ function emitActiveProfile(profile: Profile | null) {
 export async function loadActiveProfile(): Promise<Profile | null> {
   const raw = await SecureStore.getItemAsync(ACTIVE_KEY);
   if (!raw) {
+    // Sin copia en disco puede ser que `setActiveProfile` aún no haya
+    // terminado de escribir: si ya hay perfil en memoria, gana ese.
+    if (currentProfile) {
+      return currentProfile;
+    }
     setActiveProfileId(null);
     return null;
   }
   try {
     const p = JSON.parse(raw) as Profile;
+    // Notifica solo si cambió (mismo perfil con el mismo avatar no repinta).
+    if (
+      !currentProfile ||
+      currentProfile.id !== p.id ||
+      currentProfile.avatar !== p.avatar ||
+      currentProfile.name !== p.name
+    ) {
+      setCurrentProfile(p);
+    }
     setActiveProfileId(p.id);
     setActiveProfileToken(
       await SecureStore.getItemAsync(profileTokenKey(p.id)),
@@ -76,7 +120,10 @@ export async function loadActiveProfile(): Promise<Profile | null> {
  * los sincroniza en cada focus; sin red devuelve la copia local tal cual.
  */
 export async function refreshActiveProfile(): Promise<Profile | null> {
-  const local = await loadActiveProfile().catch(() => null);
+  // Snapshot primero: si el usuario acaba de elegir perfil, la escritura en
+  // SecureStore puede no haber terminado y la copia en disco estaría vacía.
+  const local =
+    getActiveProfileSnapshot() ?? (await loadActiveProfile().catch(() => null));
   if (!local) {
     return null;
   }
@@ -102,7 +149,13 @@ export async function refreshActiveProfile(): Promise<Profile | null> {
 
 export async function setActiveProfile(p: Profile): Promise<void> {
   const previousId = getActiveProfileId();
+  // Síncrono a propósito: el tab "Perfil" (y cualquier suscriptor) tiene que
+  // ver el avatar al instante. Antes el aviso llegaba después del `await` de
+  // SecureStore, y como la navegación a los tabs ocurre antes, el tab se
+  // quedaba con el avatar por defecto hasta el siguiente foco.
+  setCurrentProfile(p);
   setActiveProfileId(p.id);
+  emitActiveProfile(p);
   // El token firmado solo existe si el perfil tiene PIN y se verificó. Al
   // cambiar a un perfil sin PIN se limpia para no reutilizar una capacidad.
   setActiveProfileToken(
@@ -120,14 +173,14 @@ export async function setActiveProfile(p: Profile): Promise<void> {
     }
   }
   await SecureStore.setItemAsync(ACTIVE_KEY, JSON.stringify(p));
-  emitActiveProfile(p);
 }
 
 export async function clearActiveProfile(): Promise<void> {
+  setCurrentProfile(null);
   setActiveProfileId(null);
   setActiveProfileToken(null);
-  await SecureStore.deleteItemAsync(ACTIVE_KEY);
   emitActiveProfile(null);
+  await SecureStore.deleteItemAsync(ACTIVE_KEY);
 }
 
 // ─── API ────────────────────────────────────────────────────────────
