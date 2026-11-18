@@ -10,11 +10,13 @@ import {
   isValidAvatar,
   isValidPin,
   MAX_PROFILES,
+  profileSessionVerified,
 } from "@/lib/onevid-profile";
+import { readProfileToken } from "@/lib/profile-token";
 import { checkRateLimitDb } from "@/lib/rate-limit-db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
     return Response.json({ error: "No autorizado" }, { status: 401 });
@@ -33,9 +35,18 @@ export async function GET() {
     .where(eq(oneVidProfile.userId, session.user.id))
     .orderBy(oneVidProfile.createdAt);
 
+  // El token de verificación es HttpOnly: el cliente no puede leerlo ni saber
+  // si sigue valiendo. Se lo decimos aquí para que reabra el gate cuando deje
+  // de servir (PIN cambiado, token caducado, secreto rotado) en vez de vivir
+  // en 403 con la UI creyendo que el perfil está verificado.
+  const token = readProfileToken(request);
   const profiles = rows.map(({ pinHash, ...p }) => ({
     ...p,
     hasPin: Boolean(pinHash),
+    tokenValid: profileSessionVerified(token, session.user.id, {
+      id: p.id,
+      pinHash,
+    }),
   }));
 
   return Response.json({ profiles, max: MAX_PROFILES });

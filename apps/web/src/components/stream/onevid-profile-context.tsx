@@ -22,6 +22,11 @@ export interface OneVidProfile {
   id: string;
   isKids: boolean;
   name: string;
+  /**
+   * Solo lo devuelve `GET /api/onevid-profiles`: si el token firmado de este
+   * perfil sigue siendo válido. `undefined` en los perfiles que llegan por SSR.
+   */
+  tokenValid?: boolean;
 }
 
 export interface ProfileInput {
@@ -187,15 +192,18 @@ export function OneVidProfileProvider({
   // render vino de un prefetch/caché previo), el gate quedaría abierto aunque el
   // navegador ya tenga el perfil verificado correcto — y volvería a pedir el PIN
   // sin motivo. Leer `document.cookie` acá cierra esa brecha sin re-preguntar.
-  // Solo adopta ids que existan entre los perfiles; nunca "verifica" de más (si
-  // no hay cookie, no hace nada y el gate sigue, que es lo correcto).
+  //
+  // Solo se adopta la verificación de perfiles SIN PIN: en uno con PIN esa
+  // cookie de UI no prueba nada (el token firmado es HttpOnly), y fiarse de
+  // ella dejaba la sesión en 403 cuando el token caducaba o cambiaba el PIN.
+  // Para esos perfiles la verdad la da el servidor en el efecto de abajo.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reconcile once on mount with the cookies the server rendered, not on every profile change.
   useEffect(() => {
     const cookieVerified = readProfileCookie(VERIFIED_PROFILE_COOKIE);
     if (
       cookieVerified &&
       cookieVerified !== verifiedProfileId &&
-      profiles.some((p) => p.id === cookieVerified)
+      profiles.some((p) => p.id === cookieVerified && !p.hasPin)
     ) {
       setVerifiedProfileIdState(cookieVerified);
     }
@@ -207,6 +215,10 @@ export function OneVidProfileProvider({
     ) {
       setActiveProfileIdState(cookieActive);
     }
+    // El estado inicial viene del servidor y ya está derivado del token (home y
+    // detalle lo calculan con `profileSessionVerified`), así que aquí no hay
+    // nada ambiguo que esperar: se pinta de inmediato para no enseñar un fondo
+    // neutro en cada navegación. El efecto de abajo revalida por si algo cambió.
     setReconciled(true);
     // Solo al montar: cada página monta su propio provider, así que esto corre
     // en cada navegación entrante (home → detalle, player → detalle…).
@@ -247,7 +259,7 @@ export function OneVidProfileProvider({
   }, []);
 
   const refresh = useCallback(async () => {
-    const res = await fetch("/api/onevid-profiles");
+    const res = await fetch("/api/onevid-profiles", { cache: "no-store" });
     if (!res.ok) {
       return;
     }
@@ -255,7 +267,43 @@ export function OneVidProfileProvider({
       profiles: OneVidProfile[];
     };
     setProfiles(data.profiles);
-  }, []);
+    // El servidor acaba de decir si el token firmado de este perfil sigue
+    // valiendo. Si no vale, la "verificación" local es mentira (token
+    // caducado, PIN cambiado o secreto rotado) y hay que reabrir el gate en vez
+    // de acumular 403 en todas las rutas de datos. Si vale, se cierra (cubre
+    // que el render del servidor no viera la cookie recién escrita).
+    const current = data.profiles.find((p) => p.id === activeProfileId);
+    if (current?.hasPin) {
+      if (current.tokenValid === false) {
+        setVerifiedProfileIdState(null);
+        clearProfileCookie(VERIFIED_PROFILE_COOKIE);
+      } else if (current.tokenValid) {
+        setVerifiedProfileIdState(current.id);
+      }
+    }
+  }, [activeProfileId]);
+
+  // Revalida el token del perfil activo al montar y al cambiarlo. Para un
+  // perfil con PIN, la cookie de UI no prueba nada: si el token dejó de valer
+  // (caducó, cambió el PIN, cambió el secreto), esto reabre el gate y se pide
+  // el PIN otra vez. Antes la UI seguía creyendo al perfil verificado y las
+  // rutas de datos respondían 403 hasta borrar las cookies del sitio.
+  const activeHasPin =
+    profiles.find((p) => p.id === activeProfileId)?.hasPin === true;
+  useEffect(() => {
+    // Si el servidor ya dijo "verificado", el token era válido en ESTE render:
+    // no hace falta otra consulta (antes se hacía en cada navegación).
+    //
+    // Solo se revalida cuando el SSR dejó el perfil sin verificar, que es el
+    // único caso ambiguo: el RSC puede venir de un prefetch anterior a la
+    // verificación del PIN (o de un render que no vio la cookie recién
+    // escrita), y ahí el token sí vale aunque el payload diga que no. Así el
+    // gate se cierra solo en vez de volver a pedir el PIN.
+    if (!activeHasPin || verifiedProfileId === activeProfileId) {
+      return;
+    }
+    void refresh().catch(() => undefined);
+  }, [activeHasPin, activeProfileId, verifiedProfileId, refresh]);
 
   const createProfile = useCallback(
     async (input: ProfileInput, authPin?: string): Promise<MutationResult> => {
@@ -269,7 +317,20 @@ export function OneVidProfileProvider({
       }
       const created = (await res.json()) as OneVidProfile;
       await refresh();
-      setActiveProfileId(created.id);
+      if (created.hasPin) {
+        // Perfil nuevo con PIN: no hay token que lo acredite todavía, así que
+        // NO se marca como verificado (eso dejaba la sesión en 403). Se deja
+        // activo y el gate pide el PIN; al verificarlo se acuña el token.
+        setActiveProfileIdState(created.id);
+        setVerifiedProfileIdState(null);
+        setForcedOpen(false);
+        writeProfileCookie(ACTIVE_PROFILE_COOKIE, created.id);
+        clearProfileCookie(VERIFIED_PROFILE_COOKIE);
+        void clearPwaPageCache();
+        clearPlaybackHandoff();
+      } else {
+        setActiveProfileId(created.id);
+      }
       return { ok: true };
     },
     [refresh, setActiveProfileId]

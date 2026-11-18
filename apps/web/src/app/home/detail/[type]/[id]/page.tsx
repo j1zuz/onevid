@@ -10,12 +10,13 @@ import { OneVidHeader } from "@/components/stream/onevid-header";
 import {
   ACTIVE_PROFILE_COOKIE,
   OneVidProfileProvider,
-  VERIFIED_PROFILE_COOKIE,
 } from "@/components/stream/onevid-profile-context";
 import { parseAddonMediaId } from "@/lib/addon-media";
 import { auth } from "@/lib/auth";
 import { oneVidProfile } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
+import { profileSessionVerified } from "@/lib/onevid-profile";
+import { PROFILE_TOKEN_COOKIE } from "@/lib/profile-token";
 import { getTmdbReadToken } from "@/lib/onevid-tmdb";
 import { getServerT } from "@/lib/server-t";
 import {
@@ -102,9 +103,11 @@ async function StreamDetailContent({
   const detailCookies = await cookies();
   const activeProfileId =
     detailCookies.get(ACTIVE_PROFILE_COOKIE)?.value ?? null;
-  const kids =
-    (profileRows.find((profile) => profile.id === activeProfileId) ??
-      profileRows[0])?.isKids === true;
+  const activeProfileRow =
+    profileRows.find((profile) => profile.id === activeProfileId) ??
+    profileRows[0] ??
+    null;
+  const kids = activeProfileRow?.isKids === true;
 
   const tmdbToken = getTmdbReadToken();
 
@@ -138,8 +141,17 @@ async function StreamDetailContent({
     notFound();
   }
 
+  // Verificación derivada del token firmado (HttpOnly), no de la cookie de UI:
+  // si el token caducó o el PIN cambió, el gate tiene que volver a pedir el PIN.
   const verifiedProfileId =
-    detailCookies.get(VERIFIED_PROFILE_COOKIE)?.value ?? null;
+    activeProfileRow &&
+    profileSessionVerified(
+      detailCookies.get(PROFILE_TOKEN_COOKIE)?.value ?? null,
+      session.user.id,
+      activeProfileRow
+    )
+      ? activeProfileRow.id
+      : null;
   // El provider de abajo sigue usando activeProfileId; el cookieStore local ya
   // no hace falta.
 
