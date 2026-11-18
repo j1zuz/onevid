@@ -23,7 +23,6 @@ import { OneVidPageClient } from "@/components/stream/onevid-page-client";
 import {
   ACTIVE_PROFILE_COOKIE,
   OneVidProfileProvider,
-  VERIFIED_PROFILE_COOKIE,
 } from "@/components/stream/onevid-profile-context";
 import {
   CATALOG_VIEW_ALL_ITEM_LIMIT,
@@ -53,6 +52,10 @@ import {
   resolveHero,
 } from "@/lib/onevid-feed-sections";
 import { getTmdbReadToken } from "@/lib/onevid-tmdb";
+import {
+  profileSessionVerified,
+} from "@/lib/onevid-profile";
+import { PROFILE_TOKEN_COOKIE } from "@/lib/profile-token";
 import { getServerT } from "@/lib/server-t";
 import {
   getCatalogOptions,
@@ -132,11 +135,24 @@ export default async function OneVidPage({
 
   const cookieStore = await cookies();
   const activeProfileId = cookieStore.get(ACTIVE_PROFILE_COOKIE)?.value ?? null;
-  const kids =
-    (profiles.find((profile) => profile.id === activeProfileId) ??
-      profiles[0])?.isKids === true;
+  const activeProfileRow =
+    profileRows.find((profile) => profile.id === activeProfileId) ??
+    profileRows[0] ??
+    null;
+  const kids = activeProfileRow?.isKids === true;
+  // La verificación se deriva del token firmado (HttpOnly), no de la cookie de
+  // UI: si el token caducó o el PIN cambió, la interfaz tiene que volver a
+  // pedir el PIN en vez de seguir como si el perfil estuviera verificado y
+  // cosechar 403 en cada ruta de datos.
   const verifiedProfileId =
-    cookieStore.get(VERIFIED_PROFILE_COOKIE)?.value ?? null;
+    activeProfileRow &&
+    profileSessionVerified(
+      cookieStore.get(PROFILE_TOKEN_COOKIE)?.value ?? null,
+      session.user.id,
+      activeProfileRow
+    )
+      ? activeProfileRow.id
+      : null;
 
   // Pass the resolved session userId down so OneVidContent doesn't need to
   // re-authenticate (avoids a second cookie read inside the Suspense boundary).

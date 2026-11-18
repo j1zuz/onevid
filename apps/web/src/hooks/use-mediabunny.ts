@@ -80,6 +80,19 @@ const BUFFER_AHEAD_HIGH_SEC = 20;
 // Cuánto video ya reproducido conservamos DETRÁS del playhead al evictar para
 // liberar memoria del SourceBuffer (permite un pequeño seek hacia atrás).
 const BUFFER_BEHIND_KEEP_SEC = 10;
+// Tope de bytes retenidos por carril mientras su SourceBuffer aún no existe
+// (`lane.pending`). Sin tope, el carril de vídeo de un REMUX acumulaba la peli
+// entera en memoria mientras el de audio arrancaba. Al llegar al tope el
+// `write()` espera (contrapresión real) en vez de seguir copiando.
+const PENDING_LIMIT_BYTES = 48 * 1024 * 1024;
+/** Cada cuánto reintenta el `write()` retenido mientras el carril se abre. */
+const PENDING_WAIT_MS = 50;
+
+/** Mensaje de error sin URLs (pueden llevar tokens de debrid) y acotado. */
+function safeMediaErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  return raw.replace(/https?:\/\/\S+/g, "<url>").slice(0, 300);
+}
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const OFFLINE_FILE_PREFIX = "onevid-offline-";
@@ -1313,6 +1326,9 @@ async function runProgressivePlayback(opts: {
   onAudioSwitcher: (switcher: ((index: number) => void) | null) => void;
   /** Publica el seek (reinicio de la transcodificación en un offset), o `null`. */
   onSeekRestart: (seek: ((sec: number) => void) | null) => void;
+  /** Contexto para la telemetría del timeout de `sourceopen` (VOD). */
+  filename?: string;
+  codecHint?: string;
   conversionRef: { current: CancellableConversion | null };
   abortedRef: { current: boolean };
   cleanupRef: { current: (() => void) | null };
@@ -1444,11 +1460,13 @@ async function runProgressivePlayback(opts: {
     sourceBuffer: SourceBuffer | null;
     ready: boolean;
     pending: Uint8Array[];
+    /** Bytes retenidos en `pending` (para no acumular la peli en memoria). */
+    pendingBytes: number;
     chain: Promise<void>;
   }
   const lanes: Record<"video" | "audio", Lane> = {
-    video: { kind: "video", sourceBuffer: null, ready: false, pending: [], chain: Promise.resolve() },
-    audio: { kind: "audio", sourceBuffer: null, ready: false, pending: [], chain: Promise.resolve() },
+    video: { kind: "video", sourceBuffer: null, ready: false, pending: [], pendingBytes: 0, chain: Promise.resolve() },
+    audio: { kind: "audio", sourceBuffer: null, ready: false, pending: [], pendingBytes: 0, chain: Promise.resolve() },
   };
 
   opts.cleanupRef.current = () => {
@@ -1456,10 +1474,58 @@ async function runProgressivePlayback(opts: {
     for (const lane of Object.values(lanes)) {
       lane.ready = false;
       lane.pending.length = 0;
+      lane.pendingBytes = 0;
     }
     // NO revocar el objectUrl acá: en React StrictMode el efecto corre dos veces
     // y revocarlo antes de que el <video> lo monte mata `sourceopen`. Queda a
     // cargo del GC del browser.
+  };
+
+  // Un fallo de SourceBuffer se veía solo como el mensaje suelto dentro de
+  // `mediabunny_playback_error` (o como un rechazo de `waitForUpdateEnd`), sin
+  // pistas de por qué. Esto registra el estado del carril y del <video> en el
+  // momento del fallo, sin URL ni tokens.
+  let lastSbFailureKey = "";
+  let lastSbFailureAt = 0;
+  const captureSourceBufferFailure = (error: unknown, lane: Lane) => {
+    try {
+      const key = `${lane.kind}|${error instanceof Error ? error.name : "unknown"}|${safeMediaErrorMessage(error)}`;
+      const now = Date.now();
+      // El mismo fallo llega dos veces (el `write()` y el `await` del drenado):
+      // se registra una sola vez por segundo.
+      if (key === lastSbFailureKey && now - lastSbFailureAt < 1000) {
+        return;
+      }
+      lastSbFailureKey = key;
+      lastSbFailureAt = now;
+
+      const video = findStreamVideoEl();
+      const sb = lane.sourceBuffer;
+      const detail: Record<string, unknown> = {
+        lane: lane.kind,
+        error_name: error instanceof Error ? error.name : "unknown",
+        error_message: safeMediaErrorMessage(error),
+        pending_chunks: lane.pending.length,
+        pending_bytes: lane.pendingBytes,
+        lane_ready: lane.ready,
+      };
+      try {
+        detail.buffered_ranges = sb ? sb.buffered.length : null;
+        detail.source_buffer_updating = sb ? sb.updating : null;
+        detail.seconds_ahead =
+          sb && video ? Math.round(bufferedAheadOf(sb, video.currentTime)) : null;
+      } catch {
+        /* SourceBuffer detached */
+      }
+      if (video) {
+        detail.video_current_time = Math.round(video.currentTime);
+        detail.video_ready_state = video.readyState;
+        detail.video_network_state = video.networkState;
+      }
+      posthog.capture("mediabunny_sourcebuffer_error", detail);
+    } catch {
+      // La analítica nunca debe romper la reproducción.
+    }
   };
 
   const evictBehindPlayhead = async (sb: SourceBuffer) => {
@@ -1561,7 +1627,24 @@ async function runProgressivePlayback(opts: {
         // los codecs de salida. Esos primeros chunks se retienen hasta que el
         // SourceBuffer tiene el mime exacto, y luego se agregan en orden.
         if (!lane.ready) {
-          lane.pending.push(chunk.data.slice());
+          // Con tope: en un REMUX el carril de audio tarda en arrancar y el de
+          // vídeo retenía la peli entera en memoria. Al llegar al límite el
+          // `write()` espera (mediabunny deja de producir) hasta que el drenado
+          // libere espacio, en vez de copiar sin fin.
+          while (
+            !lane.ready &&
+            lane.pendingBytes >= PENDING_LIMIT_BYTES &&
+            !abortedRef.current &&
+            !progressiveError
+          ) {
+            await sleep(PENDING_WAIT_MS);
+          }
+          if (abortedRef.current || progressiveError) {
+            return;
+          }
+          const copy = chunk.data.slice();
+          lane.pending.push(copy);
+          lane.pendingBytes += copy.byteLength;
           return;
         }
         try {
@@ -1571,6 +1654,7 @@ async function runProgressivePlayback(opts: {
           // No rechazar el WritableStream tras un fallo de MSE: StreamTarget
           // puede seguir llamando a close() durante la cancelación, y cerrar un
           // writer en estado ERRORED dispara un segundo error que tapa el real.
+          captureSourceBufferFailure(error, lane);
           failProgressivePlayback(error);
         }
       },
@@ -1609,9 +1693,20 @@ async function runProgressivePlayback(opts: {
     lane.chain = lane.chain.then(async () => {
       // De a uno, esperando el `updateend` de cada append: así el init segment
       // (ftyp/moov) nunca compite con el primer fragmento (moof).
-      for (const data of lane.pending.splice(0)) {
-        sb.appendBuffer(data as unknown as BufferSource);
-        await waitForUpdateEnd(sb);
+      //
+      // Con contrapresión y evicción, igual que el camino normal: volcar el
+      // burst entero de golpe era lo que reventaba el SourceBuffer de los
+      // REMUX ("The SourceBuffer is full…") porque aquí no había ni espera ni
+      // manejo de QuotaExceeded.
+      try {
+        for (const data of lane.pending.splice(0)) {
+          lane.pendingBytes = Math.max(0, lane.pendingBytes - data.byteLength);
+          await applyBackpressure(lane);
+          await appendInOrder(lane, data);
+        }
+      } catch (error) {
+        captureSourceBufferFailure(error, lane);
+        throw error;
       }
     });
     lane.ready = true;
@@ -1638,10 +1733,37 @@ async function runProgressivePlayback(opts: {
   };
 
   const sourceOpen = new Promise<void>((resolve, reject) => {
-    sourceOpenTimer = setTimeout(
-      () => reject(new Error("MediaSource sourceopen timed out")),
-      15_000
-    );
+    sourceOpenTimer = setTimeout(() => {
+      // El mensaje solo dice "timeout"; para saber POR QUÉ el <video> no abrió
+      // el MediaSource se registran los estados del elemento y del MediaSource.
+      // Sin URLs ni tokens: solo números/booleanos.
+      try {
+        const detail: Record<string, unknown> = {
+          media_source_state: mediaSource.readyState,
+          live,
+          filename: opts.filename ?? null,
+          codec_hint: opts.codecHint ?? null,
+        };
+        if (typeof document !== "undefined") {
+          const videos = Array.from(document.querySelectorAll("video"));
+          // video.js puede fijar el src directo o vía `<source>`, así que se
+          // miran `src` y `currentSrc`.
+          const attached = videos.find(
+            (video) => video.src === objectUrl || video.currentSrc === objectUrl
+          );
+          detail.video_count = videos.length;
+          detail.video_has_url = Boolean(attached);
+          detail.video_ready_state = attached?.readyState ?? null;
+          detail.video_network_state = attached?.networkState ?? null;
+          detail.video_error_code = attached?.error?.code ?? null;
+          detail.video_paused = attached?.paused ?? null;
+        }
+        posthog.capture("mediabunny_sourceopen_timeout", detail);
+      } catch {
+        // La analítica nunca debe romper la reproducción.
+      }
+      reject(new Error("MediaSource sourceopen timed out"));
+    }, 15_000);
     mediaSource.addEventListener(
       "sourceopen",
       () => {
@@ -2639,6 +2761,8 @@ export function useMediaBunny(
           onSeekRestart: (seek) => {
             seekRef.current = seek;
           },
+          filename,
+          codecHint,
           conversionRef,
           abortedRef,
           cleanupRef: mseCleanupRef,

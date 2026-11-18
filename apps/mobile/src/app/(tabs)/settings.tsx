@@ -29,6 +29,7 @@ import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { avatarSource } from '@/lib/avatars';
 import {
   clearActiveProfile,
+  getActiveProfileSnapshot,
   type Profile,
   refreshActiveProfile,
 } from '@/lib/profiles';
@@ -58,7 +59,12 @@ export default function SettingsTab() {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  // Se siembra con el perfil en memoria: así el avatar de Configuración sale
+  // con el mismo valor que el del tab desde el primer frame, sin pasar por el
+  // negro por defecto mientras resuelve el refresco.
+  const [profile, setProfile] = useState<Profile | null>(() =>
+    getActiveProfileSnapshot(),
+  );
   // true una vez que `loadActiveProfile()` resolvió al menos una vez (perfil
   // puede ser legítimamente null, así que no basta con chequear `profile`).
   const [profileLoaded, setProfileLoaded] = useState(false);

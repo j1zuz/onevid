@@ -77,6 +77,19 @@ export default function LiveTvTab() {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const playerWidth = Math.max(0, Math.round(windowWidth - 32));
   const playerHeight = Math.round((playerWidth * 9) / 16);
+  const landscapeWindow = windowWidth > windowHeight;
+  // Al SALIR de pantalla completa la rotación a vertical tarda un frame (a
+  // veces más, con la animación del sistema). Si en ese momento pintamos la
+  // tarjeta con las medidas del horizontal intermedio, la vista nativa del
+  // vídeo se redimensiona a un tamaño que no le corresponde y queda estirada
+  // hasta el siguiente relayout. Mientras la ventana siga horizontal tras
+  // salir, se mantiene el marco de pantalla completa; al llegar el vertical se
+  // coloca la tarjeta, ya con medidas finales.
+  //
+  // En TV no aplica: la pantalla es horizontal siempre y el reproductor
+  // embebido debe seguir siendo la tarjeta.
+  const fullscreenFrame =
+    fullscreen || (!Platform.isTV && landscapeWindow);
   const searchRef = useRef<ComponentRef<typeof SearchField.Input>>(null);
   // Si el usuario toca el buscador a propósito no le quitamos el foco; solo se
   // combate el foco automático de Android.
@@ -393,10 +406,10 @@ export default function LiveTvTab() {
         flex: 1,
         backgroundColor: COLORS.background,
         // En pantalla completa no debe quedar la franja del inset superior.
-        paddingTop: fullscreen ? 0 : insets.top,
+        paddingTop: fullscreenFrame ? 0 : insets.top,
       }}
     >
-      {fullscreen ? null : (
+      {fullscreenFrame ? null : (
       <View style={{ paddingHorizontal: 16, paddingTop: 8, gap: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <Typography type="h2" style={{ flex: 1 }}>
@@ -476,12 +489,12 @@ export default function LiveTvTab() {
       ) : source ? (
         <ScrollView
           contentContainerStyle={
-            fullscreen ? undefined : { paddingTop: 16, paddingBottom: 32 }
+            fullscreenFrame ? undefined : { paddingTop: 16, paddingBottom: 32 }
           }
           nestedScrollEnabled
           ref={scrollRef}
           // En pantalla completa no se navega la lista: el vídeo ocupa todo.
-          scrollEnabled={!fullscreen}
+          scrollEnabled={!fullscreenFrame}
           style={{ flex: 1 }}
         >
           {/* Un ÚNICO `Player`: se queda montado al alternar pantalla completa
@@ -491,10 +504,15 @@ export default function LiveTvTab() {
             <Animated.View
               // La entrada/salida de pantalla completa anima el mismo
               // reproductor desde el tamaño de la tarjeta incrustada hasta la
-              // pantalla (y al revés), en vez de saltar de golpe.
-              layout={fullscreen ? undefined : LinearTransition.duration(260)}
+              // pantalla (y al revés), en vez de saltar de golpe. Mientras dura
+              // la rotación (`fullscreenFrame`) no se anima: se mantiene el
+              // marco a pantalla completa y al llegar el vertical se coloca la
+              // tarjeta, sin pasar por un tamaño intermedio.
+              layout={
+                fullscreenFrame ? undefined : LinearTransition.duration(260)
+              }
               style={
-                fullscreen
+                fullscreenFrame
                   ? {
                       width: windowWidth,
                       height: windowHeight,
@@ -514,7 +532,7 @@ export default function LiveTvTab() {
                 // En pantalla completa deja de ser "embebido": así el botón de
                 // play toma el foco al entrar (si no, el foco caía en el rail).
                 embedded={!fullscreen}
-                fullscreen={fullscreen}
+                fullscreen={fullscreenFrame}
                 live
                 onBack={() => {
                   if (fullscreen) {
@@ -534,7 +552,7 @@ export default function LiveTvTab() {
                   `overflow: hidden` (quedaba en negro). Las esquinas se
                   redondean pintando el exterior del marco encima del vídeo,
                   sin recortarlo. */}
-              {fullscreen ? null : (
+              {fullscreenFrame ? null : (
                 <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                   <Svg height={playerHeight} width={playerWidth}>
                     <Defs>
@@ -581,7 +599,7 @@ export default function LiveTvTab() {
               )}
             </Animated.View>
           ) : null}
-          {fullscreen ? null : (
+          {fullscreenFrame ? null : (
             <LiveTvGuide
               channels={filtered}
               headerExtra={Platform.isTV ? categoryPicker : null}
@@ -602,7 +620,7 @@ export default function LiveTvTab() {
       !loading &&
       !error &&
       source &&
-      !fullscreen ? (
+      !fullscreenFrame ? (
         <View
           style={{
             paddingHorizontal: 16,

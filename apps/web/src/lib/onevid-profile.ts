@@ -307,6 +307,27 @@ export async function activeProfileIsKids(
   return row?.isKids === true;
 }
 
+/**
+ * ¿El token firmado acredita la sesión de este perfil?
+ *
+ * Sin PIN no hace falta token (el perfil está abierto). Con PIN, este es el
+ * único criterio que vale para el servidor: la cookie de UI
+ * (`onevid-verified-profile-v2`) la escribe el cliente y puede quedar
+ * desfasada —token caducado, PIN cambiado o secreto rotado—, y entonces las
+ * rutas de datos responden 403 mientras la UI cree que el perfil está
+ * verificado.
+ */
+export function profileSessionVerified(
+  token: string | null | undefined,
+  userId: string,
+  profile: { id: string; pinHash: string | null }
+): boolean {
+  if (!profile.pinHash) {
+    return true;
+  }
+  return verifyProfileToken(token, userId, profile.id, profile.pinHash);
+}
+
 export type ResolvedProfile =
   | { status: "ok"; profile: Profile }
   | { status: "no_profile" }

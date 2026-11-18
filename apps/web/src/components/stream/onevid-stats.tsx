@@ -63,6 +63,22 @@ function minutes(sec: number): number {
   return Math.round(sec / 60);
 }
 
+/**
+ * Ancho de tarjeta móvil. Arranca en `false` y se resuelve tras montar para no
+ * romper la hidratación, igual que `useIsTv`.
+ */
+function useCompactCard(): boolean {
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 640px)");
+    const sync = () => setCompact(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+  return compact;
+}
+
 /** Últimos `count` días (UTC, como la BD) con sus minutos. */
 function lastDays(
   days: { day: string; seconds: number }[],
@@ -203,11 +219,14 @@ function hours(sec: number): string {
  * `onevid_profile_progress`.
  */
 export function OneVidStats() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { activeProfileId, profiles } = useOneVidProfiles();
   const activeProfile = profiles.find((item) => item.id === activeProfileId);
   const [data, setData] = useState<StatsResponse | null>(null);
   const [failure, setFailure] = useState<"network" | null>(null);
+  // En móvil la tarjeta mide ~300 px: el heatmap anual (53 columnas) no deja
+  // sitio para las 12 etiquetas de mes ni para las de día.
+  const compact = useCompactCard();
 
   const [range, setRange] = useState<Range>("year");
   const [selectedDay, setSelectedDay] = useState<HeatmapSelection | null>(null);
@@ -323,6 +342,30 @@ export function OneVidStats() {
     [t]
   ) as BarChartConfig;
 
+  // Etiquetas del heatmap anual en el idioma de la app. En móvil se muestran
+  // meses alternos ("" oculta la etiqueta): con 12 no caben y se solapaban
+  // ("JanFebMar…").
+  const monthLabels = useMemo(() => {
+    const format = new Intl.DateTimeFormat(language, { month: "short" });
+    return Array.from({ length: 12 }, (_, index) => {
+      if (compact && index % 2 === 1) {
+        return "";
+      }
+      return format.format(new Date(Date.UTC(2024, index, 1)));
+    });
+  }, [compact, language]);
+  // Día de la semana con la misma selección que GitHub (lun/mié/vie), domingo
+  // primero porque el calendario arranca en domingo.
+  const dayLabels = useMemo(() => {
+    const format = new Intl.DateTimeFormat(language, { weekday: "short" });
+    return Array.from({ length: 7 }, (_, index) => {
+      if (index % 2 === 0) {
+        return "";
+      }
+      return format.format(new Date(Date.UTC(2024, 0, 7 + index)));
+    });
+  }, [language]);
+
   // Mes con más minutos de este año (el "pico" que encabeza la tarjeta).
   const peakMonth = useMemo(() => {
     const rows = (data?.months ?? []).map((row) => ({
@@ -437,8 +480,8 @@ export function OneVidStats() {
             />
           </div>
         ) : null}
-        <div className="flex items-start justify-between gap-3">
-          <div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+          <div className="min-w-0">
             <h2 className="font-semibold text-base">
               {t("Estadísticas")}
               {activeProfile ? (
@@ -455,7 +498,7 @@ export function OneVidStats() {
                     : t("Minutos vistos por día")}
             </p>
           </div>
-          <div className="flex items-center gap-1 rounded-full border border-border p-0.5">
+          <div className="flex w-fit shrink-0 items-center gap-1 rounded-full border border-border p-0.5">
             {(
               [
                 ["7d", t("7 días")],
@@ -492,16 +535,24 @@ export function OneVidStats() {
 
         {range === "year" ? (
           <EChartsHeatmapChart
-            className="h-44 w-full"
+            className={cn("w-full", compact ? "h-24" : "h-44")}
             config={heatmapConfig}
             data={heatmapData}
             onSelectionChange={setSelectedDay}
             range={new Date().getFullYear()}
             thresholds={[30, 60, 90]}
           >
-            <EChartsHeatmapChart.Cell dataKey="minutes" gap={2} isClickable radius={2} />
-            <EChartsHeatmapChart.MonthLabel />
-            <EChartsHeatmapChart.DayLabel />
+            <EChartsHeatmapChart.Cell
+              dataKey="minutes"
+              gap={compact ? 1 : 2}
+              isClickable
+              radius={2}
+            />
+            <EChartsHeatmapChart.MonthLabel labels={monthLabels} />
+            {/* Las etiquetas de día no caben con celdas de ~6 px: en móvil sobran. */}
+            {compact ? null : (
+              <EChartsHeatmapChart.DayLabel labels={dayLabels} />
+            )}
             <EChartsHeatmapChart.Tooltip variant="frosted-glass" />
             <EChartsHeatmapChart.Legend lessLabel={t("Poco")} moreLabel={t("Mucho")} />
           </EChartsHeatmapChart>
@@ -611,7 +662,7 @@ export function OneVidStats() {
         ) : null}
 
         {data ? (
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="rounded-full bg-blue-500/15 px-2 py-1 text-blue-300">
               {t("Películas")} · {minutes(data.byType.movie)} {t("min")}
             </span>
@@ -647,7 +698,7 @@ export function OneVidStats() {
           onevid.hackw.tech
         </p>
       </section>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Select
           onValueChange={(value) =>
             setRatio(value as (typeof RATIOS)[number]["id"])

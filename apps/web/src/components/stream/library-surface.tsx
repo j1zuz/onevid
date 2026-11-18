@@ -57,6 +57,16 @@ function interleaveMany<T>(lists: T[][]): T[] {
   return result;
 }
 
+/** Error de las dos rutas de la biblioteca, con el status para distinguir el 403. */
+class LibraryFetchError extends Error {
+  readonly status: number;
+
+  constructor(status: number) {
+    super("Library unavailable");
+    this.status = status;
+  }
+}
+
 async function fetchSaved(
   kind: SavedKind,
   mediaType: "movie" | "series",
@@ -72,7 +82,7 @@ async function fetchSaved(
     headers: { Accept: "application/json", "X-Profile-Id": profileId },
     signal,
   });
-  if (!response.ok) throw new Error("Library unavailable");
+  if (!response.ok) throw new LibraryFetchError(response.status);
   const data = (await response.json()) as { results?: MediaMeta[] };
   return Array.isArray(data.results) ? data.results : [];
 }
@@ -92,7 +102,7 @@ async function fetchLiveSaved(
     headers: { Accept: "application/json", "X-Profile-Id": profileId },
     signal,
   });
-  if (!response.ok) throw new Error("Library unavailable");
+  if (!response.ok) throw new LibraryFetchError(response.status);
   const data = (await response.json()) as {
     results?: Array<{
       background?: string;
@@ -237,7 +247,7 @@ function LibraryContent() {
   const { t: rawT } = useTranslation();
   const t = (key: string) => rawT(key as never) as unknown as string;
   const searchParams = useSearchParams();
-  const { activeProfileId } = useOneVidProfiles();
+  const { activeProfileId, refresh } = useOneVidProfiles();
   const [data, setData] = useState<LibraryData | null>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -265,17 +275,24 @@ function LibraryContent() {
       .then(([favorites, watchlist]) => {
         if (active) setData({ favorites, watchlist });
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (active && !controller.signal.aborted) {
           setData({ favorites: [], watchlist: [] });
           setFailed(true);
+          // 403 = el token firmado del perfil ya no vale (caducó, cambió el PIN,
+          // cambió el secreto). `refresh()` lo detecta en el servidor y reabre
+          // el gate para volver a pedir el PIN: reintentar a ciegas devolvería
+          // el mismo 403 para siempre.
+          if (error instanceof LibraryFetchError && error.status === 403) {
+            void refresh();
+          }
         }
       });
     return () => {
       active = false;
       controller.abort();
     };
-  }, [activeProfileId, attempt]);
+  }, [activeProfileId, attempt, refresh]);
 
   const loading = data === null;
   const favorites = data?.favorites ?? [];

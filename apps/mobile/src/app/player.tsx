@@ -1346,6 +1346,16 @@ export function Player({
   // conserva todo el fotograma ("contain", con posibles bandas negras) o llena
   // físicamente la pantalla ("cover", recortando sólo el excedente).
   const [videoFit, setVideoFit] = useState<'contain' | 'cover'>('contain');
+  // Live TV: entrar a pantalla completa debe LLENAR la pantalla sin tocar
+  // nada (cover); al volver a la tarjeta 16:9 se restaura contain. Antes el
+  // ajuste se quedaba como lo dejara el usuario: en completo salían bandas
+  // negras hasta hacer zoom y, al salir, un canal 4:3 quedaba recortado
+  // (parecía deformado). El botón de zoom sigue disponible dentro de completo
+  // para volver a "ver todo el fotograma".
+  useEffect(() => {
+    if (!live) return;
+    setVideoFit(fullscreen ? 'cover' : 'contain');
+  }, [fullscreen, live]);
   // PiP solo se ofrece si el dispositivo lo soporta (los emuladores casi nunca
   // lo soportan), para no mostrar un botón muerto.
   // Además, en Android 8-11 (API 26-30) el nativo de expo-libvlc-player llama
@@ -2047,8 +2057,10 @@ export function Player({
               ) : null}
             </View>
             <View style={styles.topActions}>
-              {/* En Live TV el zoom va primero; en VOD mantiene su sitio. */}
-              {onFullscreen ? videoFitButton : null}
+              {/* Live TV: el zoom solo aparece a pantalla completa, que es donde
+                  hace falta (volver a "ver todo el fotograma"). En la tarjeta
+                  incrustada sobraba y se confundía con el de pantalla completa. */}
+              {onFullscreen && fullscreen ? videoFitButton : null}
   
               {/* Pantalla completa: primero de la fila, junto al botón de idioma
                   (no al final, pegado al de "Llenar pantalla"). */}
