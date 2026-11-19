@@ -102,6 +102,18 @@ function pickBiggestVideoFile(files: FileItem[]): FileItem | null {
  */
 export { normalizeInfoHash } from "@/lib/magnet";
 
+// `mylist` devuelve el objeto completo de cada torrent (incluidos `files` y
+// `magnet`): una biblioteca de 1000 torrents pesa ~7 MB y `safeFetch` corta el
+// cuerpo a 1 MiB (SafeFetchError "too-large"). Antes se pedía la lista entera,
+// así que cualquier cuenta con biblioteca grande fallaba con 502 al resolver un
+// magnet. Se pagina con `limit`/`offset` (soportados por TorBox) para que cada
+// respuesta quepa en el límite.
+const MYLIST_PAGE_SIZE = 100;
+// TorBox devolvía como máximo 1000 torrents en `mylist`; se mantiene ese mismo
+// alcance (10 páginas) para no alargar el request buscando en bibliotecas
+// enormes. Si el hash no aparece, el flujo sigue con `createtorrent`.
+const MYLIST_MAX_PAGES = 10;
+
 function mylistItems(data: MylistEnvelope["data"]): TorrentItem[] {
   if (Array.isArray(data)) {
     return data;
@@ -111,21 +123,34 @@ function mylistItems(data: MylistEnvelope["data"]): TorrentItem[] {
 
 async function mylist(
   apiKey: string,
-  torrentId?: number
+  options: { id?: number; limit?: number; offset?: number } = {}
 ): Promise<TorrentItem[]> {
+  const { id, limit, offset } = options;
   const url = new URL(`${MAIN_BASE}/torrents/mylist`);
   url.searchParams.set("bypass_cache", "true");
-  if (torrentId !== undefined) {
-    url.searchParams.set("id", String(torrentId));
+  if (id !== undefined) {
+    url.searchParams.set("id", String(id));
+  }
+  if (limit !== undefined) {
+    url.searchParams.set("limit", String(limit));
+  }
+  if (offset !== undefined) {
+    url.searchParams.set("offset", String(offset));
   }
 
-  const res = await safeFetch(url.toString(), {
-    method: "GET",
-    headers: {
-      accept: "application/json",
-      authorization: `Bearer ${apiKey}`,
+  const res = await safeFetch(
+    url.toString(),
+    {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${apiKey}`,
+      },
     },
-  });
+    // Margen sobre el ~0.5 MB que pesa una página de 100; el tope por defecto
+    // (1 MiB) queda demasiado justo si varios torrents traen muchos ficheros.
+    { maxBodyBytes: 2 * 1024 * 1024 }
+  );
   if (!res.ok) {
     return [];
   }
@@ -137,13 +162,22 @@ async function findTorrentByHash(
   apiKey: string,
   infoHashHex: string
 ): Promise<TorrentItem | null> {
-  const torrents = await mylist(apiKey);
-  for (const torrent of torrents) {
-    if (typeof torrent.hash !== "string") {
-      continue;
+  for (let page = 0; page < MYLIST_MAX_PAGES; page++) {
+    const torrents = await mylist(apiKey, {
+      limit: MYLIST_PAGE_SIZE,
+      offset: page * MYLIST_PAGE_SIZE,
+    });
+    for (const torrent of torrents) {
+      if (typeof torrent.hash !== "string") {
+        continue;
+      }
+      if (torrent.hash.trim().toLowerCase() === infoHashHex) {
+        return torrent;
+      }
     }
-    if (torrent.hash.trim().toLowerCase() === infoHashHex) {
-      return torrent;
+    // Última página: no hay más que recorrer.
+    if (torrents.length < MYLIST_PAGE_SIZE) {
+      return null;
     }
   }
   return null;
@@ -153,7 +187,7 @@ async function getTorrent(
   apiKey: string,
   torrentId: number
 ): Promise<TorrentItem | null> {
-  const [torrent] = await mylist(apiKey, torrentId);
+  const [torrent] = await mylist(apiKey, { id: torrentId });
   return torrent ?? null;
 }
 

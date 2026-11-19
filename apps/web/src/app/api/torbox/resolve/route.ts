@@ -152,9 +152,13 @@ export async function GET(request: Request) {
     return Response.json({ error: "Falta API key de TorBox" }, { status: 400 });
   }
 
-  let resolved = await resolveTorboxStream({ apiKey, magnet }).catch(
-    () => null
-  );
+  // Un fallo aqui (red, cuota, cuerpo demasiado grande…) se traducia a un 502
+  // mudo: el player solo veia "No se pudo resolver el stream". Loguear el error
+  // deja rastro en los logs del Worker sin filtrar la key ni la URL del magnet.
+  let resolved = await resolveTorboxStream({ apiKey, magnet }).catch((error) => {
+    console.error("torbox resolve failed", error);
+    return null;
+  });
 
   // Poll corto: si TorBox todavía está preparando el archivo, esperamos un poco
   // antes de contestar 202. Cada vuelta reutiliza el torrent ya creado (no se

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { Button } from "@workspace/ui/components/button";
 import { useTranslation } from "@/lib/onevid-i18n-context";
 
 /**
@@ -31,13 +32,13 @@ export function MagnetConsentGate({
         <h1 className="text-lg font-semibold break-words text-card-foreground">
           {title}
         </h1>
-        <button
-          className="mt-5 inline-flex w-full items-center justify-center rounded-lg bg-primary px-4 py-2.5 font-medium text-primary-foreground transition-opacity hover:opacity-90"
+        <Button
+          className="btn-primary mt-5 w-full"
           onClick={() => setConfirmed(true)}
           type="button"
         >
           {t("Reproducir magnet")}
-        </button>
+        </Button>
       </div>
     </main>
   );
