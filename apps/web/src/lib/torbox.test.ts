@@ -135,6 +135,62 @@ describe("resolveTorboxStream", () => {
     expect(calls.some((call) => call.startsWith("POST"))).toBe(false);
   });
 
+  test("pagina mylist para bibliotecas grandes en vez de pedirla entera", async () => {
+    // `mylist` completo pesa varios MB y `safeFetch` lo corta a 1 MiB; la
+    // búsqueda por hash debe pedir páginas pequeñas (limit/offset).
+    const filler = Array.from({ length: 100 }, (_, index) => ({
+      hash: `${index}`.padStart(40, "0"),
+      id: index,
+      download_finished: true,
+      download_present: true,
+    }));
+    const calls = mockFetch([
+      {
+        match: (url, method) => isList(url, method) && !url.includes("offset=100"),
+        body: { success: true, data: filler },
+      },
+      {
+        match: (url, method) => isList(url, method) && url.includes("offset=100"),
+        body: {
+          success: true,
+          data: [
+            {
+              hash: HEX,
+              id: 7,
+              download_finished: true,
+              download_present: true,
+            },
+          ],
+        },
+      },
+      {
+        match: isDetail,
+        body: {
+          success: true,
+          data: {
+            files: [READY_FILE],
+            hash: HEX,
+            id: 7,
+            download_finished: true,
+            download_present: true,
+          },
+        },
+      },
+      {
+        match: isRequestDl,
+        body: { success: true, data: "https://cdn.example/movie.mkv" },
+      },
+    ]);
+
+    const result = await resolveTorboxStream({ apiKey: "k", magnet: MAGNET });
+
+    expect(result.status).toBe("ready");
+    const pages = calls.filter((call) => call.includes("/torrents/mylist"));
+    expect(pages[0]).toContain("limit=100");
+    expect(pages[0]).toContain("offset=0");
+    expect(pages[1]).toContain("offset=100");
+  });
+
   test("devuelve preparing cuando el debrid todavía está bajando el torrent", async () => {
     mockFetch([
       {
