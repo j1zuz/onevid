@@ -2213,7 +2213,23 @@ export function Player({
               {pipSupported ? (
                 <Pressable
                   style={withRing(styles.actionBtn)}
-                  onPress={() => playerRef.current?.startPictureInPicture?.()}
+                  onPress={() => {
+                    // El nativo puede rechazar (p. ej. "PiP mode must be
+                    // allowed"); sin catch llega como unhandled rejection.
+                    playerRef.current
+                      ?.startPictureInPicture?.()
+                      .catch((error: unknown) => {
+                        track('player_pip_failed', {
+                          mediaType,
+                          mediaId,
+                          live,
+                          message:
+                            error instanceof Error
+                              ? error.message
+                              : String(error),
+                        });
+                      });
+                  }}
                   hitSlop={6}
                 >
                   <PictureInPicture2 size={20} color="#fff" />

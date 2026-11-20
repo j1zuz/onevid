@@ -57,6 +57,28 @@ diff --git a/android/src/main/java/expo/modules/libvlcplayer/managers/PictureInP
          .build()
  
      activity?.setPictureInPictureParams(params)
+@@ -319,7 +327,7 @@
+ 
+   fun startPictureInPicture(view: LibVlcPlayerView) {
+     val activity = activity ?: throw Exceptions.MissingActivity()
+-    maybeThrowPipException()
++    maybeThrowPipException(view)
+     addPipView(view)
+     enterPictureInPicture(activity)
+   }
+@@ -333,10 +341,10 @@
+     }
+   }
+ 
+-  private fun maybeThrowPipException() {
++  private fun maybeThrowPipException(view: LibVlcPlayerView) {
+     if (!isPictureInPictureSupported()) {
+       throw PictureInPictureUnsupportedException()
+-    } else if (!pictureInPicture) {
++    } else if (!view.pictureInPicture) {
+       throw PictureInPictureUnallowedException()
+     }
+   }
 diff --git a/android/src/main/java/expo/modules/libvlcplayer/player/MediaPlayer.kt b/android/src/main/java/expo/modules/libvlcplayer/player/MediaPlayer.kt
 --- a/android/src/main/java/expo/modules/libvlcplayer/player/MediaPlayer.kt
 +++ b/android/src/main/java/expo/modules/libvlcplayer/player/MediaPlayer.kt
