@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "onevid",
-    short_name: "onevid",
+    name: "Onevid",
+    short_name: "Onevid",
     description: "Reproductor de video",
     id: "/",
     start_url: "/",

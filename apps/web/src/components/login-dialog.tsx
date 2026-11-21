@@ -208,11 +208,11 @@ export function LoginDialog() {
         {step === "main" ? (
           <>
             <DialogHeader className="items-center gap-3 text-center sm:items-center sm:text-center">
-              <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-card">
+              <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-card">
                 {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
                 <img
-                  alt="onevid"
-                  className="size-8 rounded-md border border-border/70 object-cover"
+                  alt="Onevid"
+                  className="size-8 rounded-md object-cover"
                   height={32}
                   src="/onevid-pwa-512.png"
                   width={32}
@@ -283,11 +283,11 @@ export function LoginDialog() {
         {step === "code" ? (
           <>
             <DialogHeader className="items-center gap-3 text-center sm:items-center sm:text-center">
-              <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-card">
+              <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-card">
                 {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
                 <img
-                  alt="onevid"
-                  className="size-8 rounded-md border border-border/70 object-cover"
+                  alt="Onevid"
+                  className="size-8 rounded-md object-cover"
                   height={32}
                   src="/onevid-pwa-512.png"
                   width={32}

@@ -367,14 +367,14 @@ async function OneVidContent({
               >
                 {/* biome-ignore lint/performance/noImgElement: SVG data URI */}
                 <img
-                  alt="onevid"
+                  alt="Onevid"
                   className="size-8 rounded-(--radius) object-cover"
                   height={32}
                   src="/onevid-pwa-512.png"
                   width={32}
                 />
               </EmptyMedia>
-              <EmptyTitle>Configura onevid para empezar</EmptyTitle>
+              <EmptyTitle>Configura Onevid para empezar</EmptyTitle>
               <EmptyDescription>
                 Completa los pasos para empezar a ver tu contenido.
               </EmptyDescription>

@@ -33,7 +33,7 @@ export default function Footer() {
             viewBox="0 0 500 120"
             xmlns="http://www.w3.org/2000/svg"
           >
-            <title>onevid</title>
+            <title>Onevid</title>
             <defs>
               <linearGradient
                 id="onevid-footer-grad"
@@ -64,7 +64,7 @@ export default function Footer() {
                 x="250"
                 y="75"
               >
-                onevid
+                Onevid
               </text>
             </g>
           </svg>
@@ -75,7 +75,7 @@ export default function Footer() {
             className="shrink-0 text-muted-foreground text-xs"
             suppressHydrationWarning
           >
-            © {year ? `${year} ` : ""}onevid
+            © {year ? `${year} ` : ""}Onevid
           </span>
           <a
             className="shrink-0 text-muted-foreground text-xs transition-colors hover:text-foreground"
