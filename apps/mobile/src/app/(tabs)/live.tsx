@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { NavigationBar } from 'expo-navigation-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import {
   router,
@@ -246,8 +247,19 @@ export default function LiveTvTab() {
 
   useEffect(() => {
     if (!fullscreen) return;
+    // Inmersivo como en /player: la barra de estado no basta, en Android los
+    // botones de navegación (atrás/inicio/recientes) seguían visibles encima
+    // del directo.
     RNStatusBar.setHidden(true, 'fade');
-    return () => RNStatusBar.setHidden(false, 'fade');
+    if (Platform.OS === 'android') {
+      NavigationBar.setHidden(true);
+    }
+    return () => {
+      RNStatusBar.setHidden(false, 'fade');
+      if (Platform.OS === 'android') {
+        NavigationBar.setHidden(false);
+      }
+    };
   }, [fullscreen]);
 
   // Pantalla completa = horizontal, igual que el reproductor de /player. Al
