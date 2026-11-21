@@ -28,7 +28,11 @@ momento sin red.
 - `/offline`: lista las descargas de OPFS con título, póster, tamaño y
   vencimiento. No hace ninguna petición al servidor.
 - `/offline/play?key=...`: reproduce el archivo guardado con un blob URL. No usa
-  el player del catálogo (ese necesita red para pedir fuentes).
+  el player del catálogo (ese necesita red para pedir fuentes). Retoma donde se
+  quedó el usuario y guarda la posición en `localStorage`
+  (`src/lib/watch-progress-local.ts`): sin red no se puede preguntar al
+  servidor. El reproductor del catálogo deja ahí un espejo de cada checkpoint,
+  y esta página lo usa al abrir la descarga.
 
 Los enlaces de estas páginas llevan `data-glimm-skip` para forzar navegación
 completa: el router de Next no puede pedir el payload RSC sin internet.

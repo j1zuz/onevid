@@ -1,6 +1,11 @@
 "use client";
 
-import { ACTIVE_PROFILE_COOKIE } from "@/components/stream/onevid-profile-context";
+import { readActiveProfileId } from "@/lib/active-profile";
+import {
+  clearLocalProgress,
+  readLocalProgress,
+  writeLocalProgress,
+} from "@/lib/watch-progress-local";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invalidateWatchState } from "@/hooks/use-watch-state";
 
@@ -47,25 +52,7 @@ interface Resume {
 
 // Lee el perfil activo de la cookie que escribe OneVidProfileProvider. Se lee de
 // la cookie (y no del contexto) porque la ruta del player no monta el provider;
-// la cookie es global, así que está disponible igual. Antes leía `localStorage`,
-// pero el provider dejó de escribir ahí al migrar a cookies, así que esto
-// devolvía siempre `null` y el progreso nunca se guardaba en web.
-function readProfileId(): string | null {
-  if (typeof document === "undefined") {
-    return null;
-  }
-  const match = document.cookie.match(
-    new RegExp(`(?:^|; )${ACTIVE_PROFILE_COOKIE}=([^;]*)`)
-  );
-  if (!match) {
-    return null;
-  }
-  try {
-    return decodeURIComponent(match[1]) || null;
-  } catch {
-    return match[1] || null;
-  }
-}
+// la cookie es global, así que está disponible igual.
 
 /**
  * Server-synced "Continue watching" progress, keyed by TMDB mediaId (+ season/
@@ -90,7 +77,7 @@ export function useWatchProgress(params: WatchProgressParams) {
     if (!mediaId) {
       return;
     }
-    const profileId = readProfileId();
+    const profileId = readActiveProfileId();
     if (!profileId) {
       return;
     }
@@ -112,7 +99,15 @@ export function useWatchProgress(params: WatchProgressParams) {
         }
       })
       .catch(() => {
-        /* no profile / offline — resume unavailable, ignore */
+        // Sin red no hay servidor, pero el reproductor sin conexión sí puede
+        // retomar: usa el espejo local que dejó este mismo navegador.
+        const local = readLocalProgress(mediaType, mediaId, season, episode);
+        if (local) {
+          setInitialResume({
+            durationSec: local.durationSec,
+            positionSec: local.positionSec,
+          });
+        }
       });
     return () => controller.abort();
   }, [mediaId, mediaType, season, episode]);
@@ -123,7 +118,18 @@ export function useWatchProgress(params: WatchProgressParams) {
     if (!p.mediaId) {
       return;
     }
-    const profileId = readProfileId();
+    // Espejo local ANTES de comprobar el perfil y del POST: si el usuario abre
+    // luego la descarga sin conexión, /offline/play retoma desde aquí aunque el
+    // servidor no exista.
+    writeLocalProgress(
+      p.mediaType,
+      p.mediaId,
+      p.season ?? 0,
+      p.episode ?? 0,
+      positionSec,
+      durationSec
+    );
+    const profileId = readActiveProfileId();
     if (!profileId) {
       return;
     }
@@ -191,6 +197,12 @@ export function useWatchProgress(params: WatchProgressParams) {
     if (!paramsRef.current.mediaId) {
       return;
     }
+    clearLocalProgress(
+      paramsRef.current.mediaType,
+      paramsRef.current.mediaId,
+      paramsRef.current.season ?? 0,
+      paramsRef.current.episode ?? 0
+    );
     const { duration } = latest.current;
     if (duration > 0) {
       // position === duration → server sees it as finished and drops the row.

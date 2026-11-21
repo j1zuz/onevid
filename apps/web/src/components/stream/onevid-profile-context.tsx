@@ -13,7 +13,10 @@ import {
   clearPlaybackHandoff,
   clearPwaPageCache,
 } from "@/lib/pwa-cache";
+import { ACTIVE_PROFILE_COOKIE } from "@/lib/active-profile";
 import { OneVidProfileGate } from "./onevid-profile-gate";
+
+export { ACTIVE_PROFILE_COOKIE } from "@/lib/active-profile";
 
 export interface OneVidProfile {
   avatar: string;
@@ -100,7 +103,6 @@ const OneVidProfileContext = createContext<OneVidProfileContextValue | null>(
 // (locked) profile and reopened the "¿Quién está viendo?" gate even though the
 // user had already picked. 30 days mirrors how consumer streaming apps remember
 // who's watching on a personal device.
-export const ACTIVE_PROFILE_COOKIE = "onevid-active-profile";
 export const VERIFIED_PROFILE_COOKIE = "onevid-verified-profile-v2";
 const PROFILE_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 días, en segundos
 

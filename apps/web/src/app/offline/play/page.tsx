@@ -24,6 +24,10 @@ import {
 } from "@/hooks/use-mediabunny";
 import { OfflineBadge } from "@/components/stream/offline-badge";
 import { useTranslation } from "@/lib/onevid-i18n-context";
+import {
+  readLocalProgress,
+  writeLocalProgress,
+} from "@/lib/watch-progress-local";
 import "@videojs/react/video/skin.css";
 import "@/components/stream/video-js-player-overrides.css";
 
@@ -85,6 +89,57 @@ function OfflinePlayer() {
   const [logo, setLogo] = useState("");
   const [error, setError] = useState("");
   const urlRef = useRef<string | null>(null);
+  // Progreso local: la página abre sin red, así que no puede pedirle la
+  // posición al servidor. Se reanuda con el espejo local que dejó el player
+  // (o una sesión anterior de esta misma página) y se sigue guardando aquí.
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const infoRef = useRef<{
+    contentType?: "movie" | "series";
+    contentId?: string;
+    episode?: number;
+    season?: number;
+  } | null>(null);
+  const resumeRef = useRef<number | null>(null);
+  const lastSavedRef = useRef(0);
+  // Última posición conocida: al desmontar, el <video> ya puede haberse ido y
+  // sin esto el guardado de salida escribiría 0.
+  const latestRef = useRef({ duration: 0, position: 0 });
+
+  const saveProgress = useCallback(() => {
+    const video = videoRef.current;
+    const info = infoRef.current;
+    if (!(info?.contentType && info.contentId)) {
+      return;
+    }
+    const { duration, position } = video
+      ? { duration: video.duration, position: video.currentTime }
+      : latestRef.current;
+    writeLocalProgress(
+      info.contentType,
+      info.contentId,
+      info.season ?? 0,
+      info.episode ?? 0,
+      position,
+      duration
+    );
+  }, []);
+
+  // Al ocultar la pestaña o salir se guarda el último segundo visto, igual que
+  // hace el reproductor del catálogo con el servidor.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        saveProgress();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", saveProgress);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", saveProgress);
+      saveProgress();
+    };
+  }, [saveProgress]);
 
   useEffect(() => {
     let active = true;
@@ -93,6 +148,26 @@ function OfflinePlayer() {
     setError("");
 
     const metadata = key ? getOfflineMediaMetadata(key) : null;
+    infoRef.current = metadata
+      ? {
+          contentType: metadata.contentType,
+          contentId: metadata.contentId,
+          episode: metadata.episode,
+          season: metadata.season,
+        }
+      : null;
+    resumeRef.current = null;
+    lastSavedRef.current = 0;
+    latestRef.current = { duration: 0, position: 0 };
+    if (metadata?.contentType && metadata.contentId) {
+      const local = readLocalProgress(
+        metadata.contentType,
+        metadata.contentId,
+        metadata.season ?? 0,
+        metadata.episode ?? 0
+      );
+      resumeRef.current = local?.positionSec ?? null;
+    }
     if (metadata?.title) {
       setTitle(metadata.title);
     }
@@ -181,11 +256,43 @@ function OfflinePlayer() {
               <Video
                 autoPlay
                 className="size-full bg-black object-contain"
+                onEnded={saveProgress}
                 onError={() =>
                   setError(t("No se pudo reproducir la descarga."))
                 }
+                onLoadedMetadata={(event) => {
+                  const video = event.currentTarget;
+                  const target = resumeRef.current;
+                  // Retoma donde se quedó el usuario. Si el punto guardado ya
+                  // está en el final (o fuera del archivo) se empieza normal.
+                  if (
+                    target !== null &&
+                    target > 10 &&
+                    (!Number.isFinite(video.duration) ||
+                      target < video.duration - 5)
+                  ) {
+                    video.currentTime = target;
+                  }
+                }}
+                onPause={saveProgress}
+                onTimeUpdate={() => {
+                  const video = videoRef.current;
+                  if (video) {
+                    latestRef.current = {
+                      duration: video.duration,
+                      position: video.currentTime,
+                    };
+                  }
+                  const now = Date.now();
+                  if (now - lastSavedRef.current < 5000) {
+                    return;
+                  }
+                  lastSavedRef.current = now;
+                  saveProgress();
+                }}
                 playsInline
                 preload="auto"
+                ref={videoRef}
                 src={src}
               />
             </VideoSkin>

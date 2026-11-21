@@ -309,6 +309,10 @@ export function StreamOnevid({
   const [sourcesAttempt, setSourcesAttempt] = useState(0);
   const [creatingWatchRoom, setCreatingWatchRoom] = useState(false);
   const latestProgressRef = useRef(0);
+  // Posición a la que saltar cuando arranque un medio distinto en el mismo
+  // <video>: cambio de fuente, de episodio o paso a la copia sin conexión. Se
+  // aplica una sola vez, en el primer `playing` del elemento nuevo.
+  const pendingSeekSec = useRef<number | null>(null);
 
   // Logo: start from server prop, fetch client-side as fallback
   const [logo, setLogo] = useState<string | undefined>(contentLogo);
@@ -368,6 +372,21 @@ export function StreamOnevid({
     typeof selectedSource?.title === "string" ? selectedSource.title : "";
   const loadOfflineMedia = useCallback(async () => {
     const file = await getOfflineMediaFile(offlineKey);
+    // Al terminar la descarga la fuente pasa al blob de OPFS y el <video> se
+    // remonta (la `key` incluye `activeSrc`). Sin esto la reproducción volvía
+    // al segundo 0 en mitad del visionado; guardamos la posición actual para
+    // retomarla en el primer `playing` del elemento nuevo.
+    const currentVideo = document.querySelector<HTMLVideoElement>(
+      ".stream-video-player-root video"
+    );
+    if (
+      file &&
+      currentVideo &&
+      Number.isFinite(currentVideo.currentTime) &&
+      currentVideo.currentTime > 0
+    ) {
+      pendingSeekSec.current = currentVideo.currentTime;
+    }
     setOfflineMediaUrl((current) => {
       if (current) {
         URL.revokeObjectURL(current);
@@ -1153,10 +1172,6 @@ export function StreamOnevid({
     contentTitle,
   ]);
 
-  // Posición a la que saltar cuando arranque un medio recién elegido desde el
-  // selector (cambio de medio en caliente): se guarda el currentTime justo
-  // antes de cambiar la fuente y se aplica una vez, en el primer `playing`.
-  const pendingSeekSec = useRef<number | null>(null);
   const handleSourceChange = useCallback((source: StreamWithAddon) => {
     const vid = document.querySelector<HTMLVideoElement>(
       ".stream-video-player-root video"
