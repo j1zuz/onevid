@@ -172,7 +172,7 @@ export default async function AccountPage({
           >
             {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
             <img
-              alt="onevid"
+              alt="Onevid"
               className="size-8 rounded-md border border-border/70 object-cover"
               height={32}
               src="/onevid-pwa-512.png"

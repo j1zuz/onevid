@@ -31,30 +31,30 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "onevid",
-    template: "%s • onevid",
+    default: "Onevid",
+    template: "%s • Onevid",
   },
   description: "Reproductor de video",
   metadataBase: new URL("https://onevid.hackw.tech"),
   openGraph: {
     type: "website",
-    title: "onevid",
+    title: "Onevid",
     description: "Reproductor de video",
     url: "https://onevid.hackw.tech",
-    siteName: "onevid",
+    siteName: "Onevid",
     images: [
       {
         url: "/opengraph.jpg",
         width: 1200,
         height: 675,
-        alt: "onevid — Reproductor de video",
+        alt: "Onevid — Reproductor de video",
         type: "image/jpeg",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "onevid",
+    title: "Onevid",
     description: "Reproductor de video",
     images: ["/opengraph.jpg"],
   },

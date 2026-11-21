@@ -352,10 +352,10 @@ export function OneVidHeader({
       >
         {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
         <img
-          alt="onevid"
-          className="size-8 rounded-md object-cover"
+          alt="Onevid"
+          className="size-8 object-cover"
           height={32}
-          src="/onevid-pwa-512.png"
+          src="/logo.svg"
           width={32}
         />
       </TransitionLink>

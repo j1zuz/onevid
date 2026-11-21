@@ -198,13 +198,13 @@ export function TvDeviceLogin() {
       <div className="flex flex-col items-center gap-2">
         {/* biome-ignore lint/performance/noImgElement: logo SVG estático local */}
         <img
-          alt="onevid"
-          className="size-12 rounded-md border border-border/70 object-cover"
+          alt="Onevid"
+          className="size-12 border border-border/70 object-cover"
           height={48}
-          src="/onevid-pwa-512.png"
+          src="/logo.svg"
           width={48}
         />
-        <span className="font-semibold text-xl">onevid</span>
+        <span className="font-semibold text-xl">Onevid</span>
       </div>
 
       {status === "loading" ? (
