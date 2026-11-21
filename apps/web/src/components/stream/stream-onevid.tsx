@@ -329,6 +329,13 @@ export function StreamOnevid({
   // siempre porque no llega ningún evento de error.
   const [mixedContentBlocked, setMixedContentBlocked] = useState(false);
   const [mediaBunnyRetry, setMediaBunnyRetry] = useState(0);
+  // Token monótono que reinicia la conversión de MediaBunny. NO se puede
+  // reiniciar el <video> reutilizando `mediaBunny.src`: ese blob ya está atado
+  // al elemento anterior y Chrome lo rechaza con MEDIA_ERR_SRC_NOT_SUPPORTED
+  // (code 4, "Format error"). Lo que hay que relanzar es la conversión, que
+  // produce un MediaSource y un blob nuevos; el cambio de `src` remonta el
+  // <video> solo. Por eso crece siempre y nunca vuelve a 0.
+  const [mediaBunnyRestart, setMediaBunnyRestart] = useState(0);
   const [offlineMediaUrl, setOfflineMediaUrl] = useState<string | null>(null);
   const offlineKey = offlineStorageKey(contentType, rawId);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -436,8 +443,16 @@ export function StreamOnevid({
     shouldUseMediaBunny ? sourceUrl : null,
     sourceFilename,
     sourceCodecHint,
-    mediaBunnyRetry
+    mediaBunnyRestart
   );
+  // Qué motor sirve los bytes. Antes se deducía dentro del player y "mse"
+  // acababa reportado como "native", que es justo lo que hacía indescifrable un
+  // `MEDIA_ELEMENT_ERROR`. Se manda desde acá, que sí lo sabe.
+  const playbackEngine: "mse" | "hls" | "native" = shouldUseMediaBunny
+    ? "mse"
+    : selectedMimeType === "application/x-mpegURL"
+      ? "hls"
+      : "native";
   let activeSrc = offlineMediaUrl ?? sourceUrl ?? "";
   if (shouldUseMediaBunny) {
     activeSrc =
@@ -556,14 +571,109 @@ export function StreamOnevid({
     }
   }, [offlineMediaUrl, sourceUrl]);
 
+  // Fotografía del estado que se envía con `player_stall`. Se refresca después
+  // de cada render para que el watchdog no tenga que llevar `mediaBunny.*` en
+  // sus dependencias: eso reiniciaría el temporizador en cada tick de progreso
+  // y el corte no se detectaría nunca.
+  const stallTelemetryRef = useRef<() => Record<string, unknown>>(() => ({}));
+  useEffect(() => {
+    stallTelemetryRef.current = () => {
+      const video =
+        typeof document === "undefined"
+          ? null
+          : document.querySelector<HTMLVideoElement>(
+              ".stream-video-player-root video",
+            );
+      let bufferedAheadSec: number | null = null;
+      let bufferedRanges = 0;
+      if (video) {
+        try {
+          const ranges = video.buffered;
+          bufferedRanges = ranges.length;
+          const at = video.currentTime;
+          for (let i = 0; i < ranges.length; i++) {
+            if (at >= ranges.start(i) - 0.5 && at <= ranges.end(i) + 0.5) {
+              bufferedAheadSec = Math.round(ranges.end(i) - at);
+              break;
+            }
+          }
+        } catch {
+          /* elemento ya desmontado */
+        }
+      }
+      return {
+        content_id: contentId,
+        content_type: contentType,
+        engine: playbackEngine,
+        is_tv: isTv,
+        has_played: hasPlayed,
+        audio_tracks: mediaBunny.audioTracks.length,
+        active_audio_track: mediaBunny.activeAudioTrack,
+        // Un cambio de pista justo antes del corte es la pista principal para
+        // distinguir un fallo de MSE de una caída de red.
+        ms_since_audio_switch:
+          mediaBunny.lastAudioSwitchAt === null
+            ? null
+            : Date.now() - mediaBunny.lastAudioSwitchAt,
+        transcode_status: mediaBunny.status,
+        transcode_mode:
+          mediaBunny.status === "processing" ? mediaBunny.mode : null,
+        transcode_progress:
+          mediaBunny.status === "processing" || mediaBunny.status === "streaming"
+            ? Math.round(mediaBunny.progress)
+            : null,
+        video_current_time:
+          video && Number.isFinite(video.currentTime)
+            ? Math.round(video.currentTime)
+            : null,
+        video_duration:
+          video && Number.isFinite(video.duration)
+            ? Math.round(video.duration)
+            : null,
+        video_ready_state: video?.readyState ?? null,
+        video_network_state: video?.networkState ?? null,
+        video_paused: video?.paused ?? null,
+        buffered_ahead_sec: bufferedAheadSec,
+        buffered_ranges: bufferedRanges,
+      };
+    };
+  });
+
+  const captureStallTelemetry = (extra: {
+    reason: "startup" | "buffering" | "seek";
+    timeoutMs: number;
+  }) => {
+    try {
+      posthog.capture("player_stall", {
+        ...stallTelemetryRef.current(),
+        ...extra,
+      });
+    } catch {
+      // La analítica nunca debe romper la reproducción.
+    }
+  };
+
   // Watchdog: si el medio no arranca (o deja de avanzar) no dejamos el loader
   // indefinidamente; pasado el plazo mostramos el error con reintento.
   useEffect(() => {
     if (!isBuffering || mixedContentBlocked || playbackError) {
       return;
     }
+    const timeoutMs = isSeeking
+      ? VOD_SEEK_TIMEOUT_MS
+      : hasPlayed
+        ? VOD_BUFFERING_TIMEOUT_MS
+        : VOD_STARTUP_TIMEOUT_MS;
     const timeout = window.setTimeout(
       () => {
+        // Hasta ahora un corte en VOD no dejaba ningún rastro: solo aparecía
+        // el overlay. Este evento lleva el estado del <video> y de la
+        // conversión en el momento exacto del corte para poder distinguir un
+        // problema de red, uno de MSE o un cambio de pista de audio.
+        captureStallTelemetry({
+          reason: isSeeking ? "seek" : hasPlayed ? "buffering" : "startup",
+          timeoutMs,
+        });
         setIsBuffering(false);
         setPlaybackError(
           hasPlayed
@@ -573,26 +683,45 @@ export function StreamOnevid({
               ),
         );
       },
-      isSeeking
-        ? VOD_SEEK_TIMEOUT_MS
-        : hasPlayed
-          ? VOD_BUFFERING_TIMEOUT_MS
-          : VOD_STARTUP_TIMEOUT_MS,
+      timeoutMs,
     );
     return () => window.clearTimeout(timeout);
-  }, [hasPlayed, isBuffering, isSeeking, mixedContentBlocked, playbackError, t]);
+    // `captureStallTelemetry` lee el estado vivo de un ref, así que no hace
+    // falta en las dependencias (y `mediaBunny.*` no puede entrar: cada tick de
+    // progreso reiniciaría el temporizador y el corte no se detectaría nunca).
+    // biome-ignore lint/correctness/useExhaustiveDependencies: ver comentario.
+  }, [
+    hasPlayed,
+    isBuffering,
+    isSeeking,
+    mixedContentBlocked,
+    playbackError,
+    t,
+  ]);
+
+  /**
+   * Vuelve a arrancar la reproducción. En la ruta MSE hay que relanzar la
+   * conversión, no remontar el <video>: `mediaBunny.src` es un blob de un
+   * MediaSource ya adjunto al elemento anterior y Chromium lo rechaza con
+   * MEDIA_ERR_SRC_NOT_SUPPORTED (code 4) al instante — el error que veía el
+   * usuario al pulsar "Reintentar" tras un corte.
+   */
+  const restartPlayback = useCallback(() => {
+    setMediaBunnyRetry(0);
+    if (shouldUseMediaBunny) {
+      setMediaBunnyRestart((current) => current + 1);
+      return;
+    }
+    setPlaybackRetry((current) => current + 1);
+  }, [shouldUseMediaBunny]);
 
   const retryPlayback = useCallback(() => {
     setPlaybackError(null);
     setHasPlayed(false);
     setCanPlay(false);
     setIsBuffering(true);
-    // El reintento manual SÍ puede volver a arrancar la transcodificación: sin
-    // esto, tras agotar MAX_PLAYBACK_RETRIES el contador se queda en el tope y
-    // el botón solo remontaba el <video> (que no tenía fuente que mostrar).
-    setMediaBunnyRetry(0);
-    setPlaybackRetry((current) => current + 1);
-  }, []);
+    restartPlayback();
+  }, [restartPlayback]);
 
   const retrySources = useCallback(() => {
     setSelectedSource(null);
@@ -639,6 +768,7 @@ export function StreamOnevid({
     if (mediaBunnyRetry < MAX_PLAYBACK_RETRIES) {
       retryTimerRef.current = setTimeout(() => {
         setMediaBunnyRetry((current) => current + 1);
+        setMediaBunnyRestart((current) => current + 1);
         retryTimerRef.current = null;
       }, 300);
     }
@@ -703,6 +833,11 @@ export function StreamOnevid({
         filename: sourceFilename,
         codec_hint: sourceCodecHint,
         retry: playbackRetry,
+        engine: playbackEngine,
+        has_played: hasPlayed,
+        audio_tracks: mediaBunny.audioTracks.length,
+        active_audio_track: mediaBunny.activeAudioTrack,
+        transcode_status: mediaBunny.status,
       });
       // Sin MSE este formato no se puede convertir: reintentar el <video>
       // nativo con el mismo archivo repite el error. Se avisa ya, sin bucle.
@@ -715,7 +850,10 @@ export function StreamOnevid({
         setIsBuffering(true);
         setPlaybackError(null);
         retryTimerRef.current = setTimeout(() => {
-          setPlaybackRetry((current) => current + 1);
+          // En MSE el reintento también tiene que reiniciar la conversión:
+          // remontar el <video> con el mismo blob del MediaSource vuelve a
+          // fallar con code 4.
+          restartPlayback();
           retryTimerRef.current = null;
         }, 300);
         return;
@@ -726,9 +864,15 @@ export function StreamOnevid({
     [
       contentId,
       contentType,
+      hasPlayed,
+      mediaBunny.activeAudioTrack,
+      mediaBunny.audioTracks.length,
+      mediaBunny.status,
       offlineKey,
       offlineMediaUrl,
+      playbackEngine,
       playbackRetry,
+      restartPlayback,
       sourceCodecHint,
       sourceFilename,
       transcodeUnavailable,
@@ -1544,6 +1688,7 @@ export function StreamOnevid({
             mimeType={
               shouldUseMediaBunny ? "video/mp4" : selectedMimeType
             }
+            playbackEngine={playbackEngine}
             onEnded={onEnded}
             onLoadStart={() => {
               setCanPlay(false);

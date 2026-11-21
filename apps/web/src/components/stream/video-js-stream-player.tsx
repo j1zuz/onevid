@@ -331,6 +331,12 @@ interface VideoJsStreamPlayerProps {
   /** Rendered inside the skin so live controls are included in its fullscreen element. */
   liveControls?: ReactNode;
   mimeType?: MimeType;
+  /**
+   * Qué motor sirve los bytes, para la telemetría. El player solo puede
+   * distinguir HLS de nativo; la ruta MSE (MediaBunny) la conoce quien lo
+   * monta, y sin ella un `MEDIA_ELEMENT_ERROR` parece un fallo de contenedor.
+   */
+  playbackEngine?: "mse" | "hls" | "native";
   onEnded?: () => void;
   onError?: (error: Error) => void;
   onCanPlay?: () => void;
@@ -461,6 +467,7 @@ export function VideoJsStreamPlayer({
   onPlaying,
   onTimeUpdate,
   ttffProperties,
+  playbackEngine,
 }: VideoJsStreamPlayerProps) {
   // Estado y no ref: al montar el <video> hay que re-renderizar para publicarlo
   // vía `onMediaRef`.
@@ -672,7 +679,7 @@ export function VideoJsStreamPlayer({
         posthog.capture("player_ttff_ms", {
           ttff_ms: Math.max(0, Math.round(monotonicNow() - startedAt)),
           mode: liveMode ? "live" : "vod",
-          engine: isHls ? "hls" : "native",
+          engine: playbackEngine ?? (isHls ? "hls" : "native"),
           mime_type: mimeType,
           autoplay: autoPlay,
           preload,
@@ -697,7 +704,7 @@ export function VideoJsStreamPlayer({
       }, LIVE_STABLE_RESET_MS);
     }
     onPlaying?.();
-  }, [isHls, liveConfigVariant, liveMode, mimeType, onPlaying, ttffProperties, autoPlay, preload]);
+  }, [isHls, liveConfigVariant, liveMode, mimeType, onPlaying, playbackEngine, ttffProperties, autoPlay, preload]);
 
   // En VOD HLS, una vez que la reproducción se sostiene 10 s, subimos el
   // colchón. Hacerlo en el segundo 0 solo descarga de más antes de saber si la
