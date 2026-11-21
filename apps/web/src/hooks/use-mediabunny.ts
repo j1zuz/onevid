@@ -19,6 +19,12 @@ export type UseMediaBunny = MediaBunnyState & {
   /** No hace nada si la fuente no tiene varias pistas o va por el camino OPFS. */
   selectAudioTrack: (index: number) => void;
   /**
+   * `Date.now()` del último cambio de pista pedido por el usuario, o `null` si
+   * no hubo ninguno. Sirve para correlacionar un corte de reproducción con el
+   * cambio de idioma que lo precedió.
+   */
+  lastAudioSwitchAt: number | null;
+  /**
    * Reinicia la transcodificación progresiva en `sec` (reproducción en vivo). El
    * seek hacia adelante más allá de lo ya transcodificado se cuelga si no se
    * reinicia la conversión; esto la relanza en la nueva posición. No hace nada
@@ -1976,6 +1982,7 @@ async function runProgressivePlayback(opts: {
     ) {
       return;
     }
+    const fromIndex = activeAudioIndex;
     activeAudioIndex = index;
     audioSwitchChain = audioSwitchChain
       .then(async () => {
@@ -1984,26 +1991,63 @@ async function runProgressivePlayback(opts: {
         const resumeSec = video && Number.isFinite(video.currentTime)
           ? Math.max(0, video.currentTime)
           : 0;
-        await audioConversionRef.current?.cancel().catch(() => undefined);
-        await audioLanePromise.catch(() => undefined);
-        if (abortedRef.current || mediaSource.readyState !== "open") {
-          return;
+        // Cambiar de idioma a mitad de película detenía la reproducción sin
+        // dejar rastro: `start` + `settled` permiten cruzar el cambio con un
+        // `player_stall` y ver cuánto tardó (o si no llegó a terminar).
+        const startedAt =
+          typeof performance !== "undefined" ? performance.now() : Date.now();
+        const elapsedMs = () =>
+          Math.round(
+            (typeof performance !== "undefined" ? performance.now() : Date.now()) -
+              startedAt,
+          );
+        let outcome = "done";
+        try {
+          posthog.capture("mediabunny_audio_switch", {
+            phase: "start",
+            from_track: fromIndex,
+            target_track: index,
+            resume_sec: Math.round(resumeSec),
+          });
+        } catch {
+          // La analítica nunca debe romper la reproducción.
         }
-        // Vaciar el audio ya buffereado: lo que queda es del idioma anterior.
-        const sb = lane.sourceBuffer;
-        if (sb) {
-          lane.chain = lane.chain
-            .then(async () => {
-              if (mediaSource.readyState !== "open") {
-                return;
-              }
-              sb.remove(0, mediaSource.duration || Number.MAX_SAFE_INTEGER);
-              await waitForUpdateEnd(sb);
-            })
-            .catch(() => undefined);
-          await lane.chain;
+        try {
+          await audioConversionRef.current?.cancel().catch(() => undefined);
+          await audioLanePromise.catch(() => undefined);
+          if (abortedRef.current || mediaSource.readyState !== "open") {
+            outcome = "aborted";
+            return;
+          }
+          // Vaciar el audio ya buffereado: lo que queda es del idioma anterior.
+          const sb = lane.sourceBuffer;
+          if (sb) {
+            lane.chain = lane.chain
+              .then(async () => {
+                if (mediaSource.readyState !== "open") {
+                  return;
+                }
+                sb.remove(0, mediaSource.duration || Number.MAX_SAFE_INTEGER);
+                await waitForUpdateEnd(sb);
+              })
+              .catch(() => undefined);
+            await lane.chain;
+          }
+          audioLanePromise = watchAudioLane(runAudioLane(index, resumeSec));
+        } finally {
+          try {
+            posthog.capture("mediabunny_audio_switch", {
+              phase: "settled",
+              outcome,
+              from_track: fromIndex,
+              target_track: index,
+              resume_sec: Math.round(resumeSec),
+              duration_ms: elapsedMs(),
+            });
+          } catch {
+            // La analítica nunca debe romper la reproducción.
+          }
         }
-        audioLanePromise = watchAudioLane(runAudioLane(index, resumeSec));
       })
       .catch((error: unknown) => {
         failProgressivePlayback(error);
@@ -2639,6 +2683,9 @@ export function useMediaBunny(
   const [state, setState] = useState<MediaBunnyState>({ status: "idle" });
   const [audioTracks, setAudioTracks] = useState<MediaBunnyAudioTrack[]>([]);
   const [activeAudioTrack, setActiveAudioTrack] = useState(0);
+  const [lastAudioSwitchAt, setLastAudioSwitchAt] = useState<number | null>(
+    null
+  );
   const blobUrlRef = useRef<string | null>(null);
   const conversionRef = useRef<CancellableConversion | null>(null);
   // URL del MediaSource durante el streaming progresivo, para reconstruir el
@@ -2660,6 +2707,7 @@ export function useMediaBunny(
       return;
     }
     setActiveAudioTrack(index);
+    setLastAudioSwitchAt(Date.now());
     switcher(index);
   }, []);
 
@@ -2679,6 +2727,7 @@ export function useMediaBunny(
     setState({ status: "processing", progress: 0, mode: "preparing" });
     setAudioTracks([]);
     setActiveAudioTrack(0);
+    setLastAudioSwitchAt(null);
 
     const cleanup = async () => {
       if (blobUrlRef.current) {
@@ -2847,5 +2896,12 @@ export function useMediaBunny(
     };
   }, [source, filename, codecHint, retryKey]);
 
-  return { ...state, audioTracks, activeAudioTrack, selectAudioTrack, seekTo };
+  return {
+    ...state,
+    audioTracks,
+    activeAudioTrack,
+    selectAudioTrack,
+    lastAudioSwitchAt,
+    seekTo,
+  };
 }
