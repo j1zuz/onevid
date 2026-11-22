@@ -17,7 +17,30 @@ import { LruTtlCache } from '@/lib/lru-ttl-cache';
 // redirección (302) de hosts debrid/torbox lentos no llegaba a resolverse a
 // tiempo y VLC recibía la URL sin resolver. Igualamos/superamos el margen de
 // la sonda para que la ruta real tenga, como mínimo, la misma oportunidad.
-export const STREAM_REDIRECT_TIMEOUT_MS = 8_000;
+//
+// 15s (antes 8s): el backend espera hasta 8s a que TorBox/Real-Debrid termine
+// de preparar un torrent y luego responde 202. Con 8s el cliente abortaba justo
+// cuando el servidor iba a contestar (10% de timeouts medidos en PostHog). El
+// margen extra cubre esa espera + red + auth. Si sigue preparando, el player
+// reintenta con `Retry-After` (ver StreamPreparingError).
+export const STREAM_REDIRECT_TIMEOUT_MS = 15_000;
+
+/** El debrid todavía está preparando el torrent (HTTP 202 + Retry-After). */
+export class StreamPreparingError extends Error {
+  readonly retryAfterMs: number;
+  readonly progress: number | null;
+
+  constructor(
+    message: string,
+    retryAfterMs: number,
+    progress: number | null = null,
+  ) {
+    super(message);
+    this.name = 'StreamPreparingError';
+    this.retryAfterMs = retryAfterMs;
+    this.progress = progress;
+  }
+}
 
 // User-Agent de navegador: evita 403 de hosts que rechazan el UA por defecto de
 // VLC. Se usa tanto en las opciones de libVLC como en la sonda de diagnóstico,
@@ -187,16 +210,34 @@ export async function resolveStreamUrl(raw: string): Promise<ResolvedStream> {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       },
-      8_000,
+      STREAM_REDIRECT_TIMEOUT_MS,
     );
-    if (!res.ok) {
-      throw new Error(`No se pudo resolver el stream (HTTP ${res.status})`);
-    }
-    const data = (await res.json()) as {
+    const data = (await res.json().catch(() => ({}))) as {
       url?: string;
       fileName?: string;
       error?: string;
+      status?: string;
+      progress?: number | null;
+      retryAfter?: number;
     };
+    // El debrid sigue preparando el torrent: no es un fallo definitivo. El
+    // player reintenta tras `retryAfter` en vez de saltar a otra fuente.
+    if (res.status === 202 || data.status === 'preparing') {
+      const retryAfterSec =
+        typeof data.retryAfter === 'number' && data.retryAfter > 0
+          ? data.retryAfter
+          : 6;
+      throw new StreamPreparingError(
+        data.error ?? 'El debrid todavía está preparando el archivo',
+        retryAfterSec * 1_000,
+        typeof data.progress === 'number' ? data.progress : null,
+      );
+    }
+    if (!res.ok) {
+      throw new Error(
+        data.error ?? `No se pudo resolver el stream (HTTP ${res.status})`,
+      );
+    }
     if (!data.url) {
       throw new Error(data.error ?? 'El stream no devolvió una URL.');
     }

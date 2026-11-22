@@ -79,7 +79,10 @@ export default function CatalogScreen() {
   });
 
   const items = useMemo(() => query.data?.items ?? [], [query.data?.items]);
-  const topTenRanks = query.data?.topTenRanks ?? {};
+  const topTenRanks = useMemo(
+    () => query.data?.topTenRanks ?? {},
+    [query.data?.topTenRanks],
+  );
 
   useEffect(() => {
     if (items.length > 0) prefetchMediaImages(items);
@@ -90,6 +93,20 @@ export default function CatalogScreen() {
       navigateToDetail(queryClient, item, lang);
     },
     [queryClient, lang],
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: MediaMeta }) => (
+      <View style={{ flex: 1 / posterColumns }}>
+        <PosterCard
+          item={item}
+          rank={topTenRanks[`${item.type}-${item.id}`]}
+          watched={watchState.isWatched(item.type, item.id)}
+          onPress={() => handlePressItem(item)}
+        />
+      </View>
+    ),
+    [handlePressItem, posterColumns, topTenRanks, watchState],
   );
 
   return (
@@ -166,16 +183,14 @@ export default function CatalogScreen() {
             paddingHorizontal: 16,
             paddingBottom: 32,
           }}
-          renderItem={({ item, index }) => (
-            <View style={{ flex: 1 / posterColumns }}>
-              <PosterCard
-                item={item}
-                rank={topTenRanks[`${item.type}-${item.id}`]}
-                watched={watchState.isWatched(item.type, item.id)}
-                onPress={() => handlePressItem(item)}
-              />
-            </View>
-          )}
+          // La grilla puede traer hasta 100 títulos. El default de FlatList
+          // (windowSize 21) mantenía decenas de celdas montadas; en un 2 GB
+          // eso son muchos bitmaps vivos. 5 viewports + 2 filas iniciales.
+          initialNumToRender={posterColumns * 2}
+          maxToRenderPerBatch={posterColumns * 2}
+          updateCellsBatchingPeriod={50}
+          windowSize={5}
+          renderItem={renderItem}
         />
       )}
     </View>

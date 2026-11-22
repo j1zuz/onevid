@@ -50,6 +50,10 @@ posthog.init(process.env.NEXT_PUBLIC_POSTHOG_TOKEN as string, {
   debug: process.env.NODE_ENV === "development",
   disable_surveys: true,
   disable_conversations: true,
+  // Session Replay APAGADO para Onevid en web (incluye LG webOS y Tizen, que
+  // abren esta misma web en el navegador del TV). La captura de screenshots
+  // añade CPU/memoria y en TVs de gama baja se nota. Los eventos siguen igual.
+  disable_session_recording: true,
   opt_out_capturing_by_default: true,
   opt_out_persistence_by_default: true,
   before_send: (event: CaptureResult | null) => {

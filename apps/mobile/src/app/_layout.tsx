@@ -1,24 +1,26 @@
 import '../global.css';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { HeroUINativeProvider } from 'heroui-native';
+import { Image } from 'expo-image';
 import { PostHogProvider } from 'posthog-react-native';
-import { posthog } from '@/lib/analytics';
+import { posthog, registerDeviceMemory } from '@/lib/analytics';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Constants from 'expo-constants';
 import { router, Stack } from 'expo-router';
 import { NavigationBar } from 'expo-navigation-bar';
-import { ObserveRoot, useObserve } from 'expo-observe';
+import { Observe, ObserveRoot } from 'expo-observe';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
 import {
   type ComponentProps,
   type ComponentType,
+  useCallback,
   useEffect,
   useRef,
   useState,
 } from 'react';
-import { Platform, StatusBar as RNStatusBar } from 'react-native';
+import { AppState, Platform, StatusBar as RNStatusBar } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
 import {
   initialWindowMetrics,
@@ -33,8 +35,13 @@ import { useDeviceLocale } from '@/lib/i18n/use-device-locale';
 import { type AppMode, loadAppMode } from '@/lib/app-mode';
 import { checkAppUpdate } from '@/lib/app-update';
 import { validateSession } from '@/lib/auth';
+import { getMaxHeapMb, memoryClassFor } from '@/lib/device-capabilities';
 import { queryClient } from '@/lib/query';
 import { COLORS } from '@/lib/theme';
+
+// Métricas por pantalla (cold/warm TTR + TTI de Inicio, Detalle, Player…).
+// Debe ejecutarse antes de montar AppMetricsRoot; por eso va a nivel de módulo.
+Observe.configure({ integrations: { 'expo-router': true } });
 
 type StackProps = ComponentProps<typeof Stack> & {
   initialRouteName?: string;
@@ -79,7 +86,42 @@ function RootLayout() {
   // EAS Observe: markInteractive marca el momento en que la UI real queda
   // visible y usable (Time to Interactive). Lo llamamos al terminar el overlay
   // AnimatedSplash. Es idempotente: solo la primera llamada registra la medición.
-  const { markInteractive } = useObserve();
+  //
+  // Usamos la llamada cruda del módulo (no `useObserve`) porque este layout no
+  // es una pantalla: con la integración de expo-router activa, el hook necesita
+  // el contexto de una ruta. El TTI app-wide sale de aquí; el TTI por ruta se
+  // mide dentro de Inicio (ver home.tsx).
+  const markInteractive = useCallback(() => {
+    Observe.markInteractive();
+  }, []);
+
+  // Clase de memoria + liberación de bitmaps al pasar a segundo plano. Android
+  // pide soltar cachés de imágenes en `TRIM_MEMORY_UI_HIDDEN`; en RN, `AppState`
+  // background es la aproximación. El caché de disco se conserva.
+  useEffect(() => {
+    let cancelled = false;
+    getMaxHeapMb().then((maxHeapMb) => {
+      if (cancelled) return;
+      const memoryClass = memoryClassFor(maxHeapMb);
+      Observe.setGlobalAttributes({
+        device_memory_class: memoryClass,
+        ...(maxHeapMb != null ? { max_heap_mb: maxHeapMb } : {}),
+      });
+      registerDeviceMemory(memoryClass, maxHeapMb);
+    });
+
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'background') {
+        Image.clearMemoryCache().catch(() => {
+          /* best-effort */
+        });
+      }
+    });
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
+  }, []);
 
   // "Reducir movimiento" del sistema: HeroUI Native lo respeta solo en sus
   // componentes; las transiciones de pantalla las gestiona el Stack, así que

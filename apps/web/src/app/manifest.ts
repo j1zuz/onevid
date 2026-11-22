@@ -18,13 +18,21 @@ export default function manifest(): MetadataRoute.Manifest {
         src: "/onevid-pwa-192.png",
         sizes: "192x192",
         type: "image/png",
-        purpose: "maskable",
+        // `any` (no `maskable`): así el sistema no recorta el filo del logo.
+        purpose: "any",
       },
       {
         src: "/onevid-pwa-512.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
+      },
+      {
+        // Versión con margen de seguridad para lanzadores que exigen maskable.
+        src: "/onevid-pwa-maskable-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
       },
     ],
     shortcuts: [

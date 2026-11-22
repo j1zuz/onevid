@@ -1,6 +1,7 @@
 import { PostHog } from 'posthog-react-native';
 import { Platform } from 'react-native';
 import { appVariant } from './app-variant';
+import type { DeviceMemoryClass } from './device-capabilities';
 
 // Instancia ÚNICA de PostHog, compartida entre los componentes (montada vía
 // <PostHogProvider client={posthog}> en _layout) y el código que NO es React
@@ -14,8 +15,10 @@ export const posthog = new PostHog(
   process.env.EXPO_PUBLIC_POSTHOG_API_KEY ?? '',
   {
     host: process.env.EXPO_PUBLIC_POSTHOG_HOST,
-    // Replay nativo desactivado en Android TV (el módulo no aplica ahí).
-    enableSessionReplay: !Platform.isTV,
+    // Session Replay APAGADO en todas las superficies de Onevid (móvil y TV).
+    // En un 2 GB la captura de screenshots compite con expo-image y libVLC:
+    // sube CPU/memoria y empeora el jank. La analítica de eventos sigue igual.
+    enableSessionReplay: false,
     captureAppLifecycleEvents: true,
     errorTracking: {
       autocapture: { uncaughtExceptions: true, unhandledRejections: true },
@@ -34,6 +37,23 @@ posthog.register({
   app_surface: Platform.isTV ? 'tv' : 'mobile',
   app_variant: appVariant,
 });
+
+// Red de seguridad: si una config remota intentara reactivar el replay, lo
+// paramos igualmente. `enableSessionReplay: false` ya lo desactiva de origen.
+posthog.stopSessionRecording().catch(() => {
+  /* noop: replay desactivado */
+});
+
+/** Adjunta la clase de memoria para poder segmentar gama baja en PostHog. */
+export function registerDeviceMemory(
+  memoryClass: DeviceMemoryClass,
+  maxHeapMb: number | null,
+): void {
+  posthog.register({
+    device_memory_class: memoryClass,
+    ...(maxHeapMb != null ? { max_heap_mb: maxHeapMb } : {}),
+  });
+}
 
 // Helper seguro para capturar eventos desde cualquier módulo. Nunca lanza: la
 // telemetría jamás debe romper un flujo de la app.

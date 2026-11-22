@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { Tabs, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Platform, View } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
@@ -57,8 +57,6 @@ const ProfileTabIcon = ({
         height: d,
         borderRadius: d / 2,
         opacity: focused ? 1 : 0.55,
-        borderWidth: focused ? 2 : 0,
-        borderColor: '#fff',
       }}
     />
   );
@@ -126,6 +124,9 @@ export default function TabsLayout() {
         tabBar={Platform.isTV ? () => null : undefined}
         screenOptions={{
           headerShown: false,
+          // Las pestañas inactivas dejan de re-renderizarse: en un 2 GB evita
+          // trabajo de JS y repintados mientras se reproduce o se navega.
+          freezeOnBlur: true,
           // Solo iconos: sin el texto (Inicio, Descubrir…) la barra queda más
           // limpia y recupera altura para el contenido. El nombre de cada
           // pestaña se mantiene para lectores de pantalla
