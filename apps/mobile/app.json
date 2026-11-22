@@ -16,8 +16,8 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#000000",
-        "foregroundImage": "./assets/images/onevid-icon.png",
-        "monochromeImage": "./assets/images/onevid-transparent.png"
+        "foregroundImage": "./assets/images/onevid-adaptive-foreground.png",
+        "monochromeImage": "./assets/images/onevid-monochrome.png"
       },
       "allowBackup": false,
       "predictiveBackGestureEnabled": false,
@@ -30,7 +30,7 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/icon.png"
+      "favicon": "./assets/images/onevid-icon.png"
     },
     "runtimeVersion": {
       "policy": "appVersion"
@@ -70,7 +70,9 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": true,
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
           }
         }
       ],

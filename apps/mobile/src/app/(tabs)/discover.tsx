@@ -4,7 +4,7 @@ import { ScrollShadow, SearchField, Skeleton, Typography } from 'heroui-native';
 import { Search } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FlatList, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from '@/components/empty-state';
 import { LocalVideoImport } from '@/components/local-video-import';
@@ -122,6 +122,8 @@ export default function DiscoverTab() {
     [queryClient, lang],
   );
 
+
+
   if (surface == null)
     return <View style={{ flex: 1, backgroundColor: COLORS.background }} />;
   // Modo local: Descubrir pasa a servir para agregar videos propios a la
@@ -204,26 +206,28 @@ export default function DiscoverTab() {
               ) : null}
 
               {!searchLoading && searchResults.length > 0 ? (
-                <FlatList
-                  // RN exige re-montar el FlatList al cambiar numColumns.
-                  key={posterColumns}
-                  // Evita celdas en gris al volver de otra pantalla en Android.
-                  removeClippedSubviews={false}
-                  data={searchResults}
-                  keyExtractor={(item) => `${item.type}:${item.id}`}
-                  numColumns={posterColumns}
-                  scrollEnabled={false}
-                  columnWrapperStyle={{ gap: 12 }}
-                  contentContainerStyle={{ gap: 16 }}
-                  renderItem={({ item }) => (
-                    <View style={{ flex: 1 / posterColumns }}>
+                // La búsqueda devuelve como máximo 40 títulos (20 por tipo).
+                // Una View con wrap evita anidar un VirtualizedList dentro del
+                // ScrollView y garantiza que se pinten todos los resultados.
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    flexWrap: 'wrap',
+                    gap: 12,
+                  }}
+                >
+                  {searchResults.map((item) => (
+                    <View
+                      key={`${item.type}:${item.id}`}
+                      style={{ flex: 1 / posterColumns, minWidth: 0 }}
+                    >
                       <PosterCard
                         item={item}
                         onPress={() => handlePressItem(item)}
                       />
                     </View>
-                  )}
-                />
+                  ))}
+                </View>
               ) : null}
             </View>
           ) : (

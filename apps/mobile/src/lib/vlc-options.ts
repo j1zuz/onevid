@@ -33,9 +33,26 @@ export const VLC_OPTIONS = [
 // tiene un índice y se puede rebufferizar mejor, así que se baja a 800 ms: el
 // vídeo aparece antes y en un móvil de 2 GB se nota. En directo se mantiene
 // 1500 ms porque ahí un corte sí tira la reproducción.
+//
+// OJO con debrid/torrents: la mayoría del catálogo llega por TorBox/Real-Debrid
+// y su CDN puede tardar o cortarse. La telemetría muestra ~2 rebuffers por
+// reproducción en el Redmi 9C; bajar el colchón ahí empeora el corte. Por eso
+// `vlcOptionsForSource()` solo usa 800 ms para archivos locales o HTTP directo,
+// y mantiene 1500 ms para debrid y directo en vivo.
 export const VLC_OPTIONS_VOD = [
   ':network-caching=800',
   ':file-caching=800',
   ':http-reconnect',
   `:http-user-agent=${STREAM_UA}`,
 ];
+
+export type VlcSourceKind = 'live' | 'debrid' | 'direct' | 'local';
+
+/**
+ * Elige el colchón según el origen real del stream:
+ * - live/debrid: 1500 ms (un corte tira la reproducción o el CDN es irregular).
+ * - direct/local: 800 ms (arranque más rápido y menos RAM de búfer).
+ */
+export function vlcOptionsForSource(kind: VlcSourceKind): string[] {
+  return kind === 'live' || kind === 'debrid' ? VLC_OPTIONS : VLC_OPTIONS_VOD;
+}

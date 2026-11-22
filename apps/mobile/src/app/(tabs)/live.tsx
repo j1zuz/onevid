@@ -226,6 +226,10 @@ export default function LiveTvTab() {
 
   useEffect(() => {
     if (!liveParams.url) return;
+    // Sincronización deliberada desde un parámetro de navegación externo
+    // (deep link / cambio de canal). No hay estado derivable sin perder el
+    // canal elegido manualmente.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPlaying({
       id: liveParams.url,
       name: liveParams.title || 'Live TV',
@@ -546,6 +550,7 @@ export default function LiveTvTab() {
                 embedded={!fullscreen}
                 fullscreen={fullscreenFrame}
                 live
+                sourceKind="live"
                 onBack={() => {
                   if (fullscreen) {
                     setFullscreen(false);

@@ -7,6 +7,7 @@ import { Image as NativeImage, View } from 'react-native';
 import Svg, { ClipPath, Defs, Image as SvgImage, Path } from 'react-native-svg';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { type MediaMeta, tmdbImage } from '@/lib/api';
+import { useLowMemory } from '@/lib/device-capabilities';
 import { useImageGeneration } from '@/lib/image-refresh';
 
 // Badge de Top 10: mismo tamaño (h-7 w-11) y misma silueta que la web.
@@ -57,8 +58,11 @@ export function PosterCard({
   const imgGen = useImageGeneration();
   // En modo horizontal usamos el backdrop; si falta, caemos al póster (recortado
   // a 16/9 con cover).
+  const lowMemory = useLowMemory();
   const imgPath = landscape ? (item.background ?? item.poster) : item.poster;
-  const imgSize = landscape ? 'w780' : 'w500';
+  // `w500` cubre de sobra una tarjeta de ~200 dp (600 px a 3x). Antes era
+  // `w780`, un 30–40% más de bitmap para el mismo resultado visual.
+  const imgSize = 'w500';
   const imageSource = imgPath ? (tmdbImage(imgPath, imgSize) ?? imgPath) : null;
   // Tamaño con el que se dibujan las copias del arte dentro del badge: el real
   // de la tarjeta para quedar alineadas con ella (y mientras aún no está
@@ -116,6 +120,9 @@ export function PosterCard({
               contentFit={item.savedLive ? 'contain' : 'cover'}
               transition={150}
               cachePolicy="memory-disk"
+              // RGB_565 en Android: mitad de RAM por bitmap. Los backdrops y
+              // pósters son JPEG/WebP sin alfa, así que no se nota.
+              decodeFormat="rgb"
               // 1 px de más por cada lado: al mantener pulsada la tarjeta,
               // PressableFeedback la escala (0.985) y el redondeo subpíxel
               // dejaba ver una línea del `bg-muted` del contenedor en el borde
@@ -156,7 +163,7 @@ export function PosterCard({
                 (lo que hay detrás) y el color combina con la tarjeta. Se usa
                 una copia con `blurRadius` en vez de `BlurView` porque en
                 Android/TV el BlurView devolvía una placa gris. */}
-            {imageSource ? (
+            {imageSource && !lowMemory ? (
               <NativeImage
                 source={{ uri: imageSource }}
                 resizeMode="cover"
@@ -184,7 +191,7 @@ export function PosterCard({
             {/* Corte diagonal: carátula nítida (la misma que hay detrás del
                 badge, alineada con la tarjeta) recortada al triángulo que la
                 web quita con el clip-path. */}
-            {imageSource ? (
+            {imageSource && !lowMemory ? (
               <Svg
                 pointerEvents="none"
                 style={{ position: 'absolute', top: 0, left: 0 }}
@@ -240,20 +247,35 @@ export function PosterCard({
               overflow: 'hidden',
             }}
           >
-            <BlurView
-              blurTarget={blurTargetRef}
-              blurMethod="dimezisBlurViewSdk31Plus"
-              intensity={60}
-              tint="dark"
-              style={{
-                position: 'absolute',
-                top: 0,
-                right: 0,
-                bottom: 0,
-                left: 0,
-                backgroundColor: 'rgba(0,0,0,0.45)',
-              }}
-            />
+            {lowMemory ? (
+              // En gama baja el blur es caro y compite con el decoder: mismo
+              // contraste con un fondo plano.
+              <View
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  left: 0,
+                  backgroundColor: 'rgba(0,0,0,0.6)',
+                }}
+              />
+            ) : (
+              <BlurView
+                blurTarget={blurTargetRef}
+                blurMethod="dimezisBlurViewSdk31Plus"
+                intensity={60}
+                tint="dark"
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  left: 0,
+                  backgroundColor: 'rgba(0,0,0,0.45)',
+                }}
+              />
+            )}
             <CircleCheck size={16} color="#fff" />
           </View>
         ) : null}

@@ -5,10 +5,11 @@ import {
 } from '@tanstack/react-query';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
+import { useObserve } from 'expo-observe';
 import { ScrollShadow, Skeleton, Typography } from 'heroui-native';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ScrollView, useWindowDimensions, View } from 'react-native';
+import { FlatList, useWindowDimensions, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import {
   ContinueWatchingRow,
@@ -21,7 +22,7 @@ import { PosterRow } from '@/components/home/poster-row';
 import { LocalVideoPicker } from '@/components/local-video-picker';
 import { StreamLoginScreen } from '@/components/stream-login-screen';
 import { useAppSurface } from '@/hooks/use-app-surface';
-import { type MediaMeta } from '@/lib/api';
+import { type FeedSection, type MediaMeta } from '@/lib/api';
 import {
   continueWatchingQuery,
   feedHeroQuery,
@@ -65,7 +66,10 @@ export default function HomeTab() {
     // (setActiveProfile vacía el cache), así que ahí sí se re-pide desde cero.
     placeholderData: keepPreviousData,
   });
-  const continueItems = continueQuery.data ?? [];
+  const continueItems = useMemo(
+    () => continueQuery.data ?? [],
+    [continueQuery.data],
+  );
 
   // Precalienta "Continuar viendo": ese camino entra DIRECTO al reproductor (sin
   // pasar por el detalle), así que sin esto paga la petición de fuentes + la
@@ -118,7 +122,10 @@ export default function HomeTab() {
   });
 
   const sections = sectionsQuery.data?.sections ?? [];
-  const heroItems = heroQuery.data?.hero ?? [];
+  const heroItems = useMemo(
+    () => heroQuery.data?.hero ?? [],
+    [heroQuery.data?.hero],
+  );
   const heroLoading = heroQuery.isLoading && heroQuery.data == null;
   const rowsLoading = sectionsQuery.isLoading && sectionsQuery.data == null;
   // "Continuar viendo" nunca tapa un hero/filas ya precargados: si aún se está
@@ -134,6 +141,23 @@ export default function HomeTab() {
     },
     [queryClient, lang],
   );
+
+  // TTI por ruta (EAS Observe): Inicio está listo cuando hero y filas ya
+  // pintaron, no cuando el layout raíz terminó el splash. Solo la primera vez.
+  const { markInteractive } = useObserve();
+  const homeTtiMarked = useRef(false);
+  useEffect(() => {
+    if (
+      !catalogEnabled ||
+      homeTtiMarked.current ||
+      heroLoading ||
+      rowsLoading
+    ) {
+      return;
+    }
+    homeTtiMarked.current = true;
+    markInteractive();
+  }, [catalogEnabled, heroLoading, markInteractive, rowsLoading]);
 
   // Reproducir directo desde "Continuar viendo" (sin `url` → el player toma la
   // 1ª fuente y salta a la posición guardada). Para series pasamos temporada/
@@ -165,26 +189,33 @@ export default function HomeTab() {
     });
   }, []);
 
-  // Mientras se resuelve sesión/modo no pintamos nada (evita parpadeo picker↔catálogo).
-  if (surface == null)
-    return <View style={{ flex: 1, backgroundColor: COLORS.background }} />;
-  // Modo local: el tab Inicio muestra "Reproducir video".
-  if (surface.showLocal) return <LocalVideoPicker />;
+  const renderSection = useCallback(
+    ({ item: section }: { item: FeedSection }) =>
+      section.kind === 'live' ? (
+        <LiveTvRow
+          enabled={catalogEnabled}
+          group={section.liveGroup}
+          sourceId={section.liveSourceId}
+          title={section.title}
+        />
+      ) : (
+        <PosterRow
+          items={section.items}
+          href={section.href}
+          onPressItem={handlePressItem}
+          topTen={section.topTen}
+          topTenRanks={section.topTenRanks}
+          title={section.title}
+        />
+      ),
+    [catalogEnabled, handlePressItem],
+  );
 
-  // Stream sin sesión (caso TV, sin picker): mostramos el QR de login centrado
-  // a pantalla completa, sin que el usuario tenga que ir a Perfil.
-  if (!surface.authed)
-    return <StreamLoginScreen onContinueWithoutAccount={surface.refresh} />;
-
-  return (
-    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
-      <ScrollShadow
-        style={{ flex: 1 }}
-        size={36}
-        color={COLORS.background}
-        LinearGradientComponent={ExpoLinearGradient}
-      >
-      <ScrollView contentContainerStyle={{ paddingBottom: 32, gap: 24 }}>
+  // Hero + "Continuar viendo" viven en la cabecera de la lista: siguen siempre
+  // montados, pero las filas de catálogo se montan solo al acercarse.
+  const listHeader = useMemo(
+    () => (
+      <>
         {heroLoading ? (
           <View style={{ height: heroSkeletonHeight, width: '100%' }}>
             <Skeleton style={{ width: '100%', height: '100%', borderRadius: 0 }} />
@@ -216,50 +247,81 @@ export default function HomeTab() {
             onPressItem={handleResume}
           />
         ) : null}
+      </>
+    ),
+    [
+      continueItems,
+      handleResume,
+      heroItems,
+      heroLoading,
+      heroSkeletonHeight,
+      t,
+    ],
+  );
 
-        {rowsLoading
-          ? Array.from({ length: SKELETON_ROWS }).map((_, i) => (
-              <PosterRow
-                items={[]}
-                // biome-ignore lint/suspicious/noArrayIndexKey: placeholder fijo
-                key={i}
-                loading
-                title=""
-              />
-            ))
-          : sections.map((section) =>
-              section.kind === 'live' ? (
-                <LiveTvRow
-                  enabled={catalogEnabled}
-                  group={section.liveGroup}
-                  key={section.id}
-                  sourceId={section.liveSourceId}
-                  title={section.title}
-                />
-              ) : (
+  // Mientras se resuelve sesión/modo no pintamos nada (evita parpadeo picker↔catálogo).
+  if (surface == null)
+    return <View style={{ flex: 1, backgroundColor: COLORS.background }} />;
+  // Modo local: el tab Inicio muestra "Reproducir video".
+  if (surface.showLocal) return <LocalVideoPicker />;
+
+  // Stream sin sesión (caso TV, sin picker): mostramos el QR de login centrado
+  // a pantalla completa, sin que el usuario tenga que ir a Perfil.
+  if (!surface.authed)
+    return <StreamLoginScreen onContinueWithoutAccount={surface.refresh} />;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+      <ScrollShadow
+        style={{ flex: 1 }}
+        size={36}
+        color={COLORS.background}
+        LinearGradientComponent={ExpoLinearGradient}
+      >
+      <FlatList
+        data={rowsLoading ? [] : sections}
+        keyExtractor={(section) => section.id}
+        ListHeaderComponent={listHeader}
+        // Mientras llegan las filas, 2 skeletons debajo del hero. Ya no se
+        // montan todas las secciones a la vez: antes un ScrollView mantenía
+        // ~7–10 filas × 10 tarjetas (p90 medido) con sus bitmaps.
+        ListEmptyComponent={
+          rowsLoading ? (
+            <View style={{ gap: 24 }}>
+              {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
                 <PosterRow
-                  items={section.items}
-                  href={section.href}
-                  key={section.id}
-                  onPressItem={handlePressItem}
-                  topTen={section.topTen}
-                  topTenRanks={section.topTenRanks}
-                  title={section.title}
+                  items={[]}
+                  // biome-ignore lint/suspicious/noArrayIndexKey: placeholder fijo
+                  key={i}
+                  loading
+                  title=""
                 />
-              ),
-            )}
-
-        {error && !rowsLoading ? (
-          <Typography
-            type="body-sm"
-            color="muted"
-            align="center"
-            style={{ paddingHorizontal: 16 }}
-          >
-            {error}
-          </Typography>
-        ) : null}
-      </ScrollView>
+              ))}
+            </View>
+          ) : undefined
+        }
+        ListFooterComponent={
+          error && !rowsLoading ? (
+            <Typography
+              type="body-sm"
+              color="muted"
+              align="center"
+              style={{ paddingHorizontal: 16 }}
+            >
+              {error}
+            </Typography>
+          ) : undefined
+        }
+        renderItem={renderSection}
+        contentContainerStyle={{ paddingBottom: 32, gap: 24 }}
+        initialNumToRender={3}
+        maxToRenderPerBatch={3}
+        updateCellsBatchingPeriod={50}
+        windowSize={5}
+        // Celdas grises al volver del player en Android: mantener el mismo
+        // criterio que las filas horizontales.
+        removeClippedSubviews={false}
+      />
       </ScrollShadow>
     </View>
   );

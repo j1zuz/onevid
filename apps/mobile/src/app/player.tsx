@@ -81,10 +81,14 @@ import {
   resolveStreamUrl,
   STREAM_REDIRECT_TIMEOUT_MS,
   STREAM_UA,
+  StreamPreparingError,
   validatePlayerUrl,
 } from '@/lib/stream-url';
 import { bumpImageGeneration } from '@/lib/image-refresh';
-import { VLC_OPTIONS, VLC_OPTIONS_VOD } from '@/lib/vlc-options';
+import {
+  type VlcSourceKind,
+  vlcOptionsForSource,
+} from '@/lib/vlc-options';
 import {
   downloadOfflineVideo,
   getOfflineVideo,
@@ -96,6 +100,22 @@ import {
 // Aplica el anillo de foco de TV a un Pressable sin estado de foco propio: usa
 // el render-prop de Pressable (`state.focused`, disponible en TV). Fuera de TV
 // `tvFocusRing` devuelve null, así que es no-op en móvil/web.
+/**
+ * Origen real del stream para elegir el colchón de VLC.
+ *
+ * Las fuentes internas (`/api/...`) pasan por TorBox/Real-Debrid: ahí el CDN es
+ * irregular y conviene el colchón de 1500 ms. Los archivos locales y las URLs
+ * directas pueden usar 800 ms para arrancar antes y gastar menos RAM de búfer.
+ */
+function sourceKindFor(rawUrl: string, live: boolean): VlcSourceKind {
+  if (live) return 'live';
+  if (rawUrl.startsWith('/api/')) return 'debrid';
+  if (rawUrl.startsWith('file://') || rawUrl.startsWith('content://')) {
+    return 'local';
+  }
+  return 'direct';
+}
+
 const withRing =
   (base: StyleProp<ViewStyle>) =>
   (state: PressableStateCallbackType): StyleProp<ViewStyle> => [
@@ -154,6 +174,11 @@ const MAX_START_EXTENSIONS = 7; // tope: 15 s + 7×15 s = 120 s máx por fuente
 // Elección manual del usuario: le damos algo más de margen "sin pistas" antes de
 // saltar, porque pidió ESA fuente explícitamente (p. ej. torbox lento de arrancar).
 const PLAYBACK_MANUAL_TIMEOUT_MS = 20_000;
+// Reintentos si el debrid responde 202 "preparing". Cada reintento espera el
+// Retry-After del backend (~6s). Un solo reintento cubre el caso normal (~22s
+// peor caso) sin dejar al usuario esperando una eternidad si el torrent no está
+// cacheado; pasado ese punto conviene saltar a otra fuente.
+const MAX_PREPARING_RETRIES = 1;
 // Directo: si no llega el primer fotograma, o el tiempo deja de avanzar, se
 // recrea el player un par de veces antes de avisar (la web también reconecta
 // antes de mostrar el error). Sin esto, un canal caído se quedaba en negro sin
@@ -837,33 +862,66 @@ export default function PlayerScreen() {
     // No reseteamos a 'resolving' aquí: durante un salto el estado ya es
     // 'switching' (con su contador) y queremos conservarlo.
     let cancelled = false;
-    resolveStreamUrl(rawUrl)
-      .then(({ url, fileName, redirect }) => {
-        if (cancelled) return;
-        // Telemetría para verificar el fix de STREAM_REDIRECT_TIMEOUT_MS
-        // (4000ms → 8000ms): compara, antes/después del cambio, cuántas
-        // redirecciones expiraban por timeout vs cuánto tardaban en
-        // resolverse de verdad, y si eso correlaciona con menos
-        // player_sources_exhausted.
-        track('player_redirect_resolve', {
-          mediaType,
-          mediaId,
-          hadRedirect: Boolean(redirect.url),
-          timedOut: redirect.timedOut,
-          tookMs: redirect.tookMs,
-          timeoutMs: STREAM_REDIRECT_TIMEOUT_MS,
-        });
-        // Guardamos también `rawUrl`: el player se keya con la fuente, no con la
-        // URL resuelta, para no remontarse si una re-resolución diera otra firma.
-        setState({ kind: 'ready', url, rawUrl, fileName });
-      })
-      .catch(() => {
-        // Fallo al resolver (DNS/403 del backend): también dispara el fallback.
-        if (!cancelled) {
-          track('player_resolve_error', { mediaType, mediaId });
+    let preparingRetries = 0;
+
+    const run = async () => {
+      while (!cancelled) {
+        try {
+          const { url, fileName, redirect } = await resolveStreamUrl(rawUrl);
+          if (cancelled) return;
+          // Telemetría para verificar el fix de STREAM_REDIRECT_TIMEOUT_MS
+          // (4000ms → 8000ms → 15000ms): compara, antes/después del cambio,
+          // cuántas redirecciones expiraban por timeout vs cuánto tardaban en
+          // resolverse de verdad, y si eso correlaciona con menos fallbacks.
+          track('player_redirect_resolve', {
+            mediaType,
+            mediaId,
+            hadRedirect: Boolean(redirect.url),
+            timedOut: redirect.timedOut,
+            tookMs: redirect.tookMs,
+            timeoutMs: STREAM_REDIRECT_TIMEOUT_MS,
+          });
+          // Guardamos también `rawUrl`: el player se keya con la fuente, no con
+          // la URL resuelta, para no remontarse si una re-resolución diera otra
+          // firma.
+          setState({ kind: 'ready', url, rawUrl, fileName });
+          return;
+        } catch (error) {
+          if (cancelled) return;
+          // Un torrent que el debrid todavía está preparando no es una fuente
+          // rota: reintentamos tras el `Retry-After` antes de saltar a otra.
+          // Con 15s de timeout el cliente ya recibe el 202 en vez de abortar.
+          if (
+            error instanceof StreamPreparingError &&
+            preparingRetries < MAX_PREPARING_RETRIES
+          ) {
+            preparingRetries += 1;
+            track('player_source_preparing', {
+              mediaType,
+              mediaId,
+              attempt: preparingRetries,
+              retryAfterMs: error.retryAfterMs,
+              progress: error.progress,
+            });
+            await new Promise((resolve) =>
+              setTimeout(resolve, error.retryAfterMs),
+            );
+            continue;
+          }
+          // Fallo al resolver (DNS/403/timeout/preparing agotado): fallback.
+          track('player_resolve_error', {
+            mediaType,
+            mediaId,
+            reason:
+              error instanceof StreamPreparingError ? 'preparing' : 'error',
+          });
           advanceToNextSource();
+          return;
         }
-      });
+      }
+    };
+
+    void run();
     return () => {
       cancelled = true;
     };
@@ -889,6 +947,7 @@ export default function PlayerScreen() {
           // remonta el player. `url` sí lleva la URL resuelta para reproducir.
           key={state.rawUrl}
           url={state.url}
+          sourceKind={sourceKindFor(state.rawUrl, isLive)}
           title={title}
           subtitle={subtitle}
           mediaId={mediaId}
@@ -1128,6 +1187,7 @@ function SourcePicker({
 export function Player({
   embedded = false,
   url,
+  sourceKind,
   title,
   subtitle,
   mediaId,
@@ -1158,6 +1218,8 @@ export function Player({
   onPlayNextEpisode,
 }: {
   url: string;
+  /** Origen del stream; decide el colchón de red de libVLC. */
+  sourceKind?: VlcSourceKind;
   title?: string;
   subtitle?: string;
   /** Contexto de contenido para telemetría de rendimiento del reproductor. */
@@ -1330,18 +1392,18 @@ export function Player({
   const [subtitleId, setSubtitleId] = useState<number | null>(null);
   const [menu, setMenu] = useState<'audio' | 'subtitle' | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
-  // Opciones del player nativo. `VLC_OPTIONS` es constante de módulo a
-  // propósito (ver lib/vlc-options): un array nuevo por render reinicia el
-  // player. `:start-time` se añade SOLO cuando la posición de reanudar se
-  // conoce de antemano, porque cambia la identidad del array una vez (al
-  // montar) y no en cada render.
-  const vlcOptions = useMemo(
-    () =>
-      startAtSec && startAtSec > 30
-        ? [...VLC_OPTIONS, `:start-time=${startAtSec}`]
-        : VLC_OPTIONS,
-    [startAtSec],
-  );
+  // Opciones del player nativo. Las bases son constantes de módulo (ver
+  // lib/vlc-options): un array nuevo por render reinicia el player. `:start-time`
+  // se añade SOLO cuando la posición de reanudar se conoce de antemano, porque
+  // cambia la identidad del array una vez (al montar), no en cada render.
+  const vlcOptions = useMemo(() => {
+    const base = vlcOptionsForSource(
+      sourceKind ?? (live ? 'live' : 'direct'),
+    );
+    return startAtSec && startAtSec > 30
+      ? [...base, `:start-time=${startAtSec}`]
+      : base;
+  }, [sourceKind, live, startAtSec]);
   // La ventana ya está en pantalla completa. Este estado controla si la imagen
   // conserva todo el fotograma ("contain", con posibles bandas negras) o llena
   // físicamente la pantalla ("cover", recortando sólo el excedente).
@@ -1354,6 +1416,10 @@ export function Player({
   // para volver a "ver todo el fotograma".
   useEffect(() => {
     if (!live) return;
+    // Sincroniza el encuadre con el cambio de pantalla completa del directo.
+    // Es una transición de UI deliberada, no un estado derivable sin perder el
+    // zoom manual del usuario.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVideoFit(fullscreen ? 'cover' : 'contain');
   }, [fullscreen, live]);
   // PiP solo se ofrece si el dispositivo lo soporta (los emuladores casi nunca
@@ -1396,6 +1462,8 @@ export function Player({
       track('player_first_frame', {
         mediaType,
         mediaId,
+        // Permite comparar debrid (1500 ms) vs local/directo (800 ms).
+        sourceKind: sourceKind ?? (live ? 'live' : 'direct'),
         timeToFirstFrameMs: startedAtRef.current
           ? Date.now() - startedAtRef.current
           : undefined,
@@ -1414,7 +1482,7 @@ export function Player({
       });
       onReveal?.();
     }
-  }, [firstFrame, onReveal, mediaType, mediaId]);
+  }, [firstFrame, onReveal, mediaType, mediaId, live, sourceKind]);
 
   // Reanuda desde la posición guardada una vez que hay imagen (VLC ya abrió el
   // medio). Una sola vez por fuente y solo si vale la pena (> 30 s).
@@ -2037,13 +2105,18 @@ export function Player({
             ]}
             pointerEvents="box-none"
           >
-            <Pressable
-              onPress={onBack}
-              style={withRing(styles.backBtn)}
-              hitSlop={6}
-            >
-              <ArrowLeft size={22} color="#fff" />
-            </Pressable>
+            {/* En Live TV incrustado el botón de atrás sobra: para salir está
+                el gesto/back del sistema y el botón de pantalla completa. Solo
+                se muestra al entrar a pantalla completa (embedded=false). */}
+            {!embedded ? (
+              <Pressable
+                onPress={onBack}
+                style={withRing(styles.backBtn)}
+                hitSlop={6}
+              >
+                <ArrowLeft size={22} color="#fff" />
+              </Pressable>
+            ) : null}
             <View style={styles.topTitleBlock} pointerEvents="none">
               {title ? (
                 <Text style={styles.topTitle} numberOfLines={1}>

@@ -74,7 +74,7 @@ export default function DetailPage() {
   const lang = i18n.language;
   const { height } = useWindowDimensions();
   const queryClient = useQueryClient();
-  const { isTV, isLarge, rowCardWidth } = useResponsive();
+  const { isTV, rowCardWidth } = useResponsive();
   const playFocus = useTvFocus();
   const watchFocus = useTvFocus();
   const favFocus = useTvFocus();
@@ -254,16 +254,16 @@ export default function DetailPage() {
 
   const artParams = useMemo(
     () => ({
-      // En TV pasamos el backdrop en alta resolución al reproductor/fuentes.
-      background:
-        tmdbImage(meta?.background, isLarge ? 'original' : 'w1280') ?? '',
+      // `w1280` es suficiente para el backdrop a pantalla completa y evita que
+      // un 'original' 4K (~33 MB en ARGB) reviente la RAM en TV/gama baja.
+      background: tmdbImage(meta?.background, 'w1280') ?? '',
       logo: meta?.logo ?? '',
       title: meta?.name ?? '',
       // Póster (2:3) que el player guarda en el progreso para que "Continuar
       // viendo" pueda mostrar la carátula del título.
       poster: meta?.poster ?? '',
     }),
-    [meta?.background, meta?.logo, meta?.name, meta?.poster, isLarge],
+    [meta?.background, meta?.logo, meta?.name, meta?.poster],
   );
 
   // Pre-warm: en cuanto sabemos qué se va a reproducir (la peli, o el 1.er
@@ -396,14 +396,14 @@ export default function DetailPage() {
               source={
                 tmdbImage(
                   meta.background ?? meta.poster,
-                  // En pantallas grandes/TV pedimos la máxima resolución para
-                  // que el backdrop no se vea pixelado.
-                  isLarge ? 'original' : 'w1280',
+                  // `w1280` cubre 1080p sin el coste de un 'original' 4K.
+                  'w1280',
                 ) ?? ''
               }
               contentFit="cover"
               transition={200}
               cachePolicy="memory-disk"
+              decodeFormat="rgb"
               style={{ width: '100%', height: '100%' }}
             />
           ) : (

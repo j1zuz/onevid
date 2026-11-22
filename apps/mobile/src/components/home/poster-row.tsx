@@ -1,11 +1,13 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { PressableFeedback, ScrollShadow, Skeleton, Typography } from 'heroui-native';
 import { ChevronRight } from 'lucide-react-native';
+import { useCallback } from 'react';
 import { FlatList, View } from 'react-native';
 import { PosterCard } from '@/components/poster-card';
 import { useResponsive } from '@/hooks/use-responsive';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import type { MediaMeta } from '@/lib/api';
+import { useLowMemory } from '@/lib/device-capabilities';
 import { navigateToCatalog, parseFeedHref } from '@/lib/catalog-nav';
 import { COLORS } from '@/lib/theme';
 import { useWatchState } from '@/lib/watch-state';
@@ -39,16 +41,31 @@ export function PosterRow({
   // Tarjetas horizontales (16/9) del mismo tamaño que "Continuar viendo"
   // (rowCardWidth), para que todas las filas de catálogo se vean consistentes.
   const { rowCardWidth } = useResponsive();
+  const lowMemory = useLowMemory();
   const watchState = useWatchState();
+  const cardAspectRatio = 16 / 9;
+  const CARD_WIDTH = rowCardWidth;
+  // Solo las primeras 8/10; el botón "Ver todos" lleva a la grilla completa.
+  // En gama baja montamos 8 para reducir bitmaps vivos sin dejar la fila vacía.
+  const shown = items.slice(0, lowMemory ? 8 : ROW_ITEM_CAP);
+  const rowParams = href ? parseFeedHref(href) : null;
+  const renderItem = useCallback(
+    ({ item }: { item: MediaMeta }) => (
+      <PosterCard
+        item={item}
+        width={CARD_WIDTH}
+        rank={topTen ? topTenRanks[`${item.type}-${item.id}`] : undefined}
+        watched={watchState.isWatched(item.type, item.id)}
+        onPress={() => onPressItem?.(item)}
+      />
+    ),
+    [CARD_WIDTH, topTen, topTenRanks, watchState, onPressItem],
+  );
   // No mostramos una fila vacía: si no está cargando y no hay items, ocultamos
   // el título por completo (evita ver "Películas/Series en tendencia" sueltos,
   // sin tarjetas, en el instante en que la app abre y el catálogo aún no llega).
+  // Va DESPUÉS de los hooks para no romper el orden de hooks entre renders.
   if (!loading && items.length === 0) return null;
-  const cardAspectRatio = 16 / 9;
-  const CARD_WIDTH = rowCardWidth;
-  // Solo las primeras 10; el botón "Ver todos" lleva a la grilla completa.
-  const shown = items.slice(0, ROW_ITEM_CAP);
-  const rowParams = href ? parseFeedHref(href) : null;
   return (
     <View className="gap-3">
       {/* El inicio pinta filas de skeleton antes de saber cuántas filas tiene
@@ -108,19 +125,13 @@ export function PosterRow({
             data={shown}
             keyExtractor={(it) => `${it.type}:${it.id}`}
             contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
-            renderItem={({ item, index }) => (
-              <PosterCard
-                item={item}
-                width={CARD_WIDTH}
-                rank={
-                  topTen
-                    ? topTenRanks[`${item.type}-${item.id}`]
-                    : undefined
-                }
-                watched={watchState.isWatched(item.type, item.id)}
-                onPress={() => onPressItem?.(item)}
-              />
-            )}
+            // La fila tiene 8–10 items: con 3 iniciales y ventana de 3 no
+            // montamos los 10 bitmaps de golpe en un 2 GB.
+            initialNumToRender={Math.min(shown.length, 3)}
+            maxToRenderPerBatch={3}
+            updateCellsBatchingPeriod={50}
+            windowSize={3}
+            renderItem={renderItem}
           />
         </ScrollShadow>
       )}
