@@ -1,4 +1,5 @@
 import { apiKey } from "@better-auth/api-key";
+import { expo } from "@better-auth/expo";
 import { dash } from "@better-auth/infra";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -65,6 +66,12 @@ export const auth = betterAuth({
     "https://hackw.tech",
     "https://www.hackw.tech",
     "https://onevid.hackw.tech",
+    // Deep links de la app Expo (social sign-in con Google).
+    "onevid://",
+    "onevid://*",
+    "exp+onevid://",
+    "exp+onevid://*",
+    ...(process.env.NODE_ENV === "development" ? ["exp://**"] : []),
   ],
   // Better Auth desactiva su limitador si NODE_ENV no es "production" al
   // cargar el módulo. El Worker no declara NODE_ENV, así que lo forzamos:
@@ -104,6 +111,7 @@ export const auth = betterAuth({
     },
   },
   plugins: [
+    expo(),
     apiKey(),
     bearer(),
     dash(),

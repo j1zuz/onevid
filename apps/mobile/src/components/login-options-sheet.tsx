@@ -1,11 +1,11 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { BottomSheet, Button, Typography, useToast } from 'heroui-native';
-import * as WebBrowser from 'expo-web-browser';
 import { QrCode } from 'lucide-react-native';
 import { type ComponentRef, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  ActivityIndicator,
   Platform,
   StyleSheet,
   View,
@@ -13,14 +13,15 @@ import {
 import Svg, { Path } from 'react-native-svg';
 import { TvSheet } from '@/components/tv-sheet';
 import { useAppSurface } from '@/hooks/use-app-surface';
-import { useDeviceLogin } from '@/hooks/use-device-login';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
+import { signInWithGoogle } from '@/lib/auth-client';
 
 /**
  * Bottom sheet de "Iniciar sesión" (como el de la web): continuar con Google o
- * activar el dispositivo por código. Google usa el device-flow: abrimos la
- * página de aprobación en el navegador y seguimos haciendo polling hasta que se
- * confirme (ahí es donde se elige la cuenta de Google).
+ * activar el dispositivo por código. Google usa el SDK nativo (móvil y Android
+ * TV): el usuario elige su cuenta en el propio dispositivo y la app valida el
+ * idToken con Better Auth. El código queda como respaldo para TVs sin Play
+ * Services o si Google falla.
  */
 export function LoginOptionsSheet({
   visible,
@@ -47,31 +48,27 @@ export function LoginOptionsSheet({
     router.replace('/profiles');
   }, [onClose, surface]);
 
-  const login = useDeviceLogin(visible, onApproved);
-
   const handleGoogle = useCallback(async () => {
     if (openingBrowser) return;
     setOpeningBrowser(true);
     try {
-      // Reutiliza el código ya pedido al abrir el sheet; si caducó o no llegó,
-      // pide uno nuevo antes de abrir el navegador.
-      const data =
-        login.phase === 'waiting' && login.codeData
-          ? login.codeData
-          : await login.requestCode();
-      if (!data) {
-        toast.show({
-          variant: 'danger',
-          label: t('No pudimos iniciar sesión'),
-          description: t('Revisa tu conexión e intenta de nuevo.'),
-        });
-        return;
-      }
-      await WebBrowser.openBrowserAsync(data.verification_uri_complete);
+      const result = await signInWithGoogle();
+      // Si el usuario cierra el selector de cuentas, no mostramos ningún error.
+      if (result === 'cancelled') return;
+      await onApproved();
+    } catch (e) {
+      toast.show({
+        variant: 'danger',
+        label: t('No pudimos iniciar sesión'),
+        description:
+          e instanceof Error
+            ? e.message
+            : t('Revisa tu conexión e intenta de nuevo.'),
+      });
     } finally {
       setOpeningBrowser(false);
     }
-  }, [login, openingBrowser, t, toast]);
+  }, [onApproved, openingBrowser, t, toast]);
 
   // El código va a la pantalla con QR + código (se aprueba en /device).
   const handleCode = useCallback(() => {
@@ -83,9 +80,9 @@ export function LoginOptionsSheet({
     <View style={styles.body}>
       <View style={styles.badge}>
         <Image
-          source={require('../../assets/images/onevid-icon.png')}
-          contentFit="cover"
-          style={{ width: 46, height: 46, borderRadius: 14 }}
+          source={require('../../assets/images/onevid-logo.png')}
+          contentFit="contain"
+          style={{ width: 30, height: 30 }}
         />
       </View>
 
@@ -129,9 +126,10 @@ export function LoginOptionsSheet({
         ]}
       >
         <GoogleIcon size={18} />
-        <Button.Label>
-          {openingBrowser ? t('Abriendo…') : t('Continuar con Google')}
-        </Button.Label>
+        <Button.Label>{t('Continuar con Google')}</Button.Label>
+        {openingBrowser ? (
+          <ActivityIndicator color="#e5e7eb" size="small" />
+        ) : null}
       </Button>
 
       <View style={styles.divider}>
