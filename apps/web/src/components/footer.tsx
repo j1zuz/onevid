@@ -1,7 +1,6 @@
 "use client";
 
 import { Separator } from "@workspace/ui/components/separator";
-import Link from "next/link";
 import { useEffect, useState } from "react";
 
 // El año se calcula en el navegador, no al renderizar en el servidor: el HTML
@@ -71,41 +70,21 @@ export default function Footer() {
           </svg>
         </div>
         <Separator className="w-full border-border border-t border-dashed bg-transparent" />
-        <p className="mt-3 max-w-2xl text-[11px] text-muted-foreground leading-4">
-          Onevid no utiliza las APIs de Google para crear, generar, almacenar ni
-          distribuir imágenes íntimas no consentidas (NCI) ni contenido sexual
-          generado por IA. Solo usamos datos de Google para el inicio de sesión:
-          nombre, correo y foto de perfil.
-        </p>
-        <div className="mt-3 flex w-full min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="mt-3 flex w-full min-w-0 flex-nowrap items-center justify-between gap-2 whitespace-nowrap">
           <span
             className="shrink-0 text-muted-foreground text-xs"
             suppressHydrationWarning
           >
             © {year ? `${year} ` : ""}Onevid
           </span>
-          <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-            <Link
-              className="text-muted-foreground transition-colors hover:text-foreground"
-              href="/privacy"
-            >
-              Privacidad
-            </Link>
-            <Link
-              className="text-muted-foreground transition-colors hover:text-foreground"
-              href="/terms"
-            >
-              Términos
-            </Link>
-            <a
-              className="text-muted-foreground transition-colors hover:text-foreground"
-              href="https://deepwiki.com/j1zuz/onevid"
-              rel="noopener noreferrer"
-              target="_blank"
-            >
-              Documentación
-            </a>
-          </div>
+          <a
+            className="shrink-0 text-muted-foreground text-xs transition-colors hover:text-foreground"
+            href="https://deepwiki.com/j1zuz/onevid"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            Documentación
+          </a>
         </div>
       </div>
     </footer>
