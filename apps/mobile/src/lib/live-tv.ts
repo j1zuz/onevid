@@ -2,9 +2,9 @@ import { router } from 'expo-router';
 import { apiFetch } from './api';
 
 /**
- * Live TV: fuentes (M3U/Xtream) y canales configurados por el usuario en la web.
- * La app solo los consume; el alta/edición de fuentes vive en /home/account de la
- * web. Mismas rutas que usa la web, autenticadas con el Bearer de la sesión.
+ * Live TV: fuentes (M3U/Xtream) y canales configurados por el usuario.
+ * El alta y la baja de fuentes se hace en la hoja de Configuración de la app;
+ * la web usa las mismas rutas, autenticadas con el Bearer de la sesión.
  */
 
 export interface LiveTvSourceSummary {

@@ -5,6 +5,7 @@ import { QrCode } from 'lucide-react-native';
 import { type ComponentRef, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  ActivityIndicator,
   Platform,
   StyleSheet,
   View,
@@ -51,7 +52,9 @@ export function LoginOptionsSheet({
     if (openingBrowser) return;
     setOpeningBrowser(true);
     try {
-      await signInWithGoogle();
+      const result = await signInWithGoogle();
+      // Si el usuario cierra el selector de cuentas, no mostramos ningún error.
+      if (result === 'cancelled') return;
       await onApproved();
     } catch (e) {
       toast.show({
@@ -77,9 +80,9 @@ export function LoginOptionsSheet({
     <View style={styles.body}>
       <View style={styles.badge}>
         <Image
-          source={require('../../assets/images/onevid-icon.png')}
-          contentFit="cover"
-          style={{ width: 46, height: 46, borderRadius: 14 }}
+          source={require('../../assets/images/onevid-logo.png')}
+          contentFit="contain"
+          style={{ width: 30, height: 30 }}
         />
       </View>
 
@@ -123,9 +126,10 @@ export function LoginOptionsSheet({
         ]}
       >
         <GoogleIcon size={18} />
-        <Button.Label>
-          {openingBrowser ? t('Abriendo…') : t('Continuar con Google')}
-        </Button.Label>
+        <Button.Label>{t('Continuar con Google')}</Button.Label>
+        {openingBrowser ? (
+          <ActivityIndicator color="#e5e7eb" size="small" />
+        ) : null}
       </Button>
 
       <View style={styles.divider}>

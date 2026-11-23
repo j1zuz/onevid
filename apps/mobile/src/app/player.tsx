@@ -26,6 +26,7 @@ import {
   Play,
   RotateCcw,
   RotateCw,
+  Users,
   X,
 } from 'lucide-react-native';
 import Svg, { Circle } from 'react-native-svg';
@@ -39,9 +40,12 @@ import {
   useState,
 } from 'react';
 import {
+  Alert,
   BackHandler,
+  Modal,
   Platform,
   Pressable,
+  Share,
   type PressableStateCallbackType,
   StatusBar as RNStatusBar,
   type StyleProp,
@@ -72,10 +76,19 @@ import {
   type StreamSource,
 } from '@/components/sources-list';
 import { WatchProvidersNotice } from '@/components/watch-providers';
+import { WatchPartyChatPanel } from '@/components/watch-party-chat-panel';
+import { WatchTogetherSheet } from '@/components/watch-together-sheet';
+import { useWatchPartyChat, type RemoteSync } from '@/hooks/use-watch-party-chat';
 import { tvFocusRing } from '@/hooks/use-tv-focus';
 import { useNextEpisode } from '@/hooks/use-next-episode';
 import { useWatchProgress } from '@/hooks/use-watch-progress';
 import { track } from '@/lib/analytics';
+import { apiFetch } from '@/lib/api';
+import {
+  joinWatchRoom,
+  type WatchJoinData,
+  type WatchSyncAction,
+} from '@/lib/watch-party';
 import {
   fetchWithTimeout,
   resolveStreamUrl,
@@ -394,6 +407,8 @@ export default function PlayerScreen() {
     live?: string;
     /** Segundo desde el que abrir (continuar viendo): llega de la fila del Inicio. */
     resume?: string;
+    /** Sala de "Ver juntos" a la que unirse (invitado). */
+    watch?: string;
   }>();
   const title = params.title;
   // Un canal en directo no tiene duración: ocultamos la barra de progreso, los
@@ -1013,6 +1028,17 @@ export default function PlayerScreen() {
           }}
           nextEpisode={nextEpisode}
           onPlayNextEpisode={playNextEpisode}
+          watchTogether={
+            !isLive
+              ? {
+                  background,
+                  episode: episode ? Number(episode) : 0,
+                  poster,
+                  season: season ? Number(season) : 0,
+                }
+              : null
+          }
+          watchRoom={params.watch ?? null}
         />
       ) : null}
 
@@ -1216,6 +1242,8 @@ export function Player({
   fullscreen,
   nextEpisode,
   onPlayNextEpisode,
+  watchTogether,
+  watchRoom,
 }: {
   url: string;
   /** Origen del stream; decide el colchón de red de libVLC. */
@@ -1270,6 +1298,19 @@ export function Player({
   /** Episodio que sigue al actual, o null si es el último de la serie. */
   nextEpisode?: NextEpisodeRef | null;
   onPlayNextEpisode?: (next: NextEpisodeRef) => Promise<void> | void;
+  /**
+   * "Ver juntos" en la TV. Si viene informado se muestra el botón en la barra
+   * superior: crea una watch party con el título actual y enseña un QR para que
+   * los móviles abran solo el chat. `null` lo oculta (Live TV, modo local…).
+   */
+  watchTogether?: {
+    poster?: string;
+    background?: string;
+    season: number;
+    episode: number;
+  } | null;
+  /** Sala de "Ver juntos" de la que este reproductor es invitado. */
+  watchRoom?: string | null;
 }) {
   const insets = useSafeAreaInsets();
   const playerRef = useRef<LibVlcPlayerViewRef>(null);
@@ -1392,6 +1433,205 @@ export function Player({
   const [subtitleId, setSubtitleId] = useState<number | null>(null);
   const [menu, setMenu] = useState<'audio' | 'subtitle' | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
+
+  // ---- Ver juntos (watch party) ----
+  // Host: crea la sala y publica su posición. Invitado: entra con `watch=<id>`
+  // y aplica la posición del host en su propio reproductor. El chat va en una
+  // hoja dentro de la app (la TV, en cambio, solo muestra el QR).
+  const [watchRoomId, setWatchRoomId] = useState<string | null>(null);
+  const [watchJoin, setWatchJoin] = useState<WatchJoinData | null>(null);
+  const [watchStarting, setWatchStarting] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const watchRoomIdRef = useRef<string | null>(null);
+  const watchJoinRef = useRef<WatchJoinData | null>(null);
+  const playingRef = useRef(true);
+  const hostPublishRef = useRef<((action: WatchSyncAction) => void) | null>(null);
+
+  useEffect(() => {
+    playingRef.current = playing;
+  }, [playing]);
+
+  useEffect(() => {
+    watchJoinRef.current = watchJoin;
+  }, [watchJoin]);
+
+  const joinWatch = useCallback(async (roomId: string) => {
+    const data = await joinWatchRoom(roomId);
+    watchRoomIdRef.current = roomId;
+    setWatchRoomId(roomId);
+    setWatchJoin(data);
+    return data;
+  }, []);
+
+  // Invitado: llega por el enlace `onevid://watch/<id>` (o por el QR de la TV).
+  useEffect(() => {
+    if (!watchRoom || watchJoinRef.current) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await joinWatch(watchRoom);
+      } catch (e) {
+        if (!cancelled) {
+          Alert.alert(
+            'No se pudo entrar a la sala',
+            e instanceof Error ? e.message : 'Vuelve a intentarlo.',
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [joinWatch, watchRoom]);
+
+  const endWatchRoom = useCallback(() => {
+    const id = watchRoomIdRef.current;
+    const isHost = watchJoinRef.current?.isHost ?? false;
+    watchRoomIdRef.current = null;
+    setWatchRoomId(null);
+    setWatchJoin(null);
+    setQrOpen(false);
+    setChatOpen(false);
+    if (!id) return;
+    void apiFetch(`/api/watch-rooms/${id}/${isHost ? 'end' : 'leave'}`, {
+      method: 'POST',
+    }).catch(() => undefined);
+  }, []);
+
+  const startWatchTogether = useCallback(async () => {
+    if (!watchTogether || watchStarting || watchRoomIdRef.current) {
+      return;
+    }
+    setWatchStarting(true);
+    try {
+      const positionSec = Math.max(0, Math.floor(timeRef.current / 1000));
+      const res = await apiFetch<{ id: string }>('/api/watch-rooms', {
+        method: 'POST',
+        body: JSON.stringify({
+          contentType: mediaType === 'series' ? 'series' : 'movie',
+          contentId: mediaId ?? title ?? 'onevid',
+          rawId: mediaId ?? title ?? 'onevid',
+          title: title ?? 'Onevid',
+          poster: watchTogether.poster,
+          background: watchTogether.background,
+          season: watchTogether.season,
+          episode: watchTogether.episode,
+          positionSec,
+          playing,
+          isAddon: false,
+        }),
+      });
+      await joinWatch(res.id);
+      // TV: QR para que los móviles entren al chat. Móvil: chat en la app.
+      if (Platform.isTV) setQrOpen(true);
+      else setChatOpen(true);
+    } catch (e) {
+      Alert.alert(
+        'No se pudo crear la sala',
+        e instanceof Error ? e.message : 'Vuelve a intentarlo.',
+      );
+    } finally {
+      setWatchStarting(false);
+    }
+  }, [joinWatch, mediaId, mediaType, playing, title, watchStarting, watchTogether]);
+
+  // Invitado: aplica play/pausa/seek del host corrigiendo el tiempo de vuelo.
+  const applyRemoteSync = useCallback(
+    (sync: RemoteSync) => {
+      if (watchJoin?.isHost) return;
+      const player = playerRef.current;
+      if (!player || scrubbingRef.current) return;
+      const elapsed = Math.max(0, (Date.now() - sync.sentAt) / 1000);
+      const expected =
+        sync.positionSec + (sync.playing ? elapsed * sync.rate : 0);
+      const currentSec = timeRef.current / 1000;
+      if (sync.action === 'seek' || Math.abs(currentSec - expected) > 1.5) {
+        const ms = Math.max(0, expected) * 1000;
+        player.seek(ms, 'time');
+        timeRef.current = ms;
+        setTime(ms);
+      }
+      if (sync.playing) player.play();
+      else player.pause();
+    },
+    [watchJoin],
+  );
+
+  const handleSyncRequest = useCallback(() => {
+    hostPublishRef.current?.('heartbeat');
+  }, []);
+
+  const party = useWatchPartyChat({
+    enabled: Boolean(watchJoin),
+    fallbackName: 'Espectador',
+    join: watchJoin,
+    onRemoteSync: applyRemoteSync,
+    onSyncRequest: handleSyncRequest,
+  });
+
+  const partySendSync = party.sendSync;
+  const partyRequestSync = party.requestSync;
+  const partyReady = party.ready;
+
+  // Solo el host publica su reproducción; los invitados únicamente escuchan.
+  useEffect(() => {
+    if (!watchJoin?.isHost) {
+      hostPublishRef.current = null;
+      return;
+    }
+    hostPublishRef.current = (action) => {
+      partySendSync(
+        action,
+        Math.max(0, Math.floor(timeRef.current / 1000)),
+        playingRef.current,
+      );
+    };
+  }, [partySendSync, watchJoin?.isHost]);
+
+  // Host: publica el estado por Stream y lo persiste en la sala. Cada 5 s para
+  // que quien entre tarde arranque casi en el mismo punto.
+  useEffect(() => {
+    if (!watchRoomId || !watchJoin?.isHost) return;
+    const push = () => {
+      partySendSync(
+        'heartbeat',
+        Math.max(0, Math.floor(timeRef.current / 1000)),
+        playingRef.current,
+      );
+      void apiFetch(`/api/watch-rooms/${watchRoomId}/state`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          playing: playingRef.current,
+          positionSec: Math.max(0, Math.floor(timeRef.current / 1000)),
+          rate: 1,
+        }),
+      }).catch(() => undefined);
+    };
+    push();
+    const timer = setInterval(push, 5_000);
+    return () => clearInterval(timer);
+  }, [partySendSync, watchJoin, watchRoomId]);
+
+  // Invitado: pide el estado en cuanto el chat conecta (el host responde).
+  useEffect(() => {
+    if (!watchJoin || watchJoin.isHost || !partyReady) return;
+    partyRequestSync(watchJoin.userId);
+  }, [partyReady, partyRequestSync, watchJoin]);
+
+  // Al desmontar: el host termina la sala y el invitado solo sale.
+  useEffect(
+    () => () => {
+      const id = watchRoomIdRef.current;
+      if (!id) return;
+      const isHost = watchJoinRef.current?.isHost ?? false;
+      watchRoomIdRef.current = null;
+      void apiFetch(`/api/watch-rooms/${id}/${isHost ? 'end' : 'leave'}`, {
+        method: 'POST',
+      }).catch(() => undefined);
+    },
+    [],
+  );
   // Opciones del player nativo. Las bases son constantes de módulo (ver
   // lib/vlc-options): un array nuevo por render reinicia el player. `:start-time`
   // se añade SOLO cuando la posición de reanudar se conoce de antemano, porque
@@ -1706,6 +1946,7 @@ export function Player({
     }
     scrubbingRef.current = false;
     setScrubbing(false);
+    hostPublishRef.current?.('seek');
     scheduleHide();
   };
 
@@ -1831,6 +2072,7 @@ export function Player({
   const handlePlaying = useCallback(() => {
     setBuffering(false);
     setPlaying(true);
+    hostPublishRef.current?.('play');
     setHasPlayed(true);
     setErrorMsg(null);
     setRawError(null);
@@ -1839,6 +2081,7 @@ export function Player({
 
   const handlePaused = useCallback(() => {
     setPlaying(false);
+    hostPublishRef.current?.('pause');
     onFlush?.(); // guarda el progreso al pausar
   }, [onFlush]);
 
@@ -2188,6 +2431,24 @@ export function Player({
                   <ListVideo size={20} color="#fff" />
                 </Pressable>
               ) : null}
+              {/* Ver juntos: crea la sala o abre el chat/QR de la actual. */}
+              {watchTogether ? (
+                <Pressable
+                  style={withRing(styles.actionBtn)}
+                  onPress={() => {
+                    if (watchJoin) {
+                      if (Platform.isTV) setQrOpen(true);
+                      else setChatOpen(true);
+                    } else {
+                      void startWatchTogether();
+                    }
+                    showControls();
+                  }}
+                  hitSlop={6}
+                >
+                  <Users size={20} color={watchJoin ? '#86efac' : '#fff'} />
+                </Pressable>
+              ) : null}
               {offlineVideo ? (
                 <View style={styles.actionBtn}>
                   <Check size={20} color="#86efac" />
@@ -2473,6 +2734,46 @@ export function Player({
           }}
         />
       ) : null}
+      {/* "Ver juntos": QR con el chat de la sala para los móviles (TV). */}
+      <WatchTogetherSheet
+        appUrl={
+          watchRoomId ? `onevid://watch/${watchRoomId}?chat=1` : null
+        }
+        onClose={endWatchRoom}
+        title={title}
+        visible={qrOpen}
+      />
+
+      {/* "Ver juntos" en el móvil: chat sobre el vídeo. */}
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setChatOpen(false)}
+        statusBarTranslucent
+        visible={chatOpen}
+      >
+        <WatchPartyChatPanel
+          error={party.error}
+          members={party.members.length}
+          messages={party.messages}
+          onClose={() => setChatOpen(false)}
+          onSend={party.sendMessage}
+          onShare={
+            watchJoin?.isHost
+              ? () => {
+                  const id = watchRoomIdRef.current;
+                  if (!id) return;
+                  void Share.share({
+                    message: `onevid://watch/${id}`,
+                    title: title ?? 'Ver juntos',
+                  });
+                }
+              : undefined
+          }
+          ready={party.ready}
+          sending={party.sending}
+          title={title ?? 'Ver juntos'}
+        />
+      </Modal>
     </>
   );
 }

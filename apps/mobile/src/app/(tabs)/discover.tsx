@@ -276,7 +276,7 @@ export default function DiscoverTab() {
                   style={{ paddingHorizontal: 16 }}
                 >
                   {t(
-                    'No hay títulos para mostrar. Configura Descubrir desde la web.',
+                    'No hay títulos para mostrar. Restaura las filas en Configuración.',
                   )}
                 </Typography>
               ) : null}

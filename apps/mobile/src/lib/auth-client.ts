@@ -1,6 +1,7 @@
 import { expoClient } from '@better-auth/expo/client';
 import {
   GoogleSignin,
+  isCancelledResponse,
   isSuccessResponse,
 } from '@react-native-google-signin/google-signin';
 import { createAuthClient } from 'better-auth/react';
@@ -38,8 +39,13 @@ GoogleSignin.configure({
  * No abre navegador ni página de código. Si la TV no tiene Play Services o
  * Google no está configurado, lanza un error para que la hoja de login ofrezca
  * el código de dispositivo como respaldo.
+ *
+ * Devuelve `cancelled` cuando el usuario cierra la ventana de cuentas de
+ * Google: eso no es un fallo, así que quien llama no debe mostrar un error.
  */
-export async function signInWithGoogle(): Promise<void> {
+export type GoogleSignInResult = 'success' | 'cancelled';
+
+export async function signInWithGoogle(): Promise<GoogleSignInResult> {
   if (Platform.OS === 'android') {
     await GoogleSignin.hasPlayServices({
       showPlayServicesUpdateDialog: true,
@@ -47,8 +53,12 @@ export async function signInWithGoogle(): Promise<void> {
   }
 
   const response = await GoogleSignin.signIn();
+  // Cerrar el selector de cuentas no es un error: el usuario canceló.
+  if (isCancelledResponse(response)) {
+    return 'cancelled';
+  }
   if (!isSuccessResponse(response) || !response.data.idToken) {
-    throw new Error('Google no devolvió un idToken válido.');
+    throw new Error('Vuelve a intentarlo.');
   }
 
   const { error } = await authClient.signIn.social({
@@ -69,4 +79,5 @@ export async function signInWithGoogle(): Promise<void> {
     );
   }
   await saveAccessToken(token);
+  return 'success';
 }

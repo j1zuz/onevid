@@ -1,6 +1,5 @@
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
 import { GlassIcon } from '@/components/glass-icon';
 import { LanguageSheet } from '@/components/language-sheet';
 import { SUPPORTED_LANGUAGES } from '@/lib/i18n/languages';
@@ -16,7 +15,6 @@ import { type ComponentProps, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Alert,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -24,6 +22,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoginOptionsSheet } from '@/components/login-options-sheet';
+import { SettingsSheet } from '@/components/settings-sheet';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { type AppMode, setAppMode } from '@/lib/app-mode';
 import { apiFetch } from '@/lib/api';
@@ -32,7 +31,7 @@ import {
   checkAppUpdate,
   installedAppVersion,
 } from '@/lib/app-update';
-import { API_URL, clearAccessToken } from '@/lib/auth';
+import { clearAccessToken } from '@/lib/auth';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { avatarSource } from '@/lib/avatars';
 import {
@@ -83,6 +82,8 @@ export default function SettingsTab() {
   const mode = surface?.mode;
   // Drawer de login por QR (modo Stream).
   const [loginOpen, setLoginOpen] = useState(false);
+  // Hoja de configuración nativa (calidad, debrid, complementos).
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const updateFocus = useTvFocus();
   const webSettingsFocus = useTvFocus();
@@ -207,19 +208,12 @@ export default function SettingsTab() {
     }
   }, [checkingUpdate, t]);
 
-  // Abre la Configuración completa de Onevid en la web (addons, debrid,
-  // catálogo, perfiles, calidad…). En TV algunos navegadores no soportan
-  // Custom Tabs; si falla, cae al navegador del sistema.
-  const handleOpenWebSettings = useCallback(async () => {
-    const url = `${API_URL}/home/account`;
-    try {
-      await WebBrowser.openBrowserAsync(url);
-    } catch {
-      await Linking.openURL(url).catch(() => {
-        Alert.alert(t('No se pudo abrir el navegador'));
-      });
-    }
-  }, [t]);
+  // Abre la hoja de configuración nativa (calidad de fuentes, debrid,
+  // complementos, Live TV y filas de Descubrir). Antes esto abría
+  // /home/account en el navegador.
+  const handleOpenSettings = useCallback(() => {
+    setSettingsOpen(true);
+  }, []);
 
   // Vuelve a la bienvenida (salir del modo local): deja el modo por defecto
   // para que un arranque en frío vuelva a mostrar la elección de cuenta.
@@ -371,7 +365,7 @@ export default function SettingsTab() {
                 />
                 <Separator className="mx-4" />
                 <ListGroup.Item
-                  onPress={() => void handleOpenWebSettings()}
+                  onPress={handleOpenSettings}
                   {...webSettingsFocus.focusProps}
                   style={tvFocusRing(webSettingsFocus.focused)}
                 >
@@ -380,10 +374,10 @@ export default function SettingsTab() {
                   </ListGroup.ItemPrefix>
                   <ListGroup.ItemContent>
                     <ListGroup.ItemTitle>
-                      {t('Configuración web')}
+                      {t('Configuración')}
                     </ListGroup.ItemTitle>
                     <ListGroup.ItemDescription>
-                      {t('Abre la configuración completa en el navegador.')}
+                      {t('Calidad, debrid y complementos.')}
                     </ListGroup.ItemDescription>
                   </ListGroup.ItemContent>
                   <ListGroup.ItemSuffix />
@@ -493,6 +487,10 @@ export default function SettingsTab() {
         onClose={() => setLoginOpen(false)}
       />
       <LanguageSheet visible={langOpen} onClose={() => setLangOpen(false)} />
+      <SettingsSheet
+        visible={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
     </View>
   );
 }

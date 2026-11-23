@@ -488,7 +488,7 @@ export default function LiveTvTab() {
         <EmptyState
           icon={<Radio size={32} color="#9ca3af" />}
           title="Live TV"
-          description={t('Configura Live TV desde la web para ver tus canales.')}
+          description={t('Configura Live TV en Configuración para ver tus canales.')}
         />
       ) : filtered.length === 0 ? (
         <EmptyState
