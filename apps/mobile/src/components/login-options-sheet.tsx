@@ -1,7 +1,6 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { BottomSheet, Button, Typography, useToast } from 'heroui-native';
-import * as WebBrowser from 'expo-web-browser';
 import { QrCode } from 'lucide-react-native';
 import { type ComponentRef, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,14 +12,15 @@ import {
 import Svg, { Path } from 'react-native-svg';
 import { TvSheet } from '@/components/tv-sheet';
 import { useAppSurface } from '@/hooks/use-app-surface';
-import { useDeviceLogin } from '@/hooks/use-device-login';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
+import { signInWithGoogle } from '@/lib/auth-client';
 
 /**
  * Bottom sheet de "Iniciar sesión" (como el de la web): continuar con Google o
- * activar el dispositivo por código. Google usa el device-flow: abrimos la
- * página de aprobación en el navegador y seguimos haciendo polling hasta que se
- * confirme (ahí es donde se elige la cuenta de Google).
+ * activar el dispositivo por código. Google usa el SDK nativo (móvil y Android
+ * TV): el usuario elige su cuenta en el propio dispositivo y la app valida el
+ * idToken con Better Auth. El código queda como respaldo para TVs sin Play
+ * Services o si Google falla.
  */
 export function LoginOptionsSheet({
   visible,
@@ -47,31 +47,25 @@ export function LoginOptionsSheet({
     router.replace('/profiles');
   }, [onClose, surface]);
 
-  const login = useDeviceLogin(visible, onApproved);
-
   const handleGoogle = useCallback(async () => {
     if (openingBrowser) return;
     setOpeningBrowser(true);
     try {
-      // Reutiliza el código ya pedido al abrir el sheet; si caducó o no llegó,
-      // pide uno nuevo antes de abrir el navegador.
-      const data =
-        login.phase === 'waiting' && login.codeData
-          ? login.codeData
-          : await login.requestCode();
-      if (!data) {
-        toast.show({
-          variant: 'danger',
-          label: t('No pudimos iniciar sesión'),
-          description: t('Revisa tu conexión e intenta de nuevo.'),
-        });
-        return;
-      }
-      await WebBrowser.openBrowserAsync(data.verification_uri_complete);
+      await signInWithGoogle();
+      await onApproved();
+    } catch (e) {
+      toast.show({
+        variant: 'danger',
+        label: t('No pudimos iniciar sesión'),
+        description:
+          e instanceof Error
+            ? e.message
+            : t('Revisa tu conexión e intenta de nuevo.'),
+      });
     } finally {
       setOpeningBrowser(false);
     }
-  }, [login, openingBrowser, t, toast]);
+  }, [onApproved, openingBrowser, t, toast]);
 
   // El código va a la pantalla con QR + código (se aprueba en /device).
   const handleCode = useCallback(() => {

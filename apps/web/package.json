@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@better-auth/api-key": "1.7.15",
+    "@better-auth/expo": "1.7.15",
     "@better-auth/infra": "0.4.25",
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",

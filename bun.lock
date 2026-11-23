@@ -13,10 +13,13 @@
       "name": "onevid",
       "version": "1.0.0",
       "dependencies": {
+        "@better-auth/expo": "1.7.15",
         "@expo/metro-runtime": "~58.0.16",
         "@gorhom/bottom-sheet": "^5.2.14",
         "@posthog/react-native-plugin": "^2.13.0",
+        "@react-native-google-signin/google-signin": "^17.0.0",
         "@tanstack/react-query": "5.105.2",
+        "better-auth": "1.7.15",
         "expo": "~58.0.22",
         "expo-application": "~58.1.2",
         "expo-blur": "~58.0.5",
@@ -35,6 +38,7 @@
         "expo-linking": "~58.0.15",
         "expo-localization": "~58.0.5",
         "expo-navigation-bar": "~58.0.4",
+        "expo-network": "~58.0.4",
         "expo-observe": "~58.0.17",
         "expo-router": "~58.0.29",
         "expo-screen-orientation": "~58.0.3",
@@ -85,6 +89,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@better-auth/api-key": "1.7.15",
+        "@better-auth/expo": "1.7.15",
         "@better-auth/infra": "0.4.25",
         "@emoji-mart/data": "^1.2.1",
         "@emoji-mart/react": "^1.1.1",
@@ -372,6 +377,8 @@
     "@better-auth/core": ["@better-auth/core@1.7.15", "", { "dependencies": { "@standard-schema/spec": "^1.1.0", "zod": "^4.5.4" }, "peerDependencies": { "@better-auth/utils": "^0.4.2 || ^0.5.0", "@better-fetch/fetch": "1.3.3", "@opentelemetry/api": "^1.9.0", "better-call": "1.4.4", "jose": "^6.1.0", "kysely": "^0.28.5 || ^0.29.0", "nanostores": "^1.0.1" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-BetlCGMINY5GiQocDF9X2wD+9yWrSrAecQbcZUCDqXd2pAolPr15ZrFqYyjEXX6YKUdPPWotUmo8naE4NSyEVQ=="],
 
     "@better-auth/drizzle-adapter": ["@better-auth/drizzle-adapter@1.7.15", "", { "peerDependencies": { "@better-auth/core": "^1.7.15", "@better-auth/utils": "^0.4.2 || ^0.5.0", "drizzle-orm": "^0.45.2 || >=1.0.0-rc.1 <2.0.0" }, "optionalPeers": ["drizzle-orm"] }, "sha512-HtFz2WovzJGfmIobhqaHNdTUA5EuXtCp8YdyMxS8at70usce/LMlh4CVc9hPAXl49XuJaDi8vp5Z9Cgk9dQCUA=="],
+
+    "@better-auth/expo": ["@better-auth/expo@1.7.15", "", { "dependencies": { "@better-fetch/fetch": "1.3.3", "better-call": "1.4.4", "zod": "^4.5.4" }, "peerDependencies": { "@better-auth/core": "^1.7.15", "better-auth": "^1.7.15", "expo-constants": ">=17.0.0", "expo-linking": ">=7.0.0", "expo-network": ">=8.0.7", "expo-secure-store": ">=12.5.0", "expo-web-browser": ">=14.0.0" }, "optionalPeers": ["expo-constants", "expo-linking", "expo-network", "expo-secure-store", "expo-web-browser"] }, "sha512-1FyZgypFzZMhCK9c9FNLWPRUZ8xDVWrl5hlo7V5de6zxK8dDHA+Oea3XrhaGnOk0nDMvXvQp4UyQ+ftEwysVgQ=="],
 
     "@better-auth/infra": ["@better-auth/infra@0.4.25", "", { "dependencies": { "@better-auth/utils": "0.5.1", "@better-fetch/fetch": "1.3.3", "@noble/hashes": "^2.2.0", "@xmldom/xmldom": "^0.9.10", "better-call": "1.4.4", "jose": "^6.2.12", "libphonenumber-js": "^1.13.14" }, "peerDependencies": { "@better-auth/core": ">=1.4.0", "@react-native-async-storage/async-storage": ">=1.21.0", "better-auth": ">=1.4.0", "expo-constants": ">=16.0.0", "expo-crypto": ">=13.0.0", "expo-device": ">=6.0.0", "react-native": ">=0.74.0", "zod": ">=4.1.12" }, "optionalPeers": ["@react-native-async-storage/async-storage", "expo-constants", "expo-crypto", "expo-device", "react-native"] }, "sha512-wp94w5pw3WvxZ7IXOVDWvH7yFc86y9c3ddb+fGCu2s2COR3zk5GCJYG6LLQuUY4aBcF3HS0Hlj3WSx+snTJ6pw=="],
 
@@ -1016,6 +1023,8 @@
     "@react-email/text": ["@react-email/text@0.1.6", "", { "peerDependencies": { "react": "^18.0 || ^19.0 || ^19.0.0-rc" } }, "sha512-TYqkioRS45wTR5il3dYk/SbUjjEdhSwh9BtRNB99qNH1pXAwA45H7rAuxehiu8iJQJH0IyIr+6n62gBz9ezmsw=="],
 
     "@react-grab/cli": ["@react-grab/cli@0.2.0", "", { "dependencies": { "agent-install": "^0.0.6", "commander": "^14.0.3", "ignore": "^7.0.5", "ora": "^9.4.0", "package-manager-detector": "^1.6.0", "picocolors": "^1.1.1", "prompts": "^2.4.2", "tinyexec": "^1.1.2" }, "bin": { "react-grab": "bin/cli.js" } }, "sha512-LVfA+j5cFT0Szd958WRD8W/B8ucCtz4ViiveDKWLqAwBkZFW9VRW1ZvwOUhp/M3SmVPtjDaRkW12GvAuTArP+Q=="],
+
+    "@react-native-google-signin/google-signin": ["@react-native-google-signin/google-signin@17.0.0", "", { "peerDependencies": { "expo": ">=52.0.40", "react": "*", "react-native": "*" }, "optionalPeers": ["expo"] }, "sha512-FAnq5tkoq01np7jCzGjBYK1QPS61hJxjLJHJyJjQN3gaTwAZiGll18Xn3nygITMsZ/WoJ0jmskuHSG/oknUskQ=="],
 
     "@react-native-masked-view/masked-view": ["@react-native-masked-view/masked-view@0.3.2", "", { "peerDependencies": { "react": ">=16", "react-native": ">=0.57" } }, "sha512-XwuQoW7/GEgWRMovOQtX3A4PrXhyaZm0lVUiY8qJDvdngjLms9Cpdck6SmGAUNqQwcj2EadHC1HwL0bEyoa/SQ=="],
 
@@ -1896,6 +1905,8 @@
     "expo-modules-macros": ["expo-modules-macros@0.27.1", "", { "optionalDependencies": { "@expo/modules-macros-linux-arm64": "0.27.1", "@expo/modules-macros-linux-x64": "0.27.1", "@expo/modules-macros-win32-arm64": "0.27.1", "@expo/modules-macros-win32-x64": "0.27.1" } }, "sha512-xWNI+LpK4Pdmj52ygNYlxefZDhw4mpe6s5yVCLXpqtOyU3PPrFGJJJnDyBpOsOv+mXiYLeaszEEJEpDKBObZ7A=="],
 
     "expo-navigation-bar": ["expo-navigation-bar@58.0.4", "", { "dependencies": { "debug": "^4.3.2" }, "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-XO1Ljy9MlmVLYlmIGUNHxTCcHN8TjlbYQnf+jqjoxpbPxDCXDCSaX0+F7rKh0G4CUehKsfoebbMO/VIy87qSqg=="],
+
+    "expo-network": ["expo-network@58.0.5", "", { "peerDependencies": { "expo": "*", "react": "*" } }, "sha512-/0F4WsFgJK9/wBzVd8ai/tUHpOROG3dbI4Azu89PQZnC7uohmm7/ruwK5VaTBumPh3hBMANXnww3WFAaMA1gOA=="],
 
     "expo-observe": ["expo-observe@58.0.17", "", { "dependencies": { "expo-app-metrics": "~58.0.14", "expo-eas-client": "~58.0.2" }, "peerDependencies": { "@react-navigation/native": "^7.0.0", "expo": "*", "expo-router": "*", "react": "*", "react-native": "*", "react-native-reanimated": ">=4.7.0" }, "optionalPeers": ["@react-navigation/native", "expo-router", "react-native-reanimated"] }, "sha512-enbT6vRiVniSob5WzOX+TkascY8Gz9RBH1h5p5X+fZr0sQq3Nf3mt/wbyw2vbG/fUsonW8IIOEjf1Cxxqh6dLw=="],
 
@@ -3228,6 +3239,8 @@
     "@better-auth/api-key/zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
 
     "@better-auth/core/zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
+
+    "@better-auth/expo/zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
 
     "@better-auth/infra/zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
 
