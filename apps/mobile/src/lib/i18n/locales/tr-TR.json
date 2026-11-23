@@ -73,5 +73,8 @@
   "Usuario": "Kullanıcı adı",
   "Ver después": "Sonra izle",
   "Ya lo configuré": "Zaten ayarladım",
-  "o": "veya"
+  "o": "veya",
+  "Configuración web": "Web ayarları",
+  "Abre la configuración completa en el navegador.": "Tam ayarları tarayıcıda açın.",
+  "No se pudo abrir el navegador": "Tarayıcı açılamadı"
 }

@@ -73,5 +73,8 @@
   "Usuario": "Nama pengguna",
   "Ver después": "Tonton nanti",
   "Ya lo configuré": "Saya sudah menyiapkannya",
-  "o": "atau"
+  "o": "atau",
+  "Configuración web": "Pengaturan web",
+  "Abre la configuración completa en el navegador.": "Buka pengaturan lengkap di browser.",
+  "No se pudo abrir el navegador": "Tidak dapat membuka browser"
 }

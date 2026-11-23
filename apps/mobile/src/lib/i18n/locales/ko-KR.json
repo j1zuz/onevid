@@ -73,5 +73,8 @@
   "Usuario": "사용자 이름",
   "Ver después": "나중에 보기",
   "Ya lo configuré": "이미 설정했습니다",
-  "o": "또는"
+  "o": "또는",
+  "Configuración web": "웹 설정",
+  "Abre la configuración completa en el navegador.": "브라우저에서 전체 설정을 엽니다.",
+  "No se pudo abrir el navegador": "브라우저를 열 수 없습니다"
 }

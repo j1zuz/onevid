@@ -139,5 +139,8 @@
   "Más tarde": "Later",
   "Versión": "Version",
   "Instalador abierto. Confirma la instalación.": "Installer opened. Confirm the installation.",
-  "Abrimos la descarga en el navegador.": "We opened the download in your browser."
+  "Abrimos la descarga en el navegador.": "We opened the download in your browser.",
+  "Configuración web": "Web settings",
+  "Abre la configuración completa en el navegador.": "Open the full settings in your browser.",
+  "No se pudo abrir el navegador": "Could not open the browser"
 }

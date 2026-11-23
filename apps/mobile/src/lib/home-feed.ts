@@ -1,6 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
-import { Platform } from 'react-native';
 import type { ContinueWatchingItem } from '@/components/home/continue-watching-row';
 import {
   apiFetch,
@@ -50,29 +49,25 @@ export const continueWatchingQuery = (lang: string) => ({
     ),
 });
 
-export function prefetchMediaImages(items: MediaMeta[], limit = 12): void {
+export function prefetchMediaImages(items: MediaMeta[], limit = 16): void {
   const urls = items
-    .map((it) => tmdbImage(it.background ?? it.poster, 'w500'))
+    .map((it) => tmdbImage(it.background ?? it.poster, 'w780'))
     .filter((u): u is string => Boolean(u))
     .slice(0, limit);
   if (urls.length > 0) {
-    // `disk`, no `memory-disk`: descarga sin retener bitmaps decodificados en
-    // RAM. El `Image` los decodifica al montarse. En un 2 GB, precargar 12
-    // imágenes en memoria durante el arranque era un pico innecesario.
-    Image.prefetch(urls, { cachePolicy: 'disk' }).catch(() => undefined);
+    Image.prefetch(urls, { cachePolicy: 'memory-disk' }).catch(() => undefined);
   }
 }
 
 /** Precarga las carátulas del hero (lo primero que se ve al entrar). */
 export async function prefetchHeroImages(items: MediaMeta[]): Promise<void> {
-  // Mismo tamaño que renderiza HeroCarousel: `w780` en móvil, `w1280` en TV.
-  // Antes se precargaba `w780` y el móvil renderizaba `w1280` → dos descargas.
-  const size = Platform.isTV ? 'w1280' : 'w780';
   const urls = items
-    .map((it) => tmdbImage(it.background ?? it.poster, size))
+    .map((it) => tmdbImage(it.background ?? it.poster, 'w780'))
     .filter((u): u is string => Boolean(u));
   if (urls.length === 0) return;
-  await Image.prefetch(urls, { cachePolicy: 'disk' }).catch(() => undefined);
+  await Image.prefetch(urls, { cachePolicy: 'memory-disk' }).catch(
+    () => undefined,
+  );
 }
 
 /** Precarga las primeras carátulas de cada fila (después del hero). */

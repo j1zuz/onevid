@@ -121,5 +121,8 @@
   "Más tarde": "Más tarde",
   "Versión": "Versión",
   "Instalador abierto. Confirma la instalación.": "Instalador abierto. Confirma la instalación.",
-  "Abrimos la descarga en el navegador.": "Abrimos la descarga en el navegador."
+  "Abrimos la descarga en el navegador.": "Abrimos la descarga en el navegador.",
+  "Configuración web": "Configuración web",
+  "Abre la configuración completa en el navegador.": "Abre la configuración completa en el navegador.",
+  "No se pudo abrir el navegador": "No se pudo abrir el navegador"
 }

@@ -73,5 +73,8 @@
   "Usuario": "Nom d'utilisateur",
   "Ver después": "Voir plus tard",
   "Ya lo configuré": "Je l'ai déjà configuré",
-  "o": "ou"
+  "o": "ou",
+  "Configuración web": "Paramètres web",
+  "Abre la configuración completa en el navegador.": "Ouvrez la configuration complète dans votre navigateur.",
+  "No se pudo abrir el navegador": "Impossible d'ouvrir le navigateur"
 }

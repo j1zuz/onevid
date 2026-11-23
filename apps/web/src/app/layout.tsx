@@ -36,20 +36,6 @@ export const metadata: Metadata = {
   },
   description: "Reproductor de video",
   metadataBase: new URL("https://onevid.hackw.tech"),
-  icons: {
-    icon: [
-      { url: "/onevid-pwa-192.png", sizes: "192x192", type: "image/png" },
-      { url: "/onevid-pwa-512.png", sizes: "512x512", type: "image/png" },
-    ],
-    apple: [
-      {
-        url: "/onevid-apple-touch-180.png",
-        sizes: "180x180",
-        type: "image/png",
-      },
-    ],
-    shortcut: ["/onevid-pwa-192.png"],
-  },
   openGraph: {
     type: "website",
     title: "Onevid",

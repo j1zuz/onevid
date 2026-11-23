@@ -73,5 +73,8 @@
   "Usuario": "उपयोगकर्ता नाम",
   "Ver después": "बाद में देखें",
   "Ya lo configuré": "मैंने इसे पहले ही सेट कर लिया है",
-  "o": "या"
+  "o": "या",
+  "Configuración web": "वेब सेटिंग्स",
+  "Abre la configuración completa en el navegador.": "ब्राउज़र में पूरी सेटिंग्स खोलें।",
+  "No se pudo abrir el navegador": "ब्राउज़र नहीं खोल सका"
 }

@@ -73,5 +73,8 @@
   "Usuario": "ユーザー名",
   "Ver después": "後で見る",
   "Ya lo configuré": "設定済みです",
-  "o": "または"
+  "o": "または",
+  "Configuración web": "ウェブ設定",
+  "Abre la configuración completa en el navegador.": "ブラウザで完全な設定を開きます。",
+  "No se pudo abrir el navegador": "ブラウザを開けませんでした"
 }
