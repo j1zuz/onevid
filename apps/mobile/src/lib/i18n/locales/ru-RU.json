@@ -73,5 +73,8 @@
   "Usuario": "Имя пользователя",
   "Ver después": "Посмотреть позже",
   "Ya lo configuré": "Я уже настроил(а)",
-  "o": "или"
+  "o": "или",
+  "Configuración web": "Веб-настройки",
+  "Abre la configuración completa en el navegador.": "Откройте полные настройки в браузере.",
+  "No se pudo abrir el navegador": "Не удалось открыть браузер"
 }

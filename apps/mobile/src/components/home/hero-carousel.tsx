@@ -155,12 +155,11 @@ function HeroSlide({
   // En TV alineamos el contenido a la izquierda (estilo Netflix/Apple TV) y
   // mostramos la sinopsis. En móvil se mantiene centrado y sin descripción.
   const isTV = Platform.isTV;
-  // `w1280` en TV y `w780` en móvil. Antes TV pedía 'original': un backdrop 4K
-  // decodificado en ARGB son ~33 MB por slide y en un TV barato de 2 GB podía
-  // tirar la app. `w1280` se ve bien a 1080p y pesa una fracción. El
-  // placeholder 'w185' se muestra al instante mientras carga la versión grande
-  // (evita hero en negro si el reproductor desaloja las imágenes de RAM).
-  const bg = tmdbImage(item.background ?? item.poster, isTV ? 'w1280' : 'w780');
+  // En TV pedimos el backdrop en 'original' (pantalla grande, se agradece la
+  // máxima calidad); en móvil 'w1280' basta. El placeholder 'w185' se muestra
+  // al instante mientras carga la versión grande (evita hero en negro si el
+  // reproductor desaloja las imágenes grandes de RAM en gama baja).
+  const bg = tmdbImage(item.background ?? item.poster, isTV ? 'original' : 'w1280');
   const lowRes = tmdbImage(item.background ?? item.poster, 'w185');
   // Logo del título (imagen tipográfica de TMDB) en vez del nombre en texto.
   // El catálogo no trae logo, así que lo pedimos aparte y lo cacheamos por
@@ -185,9 +184,6 @@ function HeroSlide({
           contentFit="cover"
           transition={200}
           cachePolicy="memory-disk"
-          // RGB_565 en Android: la mitad de RAM por bitmap. El hero no tiene
-          // transparencia, así que no hay pérdida visible de alfa.
-          decodeFormat="rgb"
           style={{ width: '100%', height: '100%' }}
         />
       ) : (

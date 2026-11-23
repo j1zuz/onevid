@@ -1,5 +1,6 @@
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { GlassIcon } from '@/components/glass-icon';
 import { LanguageSheet } from '@/components/language-sheet';
 import { SUPPORTED_LANGUAGES } from '@/lib/i18n/languages';
@@ -13,7 +14,14 @@ import {
 } from 'heroui-native';
 import { type ComponentProps, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Platform, Pressable, ScrollView, View } from 'react-native';
+import {
+  Alert,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoginOptionsSheet } from '@/components/login-options-sheet';
 import { useAppSurface } from '@/hooks/use-app-surface';
@@ -24,7 +32,7 @@ import {
   checkAppUpdate,
   installedAppVersion,
 } from '@/lib/app-update';
-import { clearAccessToken } from '@/lib/auth';
+import { API_URL, clearAccessToken } from '@/lib/auth';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import { avatarSource } from '@/lib/avatars';
 import {
@@ -77,6 +85,7 @@ export default function SettingsTab() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const updateFocus = useTvFocus();
+  const webSettingsFocus = useTvFocus();
 
   // El perfil activo se carga aparte: copia local al instante y, con red,
   // contraste con el backend (el avatar o el nombre pueden haberse cambiado
@@ -197,6 +206,20 @@ export default function SettingsTab() {
       setCheckingUpdate(false);
     }
   }, [checkingUpdate, t]);
+
+  // Abre la Configuración completa de Onevid en la web (addons, debrid,
+  // catálogo, perfiles, calidad…). En TV algunos navegadores no soportan
+  // Custom Tabs; si falla, cae al navegador del sistema.
+  const handleOpenWebSettings = useCallback(async () => {
+    const url = `${API_URL}/home/account`;
+    try {
+      await WebBrowser.openBrowserAsync(url);
+    } catch {
+      await Linking.openURL(url).catch(() => {
+        Alert.alert(t('No se pudo abrir el navegador'));
+      });
+    }
+  }, [t]);
 
   // Vuelve a la bienvenida (salir del modo local): deja el modo por defecto
   // para que un arranque en frío vuelva a mostrar la elección de cuenta.
@@ -346,6 +369,25 @@ export default function SettingsTab() {
                   label={currentLanguageLabel}
                   onPress={() => setLangOpen(true)}
                 />
+                <Separator className="mx-4" />
+                <ListGroup.Item
+                  onPress={() => void handleOpenWebSettings()}
+                  {...webSettingsFocus.focusProps}
+                  style={tvFocusRing(webSettingsFocus.focused)}
+                >
+                  <ListGroup.ItemPrefix>
+                    <GlassIcon name="circle-arrow-right" size={24} />
+                  </ListGroup.ItemPrefix>
+                  <ListGroup.ItemContent>
+                    <ListGroup.ItemTitle>
+                      {t('Configuración web')}
+                    </ListGroup.ItemTitle>
+                    <ListGroup.ItemDescription>
+                      {t('Abre la configuración completa en el navegador.')}
+                    </ListGroup.ItemDescription>
+                  </ListGroup.ItemContent>
+                  <ListGroup.ItemSuffix />
+                </ListGroup.Item>
               </ListGroup>
             ) : null}
 

@@ -7,7 +7,6 @@ import { PosterCard } from '@/components/poster-card';
 import { useResponsive } from '@/hooks/use-responsive';
 import { useTvFocus, tvFocusRing } from '@/hooks/use-tv-focus';
 import type { MediaMeta } from '@/lib/api';
-import { useLowMemory } from '@/lib/device-capabilities';
 import { navigateToCatalog, parseFeedHref } from '@/lib/catalog-nav';
 import { COLORS } from '@/lib/theme';
 import { useWatchState } from '@/lib/watch-state';
@@ -41,13 +40,11 @@ export function PosterRow({
   // Tarjetas horizontales (16/9) del mismo tamaño que "Continuar viendo"
   // (rowCardWidth), para que todas las filas de catálogo se vean consistentes.
   const { rowCardWidth } = useResponsive();
-  const lowMemory = useLowMemory();
   const watchState = useWatchState();
   const cardAspectRatio = 16 / 9;
   const CARD_WIDTH = rowCardWidth;
-  // Solo las primeras 8/10; el botón "Ver todos" lleva a la grilla completa.
-  // En gama baja montamos 8 para reducir bitmaps vivos sin dejar la fila vacía.
-  const shown = items.slice(0, lowMemory ? 8 : ROW_ITEM_CAP);
+  // Solo las primeras 10; el botón "Ver todos" lleva a la grilla completa.
+  const shown = items.slice(0, ROW_ITEM_CAP);
   const rowParams = href ? parseFeedHref(href) : null;
   const renderItem = useCallback(
     ({ item }: { item: MediaMeta }) => (
