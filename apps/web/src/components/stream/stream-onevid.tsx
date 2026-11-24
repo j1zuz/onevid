@@ -243,6 +243,11 @@ interface StreamOnevidProps {
   directSource?: StreamWithAddon | null;
   /** Item de un catálogo de addon con id propio: sin TMDB, logo ni siguiente episodio. */
   isAddon?: boolean;
+  /**
+   * Ya hay imagen reproducible, o el intento falló. Lo usa el gate del magnet
+   * para quitar su cartel de carga y dejar ver el player (o su error).
+   */
+  onReady?: () => void;
   /** Sala de watch party a la que pertenece este reproductor. */
   onWatchRoomLeave?: () => void;
   rawId: string;
@@ -265,6 +270,7 @@ export function StreamOnevid({
   contentLogo,
   directSource,
   isAddon = false,
+  onReady,
   onWatchRoomLeave,
   rawId,
   watchPartyJoining = false,
@@ -370,6 +376,12 @@ export function StreamOnevid({
     : "";
   const sourceCodecHint =
     typeof selectedSource?.title === "string" ? selectedSource.title : "";
+  // Los magnets (pegados o de un addon) se reproducen a través de nuestro
+  // endpoint de debrid. Si ese endpoint falla, MediaBunny solo ve un 502 y el
+  // mensaje genérico manda a culpar al archivo; apuntamos a la cuenta debrid.
+  const isDebridResolveSource = Boolean(
+    sourceUrl && /\/api\/(?:torbox|real-debrid)\/resolve\b/.test(sourceUrl)
+  );
   const loadOfflineMedia = useCallback(async () => {
     const file = await getOfflineMediaFile(offlineKey);
     // Al terminar la descarga la fuente pasa al blob de OPFS y el <video> se
@@ -486,6 +498,15 @@ export function StreamOnevid({
   }
   const mediaBunnyError =
     mediaBunny.status === "error" ? mediaBunny.message : null;
+
+  // Avisa al gate del magnet cuándo dejar de tapar el player. Se cubren tanto
+  // el camino feliz (primer frame disponible) como los fallos: si no, el cartel
+  // de "Cargando…" se quedaría encima del error sin dejar leerlo.
+  useEffect(() => {
+    if (canPlay || playbackError || mixedContentBlocked || mediaBunnyError) {
+      onReady?.();
+    }
+  }, [canPlay, mediaBunnyError, mixedContentBlocked, onReady, playbackError]);
 
   // El pill de controles lo pinta la skin y no se puede componer desde fuera,
   // así que metemos nuestros selectores DENTRO con un portal: mismo tamaño de
@@ -1678,7 +1699,9 @@ export function StreamOnevid({
                   : (playbackError ??
                     (mediaBunny.status === "error"
                       ? t(
-                          "No se pudo reproducir esta fuente. Puedes reintentar o elegir otra.",
+                          isDebridResolveSource
+                            ? "No se pudo resolver la fuente. Revisa tu API key en Configuración o reintenta."
+                            : "No se pudo reproducir esta fuente. Puedes reintentar o elegir otra.",
                         )
                       : ""))}
             </p>

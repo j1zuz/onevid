@@ -1,6 +1,6 @@
 // @ts-expect-error -- Bun provides this runner at runtime; this repo does not install Bun type declarations.
 import { afterEach, describe, expect, test } from "bun:test";
-import { normalizeInfoHash, resolveTorboxStream } from "./torbox";
+import { normalizeInfoHash, resolveTorboxStream, validateTorboxKey } from "./torbox";
 
 const HEX = "0123456789abcdef0123456789abcdef01234567";
 const BASE32 = "AERUKZ4JVPG66AJDIVTYTK6N54ASGRLH";
@@ -283,5 +283,73 @@ describe("resolveTorboxStream", () => {
     const result = await resolveTorboxStream({ apiKey: "k", magnet: MAGNET });
 
     expect(result.status).toBe("unavailable");
+  });
+
+  test("una API key rechazada devuelve el motivo, no un unavailable mudo", async () => {
+    mockFetch([
+      {
+        match: isList,
+        status: 403,
+        body: {
+          success: false,
+          error: "AUTH_ERROR",
+          detail: "An error occurred while verifying your token.",
+        },
+      },
+    ]);
+
+    const result = await resolveTorboxStream({ apiKey: "k", magnet: MAGNET });
+
+    expect(result.status).toBe("unavailable");
+    if (result.status !== "unavailable") throw new Error("esperaba unavailable");
+    expect(result.reason).toContain("API key");
+  });
+});
+
+describe("validateTorboxKey", () => {
+  test("marca válida una key que TorBox acepta", async () => {
+    mockFetch([
+      {
+        match: (url, method) => method === "GET" && url.includes("/user/me"),
+        body: { success: true, error: null, data: { plan: 1 } },
+      },
+    ]);
+
+    const result = await validateTorboxKey("k");
+
+    expect(result.status).toBe("valid");
+    expect(result.plan).toBe(1);
+  });
+
+  test("marca inválida una key revocada (403 AUTH_ERROR)", async () => {
+    mockFetch([
+      {
+        match: (url, method) => method === "GET" && url.includes("/user/me"),
+        status: 403,
+        body: {
+          success: false,
+          error: "AUTH_ERROR",
+          detail: "An error occurred while verifying your token.",
+        },
+      },
+    ]);
+
+    const result = await validateTorboxKey("k");
+
+    expect(result.status).toBe("invalid");
+  });
+
+  test("no confunde una caída de TorBox con una key inválida", async () => {
+    mockFetch([
+      {
+        match: (url, method) => method === "GET" && url.includes("/user/me"),
+        status: 503,
+        body: { success: false, error: "DATABASE_ERROR", detail: "down" },
+      },
+    ]);
+
+    const result = await validateTorboxKey("k");
+
+    expect(result.status).toBe("unreachable");
   });
 });

@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { checkRateLimitDb } from "@/lib/rate-limit-db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { encryptSecret, encryptionAvailable } from "@/lib/secret-box";
+import { validateTorboxKey } from "@/lib/torbox";
 
 const MAX_TORBOX_KEY_LENGTH = 512;
 
@@ -57,6 +58,18 @@ export async function POST(request: Request) {
   }
   if (/[\u0000-\u001f\u007f]/.test(key)) {
     return Response.json({ error: "API key inválida" }, { status: 400 });
+  }
+
+  // Antes cualquier token se guardaba: uno vencido quedaba "conectado" y el
+  // fallo salía recién al reproducir, como un 502 sin explicación. Si TorBox
+  // no se puede alcanzar no se bloquea el guardado (puede ser un corte
+  // temporal); solo se rechaza cuando TorBox responde que el token no vale.
+  const validation = await validateTorboxKey(key);
+  if (validation.status === "invalid") {
+    return Response.json(
+      { error: "La API key ha expirado o no es válida." },
+      { status: 400 }
+    );
   }
 
   // No se guarda una credencial si el cifrado no está configurado: el fallback
