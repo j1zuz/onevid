@@ -2,8 +2,7 @@ import type { Metadata } from "next";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { MagnetConsentGate } from "@/components/stream/magnet-consent-gate";
-import { StreamOnevid } from "@/components/stream/stream-onevid";
+import { MagnetPlayer } from "@/components/stream/magnet-player";
 import { auth } from "@/lib/auth";
 import { oneVid } from "@/lib/auth-schema";
 import { db } from "@/lib/db";
@@ -13,6 +12,8 @@ import {
   magnetDisplayName,
   magnetInfoHash,
 } from "@/lib/magnet";
+import { readTorboxKey } from "@/lib/secret-box";
+import { validateTorboxKey } from "@/lib/torbox";
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: "Reproducir magnet" };
@@ -60,23 +61,46 @@ export default async function MagnetPlayerPage({
     hasTorbox: Boolean(row?.torboxApiKey),
     hasRealDebrid: Boolean(row?.realDebridApiKey),
   });
+  const hasProviderKey =
+    provider === "realdebrid"
+      ? Boolean(row?.realDebridApiKey)
+      : Boolean(row?.torboxApiKey);
+
+  // Un magnet solo se puede resolver con la cuenta debrid del usuario. Si la
+  // key ya no existe o TorBox la rechaza, el player mostraría "no se pudo
+  // reproducir esta fuente" y mandaría a culpar al magnet. Se comprueba antes
+  // de montarlo para explicar el motivo real (key vencida/revocada).
+  let accessProblem: {
+    action: string;
+    href: string;
+    message: string;
+  } | null = null;
+  if (!hasProviderKey) {
+    accessProblem = {
+      message: "No hay una API key conectada.",
+      action: "Conectar cuenta",
+      href: "/home/account?view=catalog",
+    };
+  } else if (provider === "torbox") {
+    const torboxKey = readTorboxKey(row?.torboxApiKey);
+    if (torboxKey) {
+      const validation = await validateTorboxKey(torboxKey);
+      if (validation.status === "invalid") {
+        accessProblem = {
+          message: "La API key guardada ha expirado.",
+          action: "Actualizar API key",
+          href: "/home/account?view=catalog",
+        };
+      }
+    }
+  }
 
   return (
-    <MagnetConsentGate title={displayName}>
-      <StreamOnevid
-        contentId={hash}
-        contentTitle={displayName}
-        contentType="movie"
-        directSource={{
-          addonId: "magnet",
-          addonName: "Magnet link",
-          sourceIndex: 0,
-          title: displayName,
-          url: `${debridResolvePath(provider)}?magnet=${encodeURIComponent(magnetValue)}&redirect=final`,
-        }}
-        key={magnetValue}
-        rawId={hash}
-      />
-    </MagnetConsentGate>
+    <MagnetPlayer
+      contentId={hash}
+      displayName={displayName}
+      error={accessProblem}
+      resolveUrl={`${debridResolvePath(provider)}?magnet=${encodeURIComponent(magnetValue)}&redirect=final`}
+    />
   );
 }

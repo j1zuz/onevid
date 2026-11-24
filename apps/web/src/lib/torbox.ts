@@ -17,6 +17,115 @@ const MAIN_BASE = "https://api.torbox.app/v1/api";
 
 const VIDEO_EXT_RE = /\.(mp4|mkv|webm|avi|mov|m4v|ts|flv|m3u8)$/i;
 
+export type TorboxKeyStatus = "valid" | "invalid" | "unreachable";
+
+export interface TorboxKeyInfo {
+  /** Mensaje que dio TorBox, si lo hubo. No incluye credenciales. */
+  detail: string | null;
+  /** Plan de la cuenta (0 Free, 1 Essential, …), si TorBox lo devolvió. */
+  plan: number | null;
+  status: TorboxKeyStatus;
+}
+
+/**
+ * La API key existe pero TorBox la rechaza (401/403). Se distingue del resto de
+ * fallos para no decirle al usuario "fuente rota" cuando lo que falla es la
+ * cuenta: el reproductor necesita ese motivo para mandarlo a Configuración.
+ */
+class TorboxAuthError extends Error {
+  constructor(detail: string) {
+    super(detail);
+    this.name = "TorboxAuthError";
+  }
+}
+
+interface TorboxErrorEnvelope {
+  data?: unknown;
+  detail?: unknown;
+  error?: unknown;
+  success?: unknown;
+}
+
+async function throwIfTorboxAuthFailure(res: Response): Promise<void> {
+  if (res.status !== 401 && res.status !== 403) {
+    return;
+  }
+  const body = (await res
+    .clone()
+    .json()
+    .catch(() => null)) as TorboxErrorEnvelope | null;
+  const code = typeof body?.error === "string" ? body.error : "";
+  // TorBox responde 401 para tokens con formato inválido y 403 AUTH_ERROR
+  // cuando la verificación del token falla (token revocado/vencido).
+  if (res.status === 401 || code === "BAD_TOKEN" || code === "AUTH_ERROR") {
+    const detail =
+      typeof body?.detail === "string" && body.detail.trim()
+        ? body.detail.trim()
+        : "TorBox rechazó la API key";
+    throw new TorboxAuthError(detail);
+  }
+}
+
+/**
+ * Comprueba la API key contra `GET /user/me` antes de guardarla. Antes de esto
+ * cualquier token se aceptaba: una key vencida quedaba "conectada" y el fallo
+ * aparecía recién al reproducir, como un 502 sin explicación.
+ *
+ * `unreachable` (red caída, 5xx de TorBox) NO significa key inválida: el
+ * llamador puede decidir guardarla igual y reintentar más tarde.
+ */
+export async function validateTorboxKey(
+  apiKey: string
+): Promise<TorboxKeyInfo> {
+  try {
+    const res = await safeFetch(
+      `${MAIN_BASE}/user/me`,
+      {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+          authorization: `Bearer ${apiKey}`,
+        },
+      },
+      // Es una comprobación de UI: no debe colgar la página 10 s si TorBox no
+      // responde (en ese caso se trata como "unreachable" y no se bloquea).
+      { timeoutMs: 4_000 }
+    );
+    const body = (await res
+      .json()
+      .catch(() => null)) as TorboxErrorEnvelope | null;
+    const detail =
+      typeof body?.detail === "string" && body.detail.trim()
+        ? body.detail.trim()
+        : null;
+
+    if (res.ok && body?.success !== false) {
+      const data =
+        body?.data && typeof body.data === "object"
+          ? (body.data as { plan?: unknown })
+          : null;
+      return {
+        status: "valid",
+        detail: null,
+        plan: typeof data?.plan === "number" ? data.plan : null,
+      };
+    }
+
+    const code = typeof body?.error === "string" ? body.error : "";
+    if (
+      res.status === 401 ||
+      res.status === 403 ||
+      code === "BAD_TOKEN" ||
+      code === "AUTH_ERROR"
+    ) {
+      return { status: "invalid", detail, plan: null };
+    }
+    return { status: "unreachable", detail, plan: null };
+  } catch {
+    return { status: "unreachable", detail: null, plan: null };
+  }
+}
+
 export interface ResolvedStream {
   fileName?: string;
   fileSize?: number;
@@ -152,6 +261,7 @@ async function mylist(
     { maxBodyBytes: 2 * 1024 * 1024 }
   );
   if (!res.ok) {
+    await throwIfTorboxAuthFailure(res);
     return [];
   }
   const data = (await res.json().catch(() => ({}))) as MylistEnvelope;
@@ -232,6 +342,7 @@ async function createTorrentFromMagnet(
     body,
   });
   if (!res.ok) {
+    await throwIfTorboxAuthFailure(res);
     return null;
   }
   const data = (await res.json().catch(() => ({}))) as CreateTorrentEnvelope;
@@ -256,6 +367,7 @@ async function requestDownloadUrl(
     headers: { accept: "application/json" },
   });
   if (!res.ok) {
+    await throwIfTorboxAuthFailure(res);
     return null;
   }
   const data = (await res.json().catch(() => ({}))) as RequestDlEnvelope;
@@ -280,6 +392,25 @@ export async function resolveTorboxStream(params: {
   apiKey: string;
   magnet: string;
 }): Promise<TorboxStreamResult> {
+  try {
+    return await resolveTorboxStreamUnchecked(params);
+  } catch (error) {
+    if (error instanceof TorboxAuthError) {
+      // El motivo viaja al endpoint y de ahí a la UI: "conecta tu cuenta" no
+      // se puede deducir de un 502.
+      return {
+        status: "unavailable",
+        reason: "La API key de debrid fue rechazada (token vencido o revocado)",
+      };
+    }
+    throw error;
+  }
+}
+
+async function resolveTorboxStreamUnchecked(params: {
+  apiKey: string;
+  magnet: string;
+}): Promise<TorboxStreamResult> {
   const { apiKey, magnet } = params;
   const rawHash = magnetInfoHash(magnet);
   const infoHash = rawHash ? normalizeInfoHash(rawHash) : null;
@@ -292,7 +423,11 @@ export async function resolveTorboxStream(params: {
       // Puede haber fallado justo por duplicado (carrera con otra pestaña).
       torrent = infoHash ? await findTorrentByHash(apiKey, infoHash) : null;
       if (!torrent) {
-        return { status: "unavailable" };
+        return {
+          status: "unavailable",
+          reason:
+            "TorBox no pudo agregar el magnet (puede no tener fuentes o exceder el límite de descargas activas)",
+        };
       }
     } else {
       torrent = await getTorrent(apiKey, createdId);
@@ -335,7 +470,10 @@ export async function resolveTorboxStream(params: {
   // Sin archivo servible: si TorBox todavía está bajándolo es `preparing`; si
   // ya terminó y aun así no hay link, es un fallo real.
   return readiness.ready
-    ? { status: "unavailable" }
+    ? {
+        status: "unavailable",
+        reason: "TorBox terminó el torrent pero no entregó un link reproducible",
+      }
     : {
         status: "preparing",
         progress: readiness.progress,

@@ -170,8 +170,13 @@ export async function GET(request: Request) {
   }
 
   if (!resolved || resolved.status === "unavailable") {
+    const reason =
+      resolved && resolved.status === "unavailable" ? resolved.reason : undefined;
+    if (reason) {
+      console.warn("torbox resolve unavailable", reason);
+    }
     return Response.json(
-      { error: "No se pudo resolver el stream" },
+      { error: reason ?? "No se pudo resolver el stream" },
       { status: 502 }
     );
   }

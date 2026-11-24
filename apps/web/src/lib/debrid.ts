@@ -40,7 +40,15 @@ export interface ResolvedDebridStream {
 export type DebridStreamResult =
   | { progress: number | null; state: string | null; status: "preparing" }
   | { status: "ready"; stream: ResolvedDebridStream }
-  | { status: "unavailable" };
+  | {
+      status: "unavailable";
+      /**
+       * Motivo legible cuando el proveedor rechazó la petición (p. ej. la API
+       * key expiró). Sin esto el player solo ve un 502 y lo muestra como
+       * "fuente rota", que manda al usuario a buscar el problema donde no está.
+       */
+      reason?: string;
+    };
 
 export function normalizeDebridProvider(
   value: unknown
