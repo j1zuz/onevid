@@ -43,6 +43,9 @@ export const session = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    // Tienda activa del plugin organization de store.hackw.tech. Esta app no la
+    // usa; se declara para que `drizzle-kit push` no la borre.
+    activeOrganizationId: text("active_organization_id"),
   },
   (table) => [index("session_userId_idx").on(table.userId)]
 );
