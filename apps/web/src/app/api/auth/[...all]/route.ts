@@ -70,5 +70,27 @@ export async function POST(request: Request): Promise<Response> {
     if (!limit.ok) return rateLimitResponse(limit.retryAfter);
   }
 
+  // El flujo de dispositivo lo usan clientes nativos, que no mandan `Origin`.
+  // Si el almacén de cookies del sistema conserva una sesión vieja (p. ej. la
+  // que dejó el WebView de Configuración), Better Auth ve una cookie, exige un
+  // Origin para protegerse de CSRF y responde 403 MISSING_OR_NULL_ORIGIN: el
+  // login por código fallaba solo en los dispositivos con esa cookie. Estos
+  // dos endpoints no autentican por cookie (devuelven/leen un Bearer), así que
+  // se les quita la cookie antes de llegar a Better Auth.
+  if (
+    pathname.endsWith("/device/code") ||
+    pathname.endsWith("/device/token")
+  ) {
+    // Clonar con `new Request(request, …)` no vale en Workers con cuerpo:
+    // se reconstruye con la URL, el método y el texto ya leído.
+    const body = await request.text();
+    const headers = new Headers(request.headers);
+    headers.delete("cookie");
+    headers.delete("content-length");
+    return handler.POST(
+      new Request(request.url, { body, headers, method: request.method })
+    );
+  }
+
   return handler.POST(request);
 }
