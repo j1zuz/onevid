@@ -275,6 +275,15 @@ function RootLayout() {
                     }}
                   />
                   <AppStack.Screen
+                    name="watch/[id]"
+                    options={{
+                      // El chat de "Ver juntos" se escribe en vertical; en el
+                      // caso sin `chat=1` esta pantalla salta al reproductor,
+                      // que fija su propio landscape.
+                      orientation: 'portrait',
+                    }}
+                  />
+                  <AppStack.Screen
                     name="player"
                     options={{
                       orientation: 'landscape',
