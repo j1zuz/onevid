@@ -382,7 +382,7 @@ export default function SettingsTab() {
                       {t('Configuración')}
                     </ListGroup.ItemTitle>
                     <ListGroup.ItemDescription>
-                      {t('Cuenta, calidad, debrid y complementos.')}
+                      {t('Configura tu cuenta')}
                     </ListGroup.ItemDescription>
                   </ListGroup.ItemContent>
                   <ListGroup.ItemSuffix />
