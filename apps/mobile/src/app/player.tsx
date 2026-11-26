@@ -7,7 +7,7 @@ import LibVlcPlayerModule, {
 } from 'expo-libvlc-player';
 import { Image } from 'expo-image';
 import { NavigationBar } from 'expo-navigation-bar';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { Slider, Spinner, Typography } from 'heroui-native';
 import {
@@ -960,6 +960,11 @@ export default function PlayerScreen() {
 
   return (
     <View style={styles.root}>
+      {/* La opción de la ruta manda: landscape normal, vertical con el chat de
+          "Ver juntos" abierto. Sin esto la pantalla volvía a girar sola. */}
+      <Stack.Screen
+        options={{ orientation: partyChatOpen ? 'portrait' : 'landscape' }}
+      />
       {state.kind === 'ready' ? (
         <Player
           // Keyado por la FUENTE, no por la URL resuelta: si esa fuente vuelve a
@@ -2778,6 +2783,8 @@ export function Player({
             messages={party.messages}
             onClose={() => setChatOpen(false)}
             onSend={party.sendMessage}
+            onSendImages={party.sendImages}
+            onToggleReaction={party.toggleReaction}
             onShare={
               watchJoin?.isHost
                 ? () => {

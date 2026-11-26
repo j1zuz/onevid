@@ -134,6 +134,20 @@ export function useWatchPartyChat({
           });
         };
 
+        // Reacciones: el evento no trae el mensaje completo, así que releemos la
+        // copia del canal (Stream ya la actualizó).
+        const onReaction = (event: StreamEventLike) => {
+          const id = event.message?.id;
+          if (!id) return;
+          const fresh = channel.state.messages.find((item) => item.id === id);
+          if (!fresh) return;
+          const mapped = toChatMessage(fresh, fallbackName);
+          if (mapped) setMessages((current) => upsertMessage(current, mapped));
+        };
+        on('reaction.new', onReaction);
+        on('reaction.updated', onReaction);
+        on('reaction.deleted', onReaction);
+
         on('message.new', onMessage);
         on('message.updated', onMessage);
         on('message.deleted', (event) => {
@@ -241,6 +255,58 @@ export function useWatchPartyChat({
     [],
   );
 
+  /** Alterna una reacción del usuario en un mensaje. */
+  const toggleReaction = useCallback(
+    async (messageId: string, emoji: string, mine: boolean) => {
+      const channel = channelRef.current;
+      if (!channel) return;
+      try {
+        if (mine) await channel.deleteReaction(messageId, emoji);
+        else await channel.sendReaction(messageId, { type: emoji });
+      } catch {
+        /* la reacción se recupera con el siguiente evento */
+      }
+    },
+    [],
+  );
+
+  /** Sube imágenes y las envía como mensaje con adjuntos. */
+  const sendImages = useCallback(
+    async (
+      files: { uri: string; name: string; type: string }[],
+    ): Promise<boolean> => {
+      const channel = channelRef.current;
+      if (!channel || files.length === 0 || sending) return false;
+      setSending(true);
+      try {
+        const attachments = [];
+        for (const file of files) {
+          const uploaded = await channel.sendImage(
+            file.uri,
+            file.name,
+            file.type,
+          );
+          const url = (uploaded as { file?: string }).file;
+          if (url) {
+            attachments.push({
+              asset_url: url,
+              image_url: url,
+              type: 'image',
+            });
+          }
+        }
+        if (attachments.length === 0) return false;
+        await channel.sendMessage({ attachments, text: '' });
+        return true;
+      } catch {
+        return false;
+      } finally {
+        setSending(false);
+      }
+    },
+    [sending],
+  );
+
   const leave = useCallback(async () => {
     await channelRef.current?.stopWatching().catch(() => undefined);
   }, []);
@@ -252,8 +318,10 @@ export function useWatchPartyChat({
     messages,
     ready,
     requestSync,
+    sendImages,
     sendMessage,
     sendSync,
     sending,
+    toggleReaction,
   };
 }

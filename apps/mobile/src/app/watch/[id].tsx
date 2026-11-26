@@ -122,6 +122,8 @@ export default function WatchPartyScreen() {
         messages={party.messages}
         onClose={close}
         onSend={party.sendMessage}
+        onSendImages={party.sendImages}
+        onToggleReaction={party.toggleReaction}
         ready={party.ready}
         sending={party.sending}
         title={join.room.title}

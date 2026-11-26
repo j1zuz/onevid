@@ -38,6 +38,23 @@ export interface WatchJoinData {
   isHost: boolean;
 }
 
+export interface WatchChatReaction {
+  emoji: string;
+  count: number;
+  /** El usuario actual reaccionó con este emoji. */
+  mine: boolean;
+}
+
+export interface WatchChatAttachment {
+  type: string;
+  imageUrl?: string;
+  assetUrl?: string;
+  title?: string;
+}
+
+/** Emojis rápidos del chat (mismo orden que la web). */
+export const WATCH_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🔥'] as const;
+
 export interface WatchChatMessage {
   id: string;
   text: string;
@@ -46,6 +63,8 @@ export interface WatchChatMessage {
   userImage: string | null;
   avatar: string | null;
   createdAt: string;
+  reactions: WatchChatReaction[];
+  attachments: WatchChatAttachment[];
 }
 
 export type WatchSyncAction = 'play' | 'pause' | 'seek' | 'heartbeat';
@@ -99,6 +118,14 @@ type StreamMessage = {
   id?: string;
   text?: string;
   created_at?: string | Date;
+  attachments?: {
+    type?: string;
+    image_url?: string;
+    asset_url?: string;
+    title?: string;
+  }[];
+  reaction_counts?: Record<string, number> | null;
+  own_reactions?: { type?: string }[] | null;
   user?: {
     id?: string;
     name?: string;
@@ -117,6 +144,20 @@ export function toChatMessage(
     message.created_at instanceof Date
       ? message.created_at.toISOString()
       : (message.created_at ?? new Date().toISOString());
+  const own = new Set(
+    (message.own_reactions ?? [])
+      .map((reaction) => reaction.type)
+      .filter((type): type is string => Boolean(type)),
+  );
+  const reactions = Object.entries(message.reaction_counts ?? {})
+    .map(([emoji, count]) => ({
+      count: Number(count) || 0,
+      emoji,
+      mine: own.has(emoji),
+    }))
+    .filter((reaction) => reaction.count > 0)
+    .sort((a, b) => b.count - a.count);
+
   return {
     id: message.id,
     text: (message.text ?? '').trim(),
@@ -125,6 +166,15 @@ export function toChatMessage(
     userImage: message.user?.image ?? null,
     avatar: message.user?.onevid_avatar ?? null,
     createdAt,
+    attachments: (message.attachments ?? [])
+      .map((attachment) => ({
+        type: attachment.type ?? 'file',
+        imageUrl: attachment.image_url,
+        assetUrl: attachment.asset_url,
+        title: attachment.title,
+      }))
+      .filter((attachment) => attachment.imageUrl || attachment.assetUrl),
+    reactions,
   };
 }
 
