@@ -42,7 +42,6 @@ import {
 import {
   Alert,
   BackHandler,
-  Modal,
   Platform,
   Pressable,
   Share,
@@ -2275,7 +2274,10 @@ export function Player({
   );
 
   return (
-    <>
+    <View style={styles.partyRoot}>
+      {/* Con el chat abierto el vídeo se queda arriba (52%) y el chat abajo,
+          igual que en la web; sin chat, el reproductor ocupa todo. */}
+      <View style={[styles.videoArea, chatOpen && styles.videoAreaSplit]}>
       <LibVlcPlayerView
         key={`${url}:${liveAttempt}`}
         ref={playerRef}
@@ -2755,37 +2757,36 @@ export function Player({
         visible={qrOpen}
       />
 
-      {/* "Ver juntos" en el móvil: chat sobre el vídeo. */}
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setChatOpen(false)}
-        statusBarTranslucent
-        visible={chatOpen}
-      >
-        <WatchPartyChatPanel
-          error={party.error}
-          members={party.members.length}
-          messages={party.messages}
-          onClose={() => setChatOpen(false)}
-          onSend={party.sendMessage}
-          onShare={
-            watchJoin?.isHost
-              ? () => {
-                  const id = watchRoomIdRef.current;
-                  if (!id) return;
-                  void Share.share({
-                    message: `onevid://watch/${id}`,
-                    title: title ?? 'Ver juntos',
-                  });
-                }
-              : undefined
-          }
-          ready={party.ready}
-          sending={party.sending}
-          title={title ?? 'Ver juntos'}
-        />
-      </Modal>
-    </>
+      </View>
+
+      {/* Chat en la mitad inferior, en vertical (no pantalla completa). */}
+      {chatOpen ? (
+        <View style={styles.chatArea}>
+          <WatchPartyChatPanel
+            error={party.error}
+            members={party.members.length}
+            messages={party.messages}
+            onClose={() => setChatOpen(false)}
+            onSend={party.sendMessage}
+            onShare={
+              watchJoin?.isHost
+                ? () => {
+                    const id = watchRoomIdRef.current;
+                    if (!id) return;
+                    void Share.share({
+                      message: `onevid://watch/${id}`,
+                      title: title ?? 'Ver juntos',
+                    });
+                  }
+                : undefined
+            }
+            ready={party.ready}
+            sending={party.sending}
+            title={title ?? 'Ver juntos'}
+          />
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -3006,6 +3007,10 @@ function LoadingArt({
 }
 
 const styles = StyleSheet.create({
+  partyRoot: { backgroundColor: '#000', flex: 1 },
+  videoArea: { flex: 1 },
+  videoAreaSplit: { flex: 0, height: '52%' },
+  chatArea: { backgroundColor: '#0A0A0A', flex: 1 },
   root: { flex: 1, backgroundColor: '#000' },
   liveRetryBtn: {
     marginTop: 12,
