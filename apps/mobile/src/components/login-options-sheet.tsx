@@ -80,7 +80,7 @@ export function LoginOptionsSheet({
     <View style={styles.body}>
       <View style={styles.badge}>
         <Image
-          source={require('../../assets/images/onevid-icon.png')}
+          source={require('../../assets/images/onevid-transparent.png')}
           contentFit="cover"
           style={{ width: 46, height: 46, borderRadius: 14 }}
         />
@@ -224,7 +224,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'transparent',
   },
   divider: {
     flexDirection: 'row',
