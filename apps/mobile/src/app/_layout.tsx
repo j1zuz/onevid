@@ -286,7 +286,11 @@ function RootLayout() {
                   <AppStack.Screen
                     name="player"
                     options={{
-                      orientation: 'landscape',
+                      // La orientación se fija por código (landscape, o vertical
+                      // con el chat de Ver juntos abierto). Dejarla aquí fija
+                      // volvía a girar a horizontal unos segundos después de
+                      // abrir el chat.
+                      orientation: 'default',
                       // El reproductor ocupa toda la pantalla: un fundido se
                       // siente mejor que el empuje lateral.
                       animation: reduceMotion ? 'none' : 'fade',

@@ -40,6 +40,7 @@ import {
   useState,
 } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   BackHandler,
   Platform,
@@ -758,6 +759,8 @@ export default function PlayerScreen() {
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [episodePickerOpen, setEpisodePickerOpen] = useState(false);
+  // Chat de "Ver juntos" abierto: la pantalla pasa a vertical.
+  const [partyChatOpen, setPartyChatOpen] = useState(false);
 
   // Forzamos landscape mientras el reproductor está enfocado y restauramos
   // portrait al salir. Usamos useFocusEffect (no un useEffect de montaje): el lock
@@ -768,8 +771,12 @@ export default function PlayerScreen() {
   useFocusEffect(
     useCallback(() => {
       if (Platform.isTV) return;
+      // Con el chat de "Ver juntos" abierto la pantalla se queda en vertical:
+      // el vídeo arriba y el chat abajo.
       ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.LANDSCAPE,
+        partyChatOpen
+          ? ScreenOrientation.OrientationLock.PORTRAIT_UP
+          : ScreenOrientation.OrientationLock.LANDSCAPE,
       ).catch(() => {
         /* ignore */
       });
@@ -780,7 +787,7 @@ export default function PlayerScreen() {
           /* ignore */
         });
       };
-    }, []),
+    }, [partyChatOpen]),
   );
 
   // El botón/gesto físico de Android debe seguir la misma regla que la flecha del
@@ -1038,6 +1045,7 @@ export default function PlayerScreen() {
               : null
           }
           watchRoom={params.watch ?? null}
+          onChatOpenChange={setPartyChatOpen}
         />
       ) : null}
 
@@ -1243,6 +1251,7 @@ export function Player({
   onPlayNextEpisode,
   watchTogether,
   watchRoom,
+  onChatOpenChange,
 }: {
   url: string;
   /** Origen del stream; decide el colchón de red de libVLC. */
@@ -1310,6 +1319,8 @@ export function Player({
   } | null;
   /** Sala de "Ver juntos" de la que este reproductor es invitado. */
   watchRoom?: string | null;
+  /** Avisa al padre de que el chat está abierto (para la orientación). */
+  onChatOpenChange?: (open: boolean) => void;
 }) {
   const insets = useSafeAreaInsets();
   const playerRef = useRef<LibVlcPlayerViewRef>(null);
@@ -1451,19 +1462,11 @@ export function Player({
     playingRef.current = playing;
   }, [playing]);
 
-  // El chat de "Ver juntos" se escribe en vertical. Al abrirlo soltamos el
-  // landscape del reproductor y lo recuperamos al cerrar.
-  //
-  // `embedded` (Live TV arriba de la guía) queda fuera: ese reproductor vive
-  // dentro de una pantalla vertical y no debe forzar landscape. En TV tampoco.
+  // La orientación la decide la pantalla del reproductor (PlayerScreen), que es
+  // la dueña del foco: aquí solo se le avisa cuándo el chat está abierto.
   useEffect(() => {
-    if (Platform.isTV || embedded) return;
-    ScreenOrientation.lockAsync(
-      chatOpen
-        ? ScreenOrientation.OrientationLock.PORTRAIT_UP
-        : ScreenOrientation.OrientationLock.LANDSCAPE,
-    ).catch(() => undefined);
-  }, [chatOpen, embedded]);
+    onChatOpenChange?.(chatOpen);
+  }, [chatOpen, onChatOpenChange]);
 
   useEffect(() => {
     watchJoinRef.current = watchJoin;
@@ -2462,7 +2465,11 @@ export function Player({
                   }}
                   hitSlop={6}
                 >
-                  <Users size={20} color={watchJoin ? '#86efac' : '#fff'} />
+                  {watchStarting ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Users size={20} color={watchJoin ? '#86efac' : '#fff'} />
+                  )}
                 </Pressable>
               ) : null}
               {offlineVideo ? (
