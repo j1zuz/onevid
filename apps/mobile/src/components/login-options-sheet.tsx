@@ -80,9 +80,9 @@ export function LoginOptionsSheet({
     <View style={styles.body}>
       <View style={styles.badge}>
         <Image
-          source={require('../../assets/images/onevid-logo.png')}
-          contentFit="contain"
-          style={{ width: 30, height: 30 }}
+          source={require('../../assets/images/onevid-icon.png')}
+          contentFit="cover"
+          style={{ width: 46, height: 46, borderRadius: 14 }}
         />
       </View>
 

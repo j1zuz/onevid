@@ -45,12 +45,30 @@ GoogleSignin.configure({
  */
 export type GoogleSignInResult = 'success' | 'cancelled';
 
+/**
+ * Borra la cuenta de Google recordada por el SDK.
+ *
+ * Sin esto, tras cerrar sesión el siguiente `signIn()` reutilizaba la última
+ * cuenta sin abrir el selector, así que no había forma de entrar con otra.
+ */
+export async function signOutFromGoogle(): Promise<void> {
+  try {
+    await GoogleSignin.signOut();
+  } catch {
+    /* no había sesión de Google guardada */
+  }
+}
+
 export async function signInWithGoogle(): Promise<GoogleSignInResult> {
   if (Platform.OS === 'android') {
     await GoogleSignin.hasPlayServices({
       showPlayServicesUpdateDialog: true,
     });
   }
+
+  // Siempre limpiamos la cuenta recordada: así el selector aparece y se puede
+  // elegir otra cuenta aunque se haya entrado antes con esta.
+  await signOutFromGoogle();
 
   const response = await GoogleSignin.signIn();
   // Cerrar el selector de cuentas no es un error: el usuario canceló.

@@ -22,7 +22,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoginOptionsSheet } from '@/components/login-options-sheet';
-import { SettingsSheet } from '@/components/settings-sheet';
+import { WebSettingsSheet } from '@/components/web-settings-sheet';
+import { signOutFromGoogle } from '@/lib/auth-client';
 import { useAppSurface } from '@/hooks/use-app-surface';
 import { type AppMode, setAppMode } from '@/lib/app-mode';
 import { apiFetch } from '@/lib/api';
@@ -168,6 +169,10 @@ export default function SettingsTab() {
     // también quede actualizado sin retrasar la navegación.
     void Promise.all([
       clearActiveProfile(),
+      // Cierra también la cuenta de Google recordada por el SDK: así el
+      // siguiente "Continuar con Google" vuelve a mostrar el selector y se
+      // puede entrar con otra cuenta.
+      signOutFromGoogle(),
       clearAccessToken(),
       setAppMode('stream'),
     ])
@@ -377,7 +382,7 @@ export default function SettingsTab() {
                       {t('Configuración')}
                     </ListGroup.ItemTitle>
                     <ListGroup.ItemDescription>
-                      {t('Calidad, debrid y complementos.')}
+                      {t('Cuenta, calidad, debrid y complementos.')}
                     </ListGroup.ItemDescription>
                   </ListGroup.ItemContent>
                   <ListGroup.ItemSuffix />
@@ -487,7 +492,7 @@ export default function SettingsTab() {
         onClose={() => setLoginOpen(false)}
       />
       <LanguageSheet visible={langOpen} onClose={() => setLangOpen(false)} />
-      <SettingsSheet
+      <WebSettingsSheet
         visible={settingsOpen}
         onClose={() => setSettingsOpen(false)}
       />
