@@ -1452,15 +1452,18 @@ export function Player({
   }, [playing]);
 
   // El chat de "Ver juntos" se escribe en vertical. Al abrirlo soltamos el
-  // landscape del reproductor y lo recuperamos al cerrar. En TV no se toca.
+  // landscape del reproductor y lo recuperamos al cerrar.
+  //
+  // `embedded` (Live TV arriba de la guía) queda fuera: ese reproductor vive
+  // dentro de una pantalla vertical y no debe forzar landscape. En TV tampoco.
   useEffect(() => {
-    if (Platform.isTV) return;
+    if (Platform.isTV || embedded) return;
     ScreenOrientation.lockAsync(
       chatOpen
         ? ScreenOrientation.OrientationLock.PORTRAIT_UP
         : ScreenOrientation.OrientationLock.LANDSCAPE,
     ).catch(() => undefined);
-  }, [chatOpen]);
+  }, [chatOpen, embedded]);
 
   useEffect(() => {
     watchJoinRef.current = watchJoin;

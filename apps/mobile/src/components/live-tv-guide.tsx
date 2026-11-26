@@ -173,11 +173,14 @@ export function LiveTvGuideSkeleton({ rows = 6 }: { rows?: number }) {
 export function LiveTvGuide({
   source,
   channels,
+  activeChannelId,
   onPlayChannel = playLiveTvChannel,
   headerExtra,
 }: {
   source: LiveTvSourceSummary;
   channels: LiveTvChannel[];
+  /** Canal que se está viendo ahora: se resalta en la guía. */
+  activeChannelId?: string | null;
   /**
    * Qué hacer al tocar un canal o "Ver" en un programa. Por defecto navega al
    * reproductor a pantalla completa; la pestaña de Live TV lo sobreescribe para
@@ -479,6 +482,7 @@ export function LiveTvGuide({
             );
             return (
               <GuideRow
+                active={channel.id === activeChannelId}
                 cellWidth={cellWidth}
                 channel={channel}
                 channelWidth={channelWidth}
@@ -548,6 +552,7 @@ export function LiveTvGuide({
 }
 
 function GuideRow({
+  active,
   channel,
   layout,
   cellWidth,
@@ -566,6 +571,7 @@ function GuideRow({
   onToggleWatchlist,
   hasEpg,
 }: {
+  active?: boolean;
   channel: LiveTvChannel;
   layout: ProgrammeLayout[];
   cellWidth: number;
@@ -593,9 +599,11 @@ function GuideRow({
         height,
         borderBottomWidth: StyleSheet.hairlineWidth,
         borderColor: BORDER,
+        backgroundColor: active ? 'rgba(79,157,255,0.07)' : undefined,
       }}
     >
       <ChannelCell
+        active={active}
         channel={channel}
         height={height}
         onPlay={onPlay}
@@ -684,6 +692,7 @@ function GuideRow({
 }
 
 function ChannelCell({
+  active,
   channel,
   width,
   height,
@@ -692,6 +701,7 @@ function ChannelCell({
   onToggleFavorite,
   onToggleWatchlist,
 }: {
+  active?: boolean;
   channel: LiveTvChannel;
   width: number;
   height: number;
@@ -716,8 +726,12 @@ function ChannelCell({
         flexDirection: 'row',
         alignItems: 'center',
         borderRightWidth: StyleSheet.hairlineWidth,
-        borderColor: BORDER,
-        backgroundColor: COLORS.background,
+        borderColor: active ? '#4f9dff' : BORDER,
+        backgroundColor: active
+          ? 'rgba(79,157,255,0.16)'
+          : COLORS.background,
+        borderLeftWidth: active ? 3 : 0,
+        borderLeftColor: '#4f9dff',
       }}
     >
       <Pressable

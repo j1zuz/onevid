@@ -618,6 +618,7 @@ export default function LiveTvTab() {
           ) : null}
           {fullscreenFrame ? null : (
             <LiveTvGuide
+              activeChannelId={playing?.id ?? null}
               channels={filtered}
               headerExtra={Platform.isTV ? categoryPicker : null}
               onPlayChannel={openChannel}
