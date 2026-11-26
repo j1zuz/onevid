@@ -1,10 +1,9 @@
 import { Image } from 'expo-image';
-import { Button, Typography } from 'heroui-native';
+import { Button, Skeleton, Typography } from 'heroui-native';
 import { Send, Share2, X } from 'lucide-react-native';
 import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -82,8 +81,24 @@ export function WatchPartyChatPanel({
           {error}
         </Typography>
       ) : !ready ? (
-        <View style={styles.center}>
-          <ActivityIndicator color="#e5e7eb" />
+        <View style={styles.skeletons}>
+          {[0, 1, 2, 3, 4, 5].map((index) => (
+            <View key={index} style={styles.skeletonRow}>
+              <Skeleton style={{ borderRadius: 999, height: 24, width: 24 }} />
+              <View style={{ flex: 1, gap: 6 }}>
+                <Skeleton
+                  style={{ borderRadius: 4, height: 10, width: 90 }}
+                />
+                <Skeleton
+                  style={{
+                    borderRadius: 8,
+                    height: 14,
+                    width: index % 2 === 0 ? '85%' : '65%',
+                  }}
+                />
+              </View>
+            </View>
+          ))}
         </View>
       ) : (
         <FlatList
@@ -175,6 +190,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   center: { alignItems: 'center', flex: 1, justifyContent: 'center' },
+  skeletons: { flex: 1, gap: 16, padding: 16 },
+  skeletonRow: { flexDirection: 'row', gap: 8 },
   close: {
     alignItems: 'center',
     backgroundColor: '#1f1f22',
