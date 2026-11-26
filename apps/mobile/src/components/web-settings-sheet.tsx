@@ -1,29 +1,24 @@
-import { Typography } from 'heroui-native';
+import { Skeleton, Typography } from 'heroui-native';
 import { X } from 'lucide-react-native';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { API_URL, getAccessToken } from '@/lib/auth';
 
 /**
  * Configuración de la cuenta dentro de la app: `/home/account` de la web en un
- * WebView, dentro de una hoja inferior (no a pantalla completa).
+ * WebView, dentro de una hoja inferior.
  *
  * La sesión de la app es un Bearer, no una cookie, y el WebView tiene su propio
  * almacén. Antes de pintar la página se canjea el Bearer por la cookie firmada
  * de Better Auth (`/api/auth/device/cookie`) desde el propio origen, así el
  * `Set-Cookie` cae en el WebView. El token nunca viaja en la URL.
  *
- * También se inyecta CSS para ocultar el header de la web (logo + avatar) y
- * los bordes laterales: dentro de la hoja solo debe verse el contenido.
+ * El WebView arranca invisible y solo se muestra cuando la página final
+ * (`/home/account`) terminó de cargar: así nunca se ve el header de la web ni
+ * el salto de la redirección. Mientras tanto se pinta un esqueleto.
  */
 export function WebSettingsSheet({
   visible,
@@ -34,6 +29,11 @@ export function WebSettingsSheet({
 }) {
   const { t } = useTranslation();
   const [token, setToken] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // El script avisa cuando la sesión ya está canjeada; hasta entonces la
+  // primera carga (sin cookie) no debe revelarse.
+  const authReady = useRef(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -41,13 +41,19 @@ export function WebSettingsSheet({
     void getAccessToken().then((value) => {
       if (!cancelled) setToken(value);
     });
+    // Red de seguridad: si el canje falla (token caducado) la página final no
+    // llega nunca; a los 7 s mostramos lo que haya para no dejar el esqueleto.
+    revealTimer.current = setTimeout(() => setReady(true), 7000);
     return () => {
       cancelled = true;
+      if (revealTimer.current) clearTimeout(revealTimer.current);
     };
   }, [visible]);
 
   const handleClose = useCallback(() => {
     setToken(null);
+    setReady(false);
+    authReady.current = false;
     onClose();
   }, [onClose]);
 
@@ -72,24 +78,44 @@ export function WebSettingsSheet({
             </Pressable>
           </View>
 
-          {token ? (
-            <WebView
-              injectedJavaScriptBeforeContentLoaded={bootstrapScript(token)}
-              originWhitelist={['https://*']}
-              source={{ uri: `${API_URL}/home/account` }}
-              startInLoadingState
-              style={styles.web}
-              renderLoading={() => (
-                <View style={styles.loading}>
-                  <ActivityIndicator color="#e5e7eb" />
-                </View>
-              )}
-            />
-          ) : (
-            <View style={styles.loading}>
-              <ActivityIndicator color="#e5e7eb" />
-            </View>
-          )}
+          <View style={styles.body}>
+            {token ? (
+              <WebView
+                injectedJavaScriptBeforeContentLoaded={bootstrapScript(token)}
+                onLoadEnd={(event) => {
+                  // Solo revelamos la página definitiva y con la sesión ya
+                  // canjeada: la intermedia (portada, tras el redirect) no debe
+                  // llegar a verse.
+                  if (
+                    authReady.current &&
+                    event.nativeEvent.url.includes('/home/account')
+                  ) {
+                    if (revealTimer.current) clearTimeout(revealTimer.current);
+                    setReady(true);
+                  }
+                }}
+                onMessage={(event) => {
+                  if (event.nativeEvent.data === 'ready') {
+                    authReady.current = true;
+                  }
+                }}
+                originWhitelist={['https://*']}
+                source={{ uri: `${API_URL}/home/account` }}
+                style={[styles.web, { opacity: ready ? 1 : 0 }]}
+              />
+            ) : null}
+
+            {!ready ? (
+              <View pointerEvents="none" style={styles.skeletonWrap}>
+                <Skeleton style={{ borderRadius: 8, height: 22, width: '55%' }} />
+                <Skeleton style={{ borderRadius: 14, height: 52, width: '100%' }} />
+                <Skeleton style={{ borderRadius: 14, height: 52, width: '100%' }} />
+                <Skeleton style={{ borderRadius: 14, height: 52, width: '100%' }} />
+                <Skeleton style={{ borderRadius: 14, height: 52, width: '100%' }} />
+                <Skeleton style={{ borderRadius: 14, height: 52, width: '100%' }} />
+              </View>
+            ) : null}
+          </View>
         </SafeAreaView>
       </View>
     </Modal>
@@ -126,8 +152,17 @@ function bootstrapScript(token: string): string {
     inject();
     document.addEventListener('DOMContentLoaded', inject);
 
+    function notify() {
+      try { window.ReactNativeWebView.postMessage('ready'); } catch (e) {}
+    }
+
     try {
-      if (sessionStorage.getItem('onevid.settings.boot')) return;
+      // Segunda carga (ya con cookie): avisamos y dejamos que React Native
+      // revele el WebView cuando termine de pintar.
+      if (sessionStorage.getItem('onevid.settings.boot')) {
+        document.addEventListener('DOMContentLoaded', notify);
+        return;
+      }
       sessionStorage.setItem('onevid.settings.boot', '1');
       fetch('/api/auth/device/cookie', {
         method: 'POST',
@@ -177,11 +212,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 30,
   },
+  body: { flex: 1 },
   web: { backgroundColor: '#0A0A0A', flex: 1 },
-  loading: {
-    alignItems: 'center',
+  skeletonWrap: {
     backgroundColor: '#0A0A0A',
-    flex: 1,
-    justifyContent: 'center',
+    bottom: 0,
+    gap: 12,
+    left: 0,
+    padding: 16,
+    position: 'absolute',
+    right: 0,
+    top: 0,
   },
 });
