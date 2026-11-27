@@ -53,9 +53,13 @@ Los builds Dev escuchan el canal `preview`:
 bun run --filter onevid update      # APP_VARIANT=development eas update --channel preview
 ```
 
-Solo llegan a builds con el mismo `runtimeVersion` (hoy `policy: appVersion`,
-así que coincide mientras la versión siga en `1.0.0`). Si el cambio toca código
-nativo o sube la versión, hay que recompilar.
+Solo llegan a builds con el mismo `runtimeVersion`. Lo calcula
+`scripts/native-runtime-version.js`: la versión más un hash de las dependencias,
+`app.json`, `app.config.ts`, `plugins/` y `patches/` (por ejemplo
+`1.0.0-a1b2c3d4e5f6`). Si cambia alguno de esos archivos, el runtime cambia y
+hay que recompilar: los builds anteriores ya no reciben el OTA, en vez de
+crashear al buscar un módulo nativo que no tienen. `bunx expo config --type
+public` muestra el valor actual.
 
 ## Desarrollo local
 

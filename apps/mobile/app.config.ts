@@ -1,5 +1,6 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
 import devVersion from './dev-version.json';
+import { nativeRuntimeVersion } from './scripts/native-runtime-version';
 
 /**
  * Variantes de app: Dev y Producción.
@@ -72,7 +73,7 @@ const ADAPTIVE_FOREGROUND: Record<AppVariant, string | null> = {
   production: null,
 };
 
-export default ({ config }: ConfigContext): ExpoConfig => {
+export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
   const name = variant === 'development' ? DEV_NAME : (config.name ?? BASE_NAME);
   const appId = `${APP_ID_PREFIX}${ID_SUFFIX[variant]}`;
   const icon = ICON[variant] ?? undefined;
@@ -87,9 +88,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     return pluginName !== 'expo-dev-client';
   });
 
+  const version =
+    variant === 'development' ? DEV_VERSION : (config.version ?? '1.0.0');
+
   return {
     ...config,
-    version: variant === 'development' ? DEV_VERSION : config.version,
+    version,
+    runtimeVersion: nativeRuntimeVersion(projectRoot, version),
     slug: config.slug ?? BASE_NAME,
     name,
     ...(icon ? { icon } : {}),

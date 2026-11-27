@@ -68,6 +68,11 @@ abrirla.
   Android lo pedirá una vez; después el botón funciona directo.
 - Los cambios solo de JavaScript pueden seguir yendo por OTA (`eas update`) sin
   pasar por aquí; este flujo es para builds nativos (icono, permisos, librerías).
+  Un cambio de dependencias cambia el `runtimeVersion` (ver
+  `docs/app-variants.md`), así que ese OTA solo llega a builds nuevos.
+- `expo-intent-launcher` se importa de forma diferida en `src/lib/app-update.ts`:
+  un import estático en el layout raíz tumba los binarios que no tienen el
+  módulo nativo.
 
 ## Android TV
 

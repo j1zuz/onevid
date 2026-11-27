@@ -1,6 +1,5 @@
 import * as Application from 'expo-application';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as IntentLauncher from 'expo-intent-launcher';
 import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 import { isDevelopmentBuild } from './app-variant';
@@ -122,6 +121,9 @@ export async function downloadAndInstallUpdate(
   }
 
   try {
+    // Import diferido: los binarios compilados antes de añadir la librería no
+    // tienen su módulo nativo, y un import estático tumba el layout raíz.
+    const IntentLauncher = await import('expo-intent-launcher');
     const contentUri = await FileSystem.getContentUriAsync(result.uri);
     await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
       data: contentUri,
